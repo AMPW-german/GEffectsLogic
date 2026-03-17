@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "GEffectsLogic": {
+      "commandName": "Project"
+    },
+    "StarMapStart": {
+      "commandName": "Executable",
+      "executablePath": "D:\\programms\\StarMap\\StarMap.exe",
+      "workingDirectory": "D:\\programms\\StarMap"
+    }
+  }
+}
