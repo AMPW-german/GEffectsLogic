@@ -5,7 +5,4 @@ It is inspired by the [KSP g effects mod](https://forum.kerbalspaceprogram.com/t
 
 Currently it's still very early wip with nothing to show.
 
-For now it is licensed as all rights reserved, this will probably change in the future.\
-Personal use and modifications (as well as distibuting modified variants) are allowed.\
-No commercial use is permitted. In the unlikely case of interest in commercial use open an issue in my (AMPW's) repo or contact me on another platform.\
-It's not necessary to include details but in that case I'll need a way to contact you.
+For now it is licensed as all rights reserved, this will change soon.
