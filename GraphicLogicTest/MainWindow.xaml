@@ -1,0 +1,50 @@
+﻿<Window
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:oxy="http://oxyplot.org/wpf" x:Class="GraphicLogicTest.MainWindow"
+        Title="MainWindow" Height="400" Width="600">
+    <Grid Background="Black" Margin="0,0,-40,-6">
+        <StackPanel x:Name="GxPanel" Width="300" Height="32" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,50,0,0" Grid.ColumnSpan="2">
+            <TextBlock x:Name="GxText" TextWrapping="Wrap" Height="32" Width="40" FontSize="20" TextAlignment="Right" Margin="0,0,16,0" Foreground="White"><Run Language="de-de" Text="Gx"/></TextBlock>
+            <Slider x:Name="GxSlider" Width="120" Height="18" Minimum="0" Maximum="10" Value="{Binding Gx, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBox x:Name="GxTextBox" TextWrapping="Wrap" Width="120" Height="24" Text="{Binding Gx, Mode=TwoWay, StringFormat=F2, UpdateSourceTrigger=PropertyChanged}" Background="#FF404040" Foreground="White"/>
+        </StackPanel>
+        <StackPanel x:Name="GyPanel" Width="300" Height="32" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,82,0,0" Grid.ColumnSpan="2">
+            <TextBlock x:Name="GyText" TextWrapping="Wrap" Height="32" Width="40" FontSize="20" TextAlignment="Right" Margin="0,0,16,0" Foreground="White"><Run Language="de-de" Text="Gy"/></TextBlock>
+            <Slider x:Name="GySlider" Width="120" Height="18" Minimum="0" Maximum="10" Value="{Binding Gy, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBox x:Name="GyTextBox" TextWrapping="Wrap" Width="120" Height="24" Text="{Binding Gy, Mode=TwoWay, StringFormat=F2, UpdateSourceTrigger=PropertyChanged}" Foreground="White" Background="#FF404040"/>
+        </StackPanel>
+        <StackPanel x:Name="GzPanel" Width="300" Height="32" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,114,0,0" Grid.ColumnSpan="2">
+            <TextBlock x:Name="GzText" TextWrapping="Wrap" Height="32" Width="40" FontSize="20" TextAlignment="Right" Margin="0,0,16,0" Foreground="White"><Run Language="de-de" Text="Gz"/></TextBlock>
+            <Slider x:Name="GzSlider" Width="120" Height="18" Minimum="0" Maximum="10" Value="{Binding Gz, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Foreground="#FF404040"/>
+            <TextBox x:Name="GzTextBox" TextWrapping="Wrap" Width="120" Height="24" Text="{Binding Gz, Mode=TwoWay, StringFormat=F2, UpdateSourceTrigger=PropertyChanged}" Background="#FF404040" Foreground="White"/>
+        </StackPanel>
+
+        <StackPanel x:Name="GzPTPanel" Width="300" Height="32" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="310,50,0,0">
+            <TextBlock x:Name="GzPTText" TextWrapping="Wrap" Height="32" Width="64" FontSize="20" TextAlignment="Right" Margin="0,0,16,0" Foreground="White"><Run Language="de-de" Text="GzPT"/></TextBlock>
+            <Slider x:Name="GzPTSlider" Width="120" Height="18" Minimum="0" Maximum="1" Value="{Binding GzPT, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Foreground="#FF404040"/>
+            <TextBox x:Name="GzPTTextBox" TextWrapping="Wrap" Width="120" Height="24" Text="{Binding GzPT, Mode=TwoWay, StringFormat=F5, UpdateSourceTrigger=PropertyChanged}" Background="#FF404040" Foreground="White"/>
+        </StackPanel>
+        <StackPanel x:Name="GzMTPanel" Width="300" Height="32" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="310,82,0,0">
+            <TextBlock x:Name="GzMTText" TextWrapping="Wrap" Height="32" Width="64" FontSize="20" TextAlignment="Right" Margin="0,0,16,0" Foreground="White"><Run Language="de-de" Text="GzMT"/></TextBlock>
+            <Slider x:Name="GzMTSlider" Width="120" Height="18" Minimum="0" Maximum="1" Value="{Binding GzMT, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Foreground="#FF404040"/>
+            <TextBox x:Name="GzMTTextBox" TextWrapping="Wrap" Width="120" Height="24" Text="{Binding GzMT, Mode=TwoWay, StringFormat=F5, UpdateSourceTrigger=PropertyChanged}" Background="#FF404040" Foreground="White"/>
+        </StackPanel>
+
+        <Grid Margin="0,150,0,0" Grid.ColumnSpan="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0" Background="DarkSlateGray">
+                <oxy:PlotView x:Name="SliderPlot" Margin="22,22,11,22"
+                          Model="{Binding SliderPlotModel}" MinWidth="200" MinHeight="100" Background="Black" Foreground="White" />
+            </Grid>
+            <Grid Grid.Column="1" Background="DarkGray">
+                <oxy:PlotView x:Name="SliderPlot2" Margin="11,22,22,22"
+                          Model="{Binding SliderPlotModel2}" MinWidth="200" MinHeight="100" Background="Black" Foreground="White" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

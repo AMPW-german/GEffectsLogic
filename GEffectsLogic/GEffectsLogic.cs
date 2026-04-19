@@ -1,4 +1,6 @@
-﻿namespace GEffectsLogic
+﻿using GEffectsLogic.Logging;
+
+namespace GEffectsLogic
 {
     // Main logic class for each vessel/kitten
     public class GEffectsLogic
@@ -64,16 +66,34 @@
 
         public void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
         {
-            // Update cummulated G-forces
-            cummulatedGx += currentGx * deltaTime;
-            cummulatedGy += currentGy * deltaTime;
-            cummulatedGz += currentGz * deltaTime;
+            // dT limits/warnings are probably necessary at some point but for now they are not necessary and unknown
+            // For now we will only use Gz forces
+
             // Update last G-forces
-            lastGx = currentGx;
-            lastGy = currentGy;
+            //lastGx = currentGx;
+            //lastGy = currentGy;
             lastGz = currentGz;
             // Update time
             time += deltaTime;
+
+            // Update cummulated G-forces
+            // A certain cummulated Gn reduces consiousness level
+            // Having a sharp thershold over which Gn forces increase the cummulated Gn is very unrealistic
+            // Higher Gn forces (e.g. +2Gz) should increase the cummulated Gn to a certain level but then flatten out
+            /// The cummulated Gz at +2Gz should reduce consiousness by a bit but no further effects (and no G-LOC) should occur
+            /// Maybe it would be more realistic to overshoot the constant cummulated Gn at a constant Gn force and then slowly reduce it to the constant cummulated Gn, but for now we will just flatten it out at a certain level
+            // This is meant to take into account that the human body can compensate for small increases in G-forces but it reduces the ability to compensate a further increase in G-forces
+            // Recovering from a e.g. +5Gz G-LOC should take significantly more time at higher continued Gz forces than at normal Gz forces
+
+            // Best approach is probably to add the current Gz directly to the cummulated Gz and then apply a decay to the cummulated Gz over time, which is faster at higher cummulated Gz levels
+            // This way the cummulated Gz will increase faster at higher Gz forces and will also decrease faster at higher cummulated Gz levels, which is more realistic than a sharp thershold or a flattening out at a certain level
+            // The decay will also level out the cummulated Gz at constant medium Gz forces (e.g. +2Gz) at a certain level
+            // Maybe ax^3 decay would be a better decay function than an exponential decay
+
+            Logger.Log($"CurrentGz: {currentGz:f2}, cummulatedGz: {cummulatedGz:f4}, dT: {deltaTime:f4}");
+
+            cummulatedGz += Math.Pow(currentGz, 2) * deltaTime; // Add current Gz to cummulated Gz
+            cummulatedGz -= Math.Pow(Math.E, (cummulatedGz >= 0 ? LogicSettings.GzPTolerance : LogicSettings.GzMTolerance) * cummulatedGz) * deltaTime; // Apply decay to cummulated Gz
         }
 
 
@@ -81,6 +101,8 @@
 
         public GEffectsLogic()
         {
+            if (Logger.Instance == null) throw new NullReferenceException("Logger instance is not set. Please initialize a Logger before creating GEffectsLogic instances.");
+
             instances.Add(UniqueID, this);
         }
     }

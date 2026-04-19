@@ -18,11 +18,7 @@
     </ItemGroup>
 
     <!-- Copy while preserving subfolders -->
-    <Copy
-      SourceFiles="@(FilesToCopy)"
-      DestinationFiles="@(FilesToCopy->'$(ExternalFolder)%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="false"
-      OverwriteReadOnlyFiles="true" />
+    <Copy SourceFiles="@(FilesToCopy)" DestinationFiles="@(FilesToCopy->'$(ExternalFolder)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" OverwriteReadOnlyFiles="true" />
 
   </Target>
 </Project>
