@@ -1,50 +1,104 @@
-﻿using GEffectLogicTests.Logging;
+using Avalonia.Controls;
+using Avalonia.Threading;
+using GEffectLogicTests.Logging;
 using GraphicLogicTest.Logging;
-using OxyPlot;
-using OxyPlot.Axes;
-using OxyPlot.Series;
-using System;
+using LiveChartsCore;
+using LiveChartsCore.Defaults;
+using LiveChartsCore.Measure;
+using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Painting;
+using SkiaSharp;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Windows;
-using System.Windows.Threading;
 
 namespace GraphicLogicTest
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
         private double _gx;
         public double Gx { get => _gx; set { _gx = value; OnPropertyChanged(); } }
         private double _gy;
         public double Gy { get => _gy; set { _gy = value; OnPropertyChanged(); } }
-        private double _gz;
+        private double _gz = 1.0;
         public double Gz { get => _gz; set { _gz = value; OnPropertyChanged(); } }
 
-        private PlotModel _sliderPlotModel;
-        public PlotModel SliderPlotModel { get => _sliderPlotModel; set { _sliderPlotModel = value; OnPropertyChanged(); } }
-        private LineSeries _gxSeries;
-        private LineSeries _gySeries;
-        private LineSeries _gzSeries;
+        private readonly ObservableCollection<ObservablePoint> _gxPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _gyPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _gzPoints = new();
 
-        private PlotModel _sliderPlotModel2;
-        public PlotModel SliderPlotModel2 { get => _sliderPlotModel2; set { _sliderPlotModel2 = value; OnPropertyChanged(); } }
-        private LineSeries _consiousnessLevel;
-        private LineSeries _greyScaleLevel;
-        private LineSeries _cummulatedGx;
-        private LineSeries _cummulatedGy;
-        private LineSeries _cummulatedGz;
+        private readonly ObservableCollection<ObservablePoint> _consiousnessPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _greyScalePoints = new();
+        private readonly ObservableCollection<ObservablePoint> _perfusionPoints = new();
 
-        private DispatcherTimer _timer;
+        private ISeries[] _sliderSeries = null!;
+        public ISeries[] SliderSeries { get => _sliderSeries; set { _sliderSeries = value; OnPropertyChanged(); } }
+
+        private Axis[] _sliderXAxes = null!;
+        public Axis[] SliderXAxes { get => _sliderXAxes; set { _sliderXAxes = value; OnPropertyChanged(); } }
+
+        private Axis[] _sliderYAxes = null!;
+        public Axis[] SliderYAxes { get => _sliderYAxes; set { _sliderYAxes = value; OnPropertyChanged(); } }
+
+        private ISeries[] _sliderSeries2 = null!;
+        public ISeries[] SliderSeries2 { get => _sliderSeries2; set { _sliderSeries2 = value; OnPropertyChanged(); } }
+
+        private Axis[] _sliderXAxes2 = null!;
+        public Axis[] SliderXAxes2 { get => _sliderXAxes2; set { _sliderXAxes2 = value; OnPropertyChanged(); } }
+
+        private Axis[] _sliderYAxes2 = null!;
+        public Axis[] SliderYAxes2 { get => _sliderYAxes2; set { _sliderYAxes2 = value; OnPropertyChanged(); } }
+
+        private DispatcherTimer _timer = null!;
         private DateTime _lastTime;
 
-        private TestLogging loggerInstance;
-        private GEffectsLogic.GEffectsLogic logicInstance;
-        public double GzPT { get => GEffectsLogic.LogicSettings.GzPTolerance; set { GEffectsLogic.LogicSettings.GzPTolerance = value; OnPropertyChanged(); } }
-        public double GzMT { get => GEffectsLogic.LogicSettings.GzMTolerance; set { GEffectsLogic.LogicSettings.GzMTolerance = value; OnPropertyChanged(); } }
+        private TestLogging loggerInstance = null!;
+        private GEffectsLogic.GEffectsLogic logicInstance = null!;
+        public double HydrostaticShiftRate { get => GEffectsLogic.LogicSettings.HydrostaticShiftRate; set { GEffectsLogic.LogicSettings.HydrostaticShiftRate = value; OnPropertyChanged(); } }
+        public double HeadCoreShiftFraction { get => GEffectsLogic.LogicSettings.HeadCoreShiftFraction; set { GEffectsLogic.LogicSettings.HeadCoreShiftFraction = value; OnPropertyChanged(); } }
+        public double CoreLowerShiftFraction { get => GEffectsLogic.LogicSettings.CoreLowerShiftFraction; set { GEffectsLogic.LogicSettings.CoreLowerShiftFraction = value; OnPropertyChanged(); } }
+
+        public double PassiveReturnRate { get => GEffectsLogic.LogicSettings.PassiveReturnRate; set { GEffectsLogic.LogicSettings.PassiveReturnRate = value; OnPropertyChanged(); } }
+        public double O2DeliveryRate { get => GEffectsLogic.LogicSettings.O2DeliveryRate; set { GEffectsLogic.LogicSettings.O2DeliveryRate = value; OnPropertyChanged(); } }
+        public double O2ConsumptionRate { get => GEffectsLogic.LogicSettings.O2ConsumptionRate; set { GEffectsLogic.LogicSettings.O2ConsumptionRate = value; OnPropertyChanged(); } }
+        private double _timeMultiplier = 1.0;
+        public double TimeMultiplier { get => _timeMultiplier; set { _timeMultiplier = value; OnPropertyChanged(); } }
+
+        private int _updateMultiplier = 1;
+        public int UpdateMultiplier { get => _updateMultiplier; set { _updateMultiplier = value; OnPropertyChanged(); } }
+
+        private bool _isPaused = false;
+        public bool IsPaused
+        {
+            get => _isPaused;
+            set { _isPaused = value; OnPropertyChanged(); OnPropertyChanged(nameof(PauseButtonText)); }
+        }
+        public string PauseButtonText => IsPaused ? "Resume" : "Pause";
+
+        private double _sequenceStartGz = 1.0;
+        public double SequenceStartGz { get => _sequenceStartGz; set { _sequenceStartGz = value; OnPropertyChanged(); } }
+
+        private double _sequenceEndGz = 9.0;
+        public double SequenceEndGz { get => _sequenceEndGz; set { _sequenceEndGz = value; OnPropertyChanged(); } }
+
+        private double _sequenceDuration = 10.0;
+        public double SequenceDuration { get => _sequenceDuration; set { _sequenceDuration = value; OnPropertyChanged(); } }
+
+        private bool _isSequenceRunning;
+        private double _sequenceElapsed;
+
+        private double _recordedTime = 60.0;
+        public double RecordedTime
+        {
+            get => _recordedTime;
+            set
+            {
+                _recordedTime = value;
+                OnPropertyChanged();
+                if (SliderXAxes?.Length > 0) SliderXAxes[0].MinLimit = -value;
+                if (SliderXAxes2?.Length > 0) SliderXAxes2[0].MinLimit = -value;
+            }
+        }
 
         public MainWindow()
         {
@@ -56,176 +110,186 @@ namespace GraphicLogicTest
             GEffectsLogic.LogicSettings.DebugMode = true;
             logicInstance = new GEffectsLogic.GEffectsLogic();
 
-            // Initialize the plot model
-            SliderPlotModel = new PlotModel { Title = "Slider Values Over Time" };
-            SliderPlotModel2 = new PlotModel { Title = "Slider Values Over Time" };
-
-            // Create the line series for Gx, Gy, and Gz
-            _gxSeries = new LineSeries { Title = "Gx", Color = OxyColors.Red };
-            _gySeries = new LineSeries { Title = "Gy", Color = OxyColors.Green };
-            _gzSeries = new LineSeries { Title = "Gz", Color = OxyColors.Blue };
-
-            _cummulatedGz = new LineSeries { Title = "CummulatedGz", Color = OxyColors.Red };
-            _consiousnessLevel = new LineSeries { Title = "ConsiousnessLevel", Color = OxyColors.Green };
-            _greyScaleLevel = new LineSeries { Title = "GreyScaleLevel", Color = OxyColors.Blue };
-            _cummulatedGy = new LineSeries { Title = "CummulatedGy", Color = OxyColors.Purple }; // Initialize cummulatedGy series
-            _cummulatedGx = new LineSeries { Title = "CummulatedGx", Color = OxyColors.Orange }; // Initialize cummulatedGx series
-
-            // Add the series to the plot model
-            SliderPlotModel.Series.Add(_gxSeries);
-            SliderPlotModel.Series.Add(_gySeries);
-            SliderPlotModel.Series.Add(_gzSeries);
-
-            SliderPlotModel.PlotAreaBorderColor = OxyColors.White;
-
-            // Add axes with inverted colors for dark mode and visible axis lines
-            SliderPlotModel.Axes.Add(new LinearAxis
+            SliderSeries = new ISeries[]
             {
-                Position = AxisPosition.Left,
-                Title = "Value",
-                Minimum = -8,
-                Maximum = 12,
-                TextColor = OxyColors.White,
-                TitleColor = OxyColors.White,
-                TicklineColor = OxyColors.White,
-            });
-            SliderPlotModel.Axes.Add(new LinearAxis
-            {
-                Position = AxisPosition.Bottom,
-                Title = "Time (s)",
-                Minimum = -30,
-                Maximum = 0,
-                MajorStep = 10,
-                MinorStep = 5,
-                TextColor = OxyColors.White,
-                TitleColor = OxyColors.White,
-                TicklineColor = OxyColors.White,
-            });
-
-            // Add the series to the plot model
-            SliderPlotModel2.Series.Add(_cummulatedGz);
-            SliderPlotModel2.Series.Add(_consiousnessLevel);
-            SliderPlotModel2.Series.Add(_greyScaleLevel);
-            SliderPlotModel2.Series.Add(_cummulatedGy); // Add cummulatedGy to SliderPlotModel2
-            SliderPlotModel2.Series.Add(_cummulatedGx); // Add cummulatedGx to SliderPlotModel2
-
-            SliderPlotModel2.PlotAreaBorderColor = OxyColors.White;
-
-            var logarithmicAxis = new LinearAxis
-            {
-                Position = AxisPosition.Right,
-                Title = "CummulatedValues",
-                Minimum = 0,
-                TextColor = OxyColors.White,
-                TitleColor = OxyColors.White,
-                TicklineColor = OxyColors.White,
-                Key = "LogarithmicAxis",
+                CreateSeries("Gx", SKColors.Red, _gxPoints),
+                CreateSeries("Gy", SKColors.Green, _gyPoints),
+                CreateSeries("Gz", SKColors.Blue, _gzPoints),
             };
-            SliderPlotModel2.Axes.Add(new LinearAxis
-            {
-                Position = AxisPosition.Left,
-                Title = "Value",
-                Minimum = 0,
-                Maximum = 1.2,
-                TextColor = OxyColors.White,
-                TitleColor = OxyColors.White,
-                TicklineColor = OxyColors.White,
-            });
-            SliderPlotModel2.Axes.Add(logarithmicAxis); // Assign the LogarithmicAxis to a variable
-            SliderPlotModel2.Axes.Add(new LinearAxis
-            {
-                Position = AxisPosition.Bottom,
-                Title = "Time (s)",
-                Minimum = -30,
-                Maximum = 0,
-                MajorStep = 10,
-                MinorStep = 5,
-                TextColor = OxyColors.White,
-                TitleColor = OxyColors.White,
-                TicklineColor = OxyColors.White,
-            });
 
-            // Assign cummulated values to the LogarithmicAxis
-            _cummulatedGy.YAxisKey = logarithmicAxis.Key;
-            _cummulatedGz.YAxisKey = logarithmicAxis.Key;
-            _cummulatedGx.YAxisKey = logarithmicAxis.Key;
+            SliderXAxes = new[]
+            {
+                CreateAxis("Time (s)", -RecordedTime, 0)
+            };
+            SliderYAxes = new[]
+            {
+                CreateAxis("Value", 0, 12)
+            };
 
-            // Start tracking time
+            SliderSeries2 = new ISeries[]
+            {
+                CreateSeries("ConsiousnessLevel", SKColors.Green, _consiousnessPoints),
+                CreateSeries("GreyScaleLevel", SKColors.Blue, _greyScalePoints),
+                CreateSeries("PerfusionLevel", SKColors.Orange, _perfusionPoints),
+            };
+
+            SliderXAxes2 = new[]
+            {
+                CreateAxis("Time (s)", -RecordedTime, 0)
+            };
+            SliderYAxes2 = new[]
+            {
+                new Axis
+                {
+                    Name = "CummulatedValues",
+                    MinLimit = 0,
+                    MaxLimit = 1.1,
+                    Position = AxisPosition.End,
+                    LabelsPaint = new SolidColorPaint(SKColors.White),
+                    NamePaint = new SolidColorPaint(SKColors.White),
+                    SeparatorsPaint = new SolidColorPaint(new SKColor(255, 255, 255, 40))
+                }
+            };
+
             _lastTime = DateTime.Now;
 
-            // Set up a timer to update the graph every second
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             _timer.Tick += UpdateGraph;
             _timer.Start();
         }
 
-        private void UpdateGraph(object sender, EventArgs e)
+        private static LineSeries<ObservablePoint> CreateSeries(
+            string name,
+            SKColor color,
+            ObservableCollection<ObservablePoint> values,
+            int scalesYAt = 0)
+        {
+            return new LineSeries<ObservablePoint>
+            {
+                Name = name,
+                Values = values,
+                ScalesYAt = scalesYAt,
+                GeometrySize = 0,
+                Stroke = new SolidColorPaint(color, 2),
+                Fill = null,
+                XToolTipLabelFormatter = chartPoint => $"t: {-chartPoint.Model!.X:F2}s",
+                YToolTipLabelFormatter = chartPoint => $"{chartPoint.Model!.Y:F3}"
+            };
+        }
+
+        private static Axis CreateAxis(string name, double min, double max)
+        {
+            return new Axis
+            {
+                Name = name,
+                MinLimit = min,
+                MaxLimit = max,
+                LabelsPaint = new SolidColorPaint(SKColors.White),
+                NamePaint = new SolidColorPaint(SKColors.White),
+                SeparatorsPaint = new SolidColorPaint(new SKColor(255, 255, 255, 40))
+            };
+        }
+
+        private void UpdateGraph(object? sender, EventArgs e)
         {
             double dt = (DateTime.Now - _lastTime).TotalSeconds;
             _lastTime = DateTime.Now;
 
-            // Temporary list to store updated points
-            var updatedPoints = new System.Collections.Generic.List<DataPoint>();
+            if (IsPaused)
+                return;
 
-            // Update Gx series
-            updatedPoints.AddRange(_gxSeries.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, Gx));
-            _gxSeries.Points.Clear();
-            _gxSeries.Points.AddRange(updatedPoints);
+            double scaledDt = dt * TimeMultiplier;
+            int iterations = Math.Max(1, UpdateMultiplier);
+            double dtIterationTime = scaledDt / iterations;
 
-            // Clear the temporary list and reuse it for Gy series
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_gySeries.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, Gy)); // Add the new data point
-            _gySeries.Points.Clear();
-            _gySeries.Points.AddRange(updatedPoints);
+            for (int i = 0; i < iterations; i++)
+            {
+                if (_isSequenceRunning)
+                {
+                    if (SequenceDuration <= 0)
+                    {
+                        Gz = SequenceEndGz;
+                        _isSequenceRunning = false;
+                        IsPaused = true;
+                    }
+                    else
+                    {
+                        _sequenceElapsed += dtIterationTime;
+                        double sequenceProgress = Math.Clamp(_sequenceElapsed / SequenceDuration, 0.0, 1.0);
+                        Gz = SequenceStartGz + ((SequenceEndGz - SequenceStartGz) * sequenceProgress);
+                        if (sequenceProgress >= 1.0)
+                        {
+                            _isSequenceRunning = false;
+                            IsPaused = true;
+                            break;
+                        }
+                    }
+                }
 
-            // Clear the temporary list and reuse it for Gz series
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_gzSeries.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, Gz)); // Add the new data point
-            _gzSeries.Points.Clear();
-            _gzSeries.Points.AddRange(updatedPoints);
-
-            logicInstance.Update(dt, Gx, Gy, Gz);
-
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_cummulatedGz.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, logicInstance.CummulatedGz));
-            _cummulatedGz.Points.Clear();
-            _cummulatedGz.Points.AddRange(updatedPoints);
-
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_consiousnessLevel.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, logicInstance.ConsiousnessLevel)); // Add the new data point
-            _consiousnessLevel.Points.Clear();
-            _consiousnessLevel.Points.AddRange(updatedPoints);
-
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_greyScaleLevel.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, logicInstance.GreyScaleLevel)); // Add the new data point
-            _greyScaleLevel.Points.Clear();
-            _greyScaleLevel.Points.AddRange(updatedPoints);
-
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_cummulatedGy.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, logicInstance.CummulatedGy)); // Add the new data point
-            _cummulatedGy.Points.Clear();
-            _cummulatedGy.Points.AddRange(updatedPoints);
-
-            updatedPoints.Clear();
-            updatedPoints.AddRange(_cummulatedGx.Points.Select(p => new DataPoint(p.X - dt, p.Y)).Where(p => p.X >= -30));
-            updatedPoints.Add(new DataPoint(0, logicInstance.CummulatedGx)); // Add the new data point
-            _cummulatedGx.Points.Clear();
-            _cummulatedGx.Points.AddRange(updatedPoints);
-
-            // Refresh the plot
-            SliderPlotModel.InvalidatePlot(true);
-            SliderPlotModel2.InvalidatePlot(true);
+                logicInstance.Update(dtIterationTime, Gx, Gy, Gz);
+                UpdateSeriesPoints(_gxPoints, dtIterationTime, Gx, RecordedTime);
+                UpdateSeriesPoints(_gyPoints, dtIterationTime, Gy, RecordedTime);
+                UpdateSeriesPoints(_gzPoints, dtIterationTime, Gz, RecordedTime);
+                UpdateSeriesPoints(_consiousnessPoints, dtIterationTime, logicInstance.ConsiousnessLevel, RecordedTime);
+                UpdateSeriesPoints(_greyScalePoints, dtIterationTime, logicInstance.GreyScaleLevel, RecordedTime);
+                UpdateSeriesPoints(_perfusionPoints, dtIterationTime, logicInstance.PerfusionLevel, RecordedTime);
+            }
         }
 
-        public event PropertyChangedEventHandler PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        private static void UpdateSeriesPoints(ObservableCollection<ObservablePoint> points, double dt, double currentValue, double recordedTime)
+        {
+            for (int i = 0; i < points.Count; i++)
+            {
+                points[i].X -= dt;
+            }
+
+            while (points.Count > 0 && points[0].X < -recordedTime)
+            {
+                points.RemoveAt(0);
+            }
+
+            points.Add(new ObservablePoint(0, currentValue));
+        }
+
+        private void PauseButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            IsPaused = !IsPaused;
+        }
+
+        private void SequenceStartButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            ResetGModel();
+
+            _sequenceElapsed = 0.0;
+            _isSequenceRunning = true;
+            Gz = SequenceStartGz;
+            IsPaused = false;
+            _lastTime = DateTime.Now;
+        }
+
+        private void ResetGModel()
+        {
+            logicInstance.Time = 0;
+            logicInstance.LastGx = 0;
+            logicInstance.LastGy = 0;
+            logicInstance.LastGz = 0;
+            logicInstance.ConsiousnessLevel = 1.0;
+            logicInstance.ConfusionLevel = 0.0;
+            logicInstance.TunnelVisionLevel = 0.0;
+            logicInstance.GreyScaleLevel = 0.0;
+            logicInstance.PrimaryColor = true;
+            logicInstance.PhysModel.Reset();
+
+            _gxPoints.Clear();
+            _gyPoints.Clear();
+            _gzPoints.Clear();
+            _consiousnessPoints.Clear();
+            _greyScalePoints.Clear();
+            _perfusionPoints.Clear();
+        }
+
+        public new event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }

@@ -1,0 +1,162 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.Avalonia;assembly=LiveChartsCore.SkiaSharpView.Avalonia"
+        xmlns:local="clr-namespace:GraphicLogicTest"
+        x:Class="GraphicLogicTest.MainWindow"
+        x:DataType="local:MainWindow"
+        Title="GEffects Logic Test" Height="800" Width="1600">
+    <Grid Background="Black">
+        <TextBlock Margin="20,8,0,0"
+                   FontSize="28" FontWeight="Bold"
+                   Foreground="White"
+                   Text="GEffects Logic Test Bench"
+                   VerticalAlignment="Top"/>
+
+        <Grid Margin="0,50,0,0"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              ColumnSpacing="10"
+              RowSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="420" />
+                <ColumnDefinition Width="420" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="28" />
+                <RowDefinition Height="36" />
+                <RowDefinition Height="36" />
+                <RowDefinition Height="36" />
+            </Grid.RowDefinitions>
+
+            <!-- Column headings -->
+            <TextBlock Grid.Row="0" Grid.Column="0" FontSize="14" FontWeight="Bold" Foreground="LightSkyBlue" Text="G-Force Inputs" VerticalAlignment="Center"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" FontSize="14" FontWeight="Bold" Foreground="LightSkyBlue" Text="Shift Rate Settings" VerticalAlignment="Center"/>
+            <TextBlock Grid.Row="0" Grid.Column="2" FontSize="14" FontWeight="Bold" Foreground="LightSkyBlue" Text="Physiological Rates" VerticalAlignment="Center"/>
+            <TextBlock Grid.Row="0" Grid.Column="3" FontSize="14" FontWeight="Bold" Foreground="LightSkyBlue" Text="Simulation Controls" VerticalAlignment="Center"/>
+
+            <!-- G-Force column -->
+            <StackPanel Grid.Row="1" Grid.Column="0" Width="300" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="40" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="Gx" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding Gx, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="120" Height="24" Text="{Binding Gx, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="0" Width="300" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="40" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="Gy" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding Gy, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="120" Height="24" Text="{Binding Gy, Mode=TwoWay}" Foreground="White" Background="#FF404040"/>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Grid.Column="0" Width="300" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="40" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="Gz" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding Gz, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="120" Height="24" Text="{Binding Gz, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+
+            <!-- Shift Rate column -->
+            <StackPanel Grid.Row="1" Grid.Column="1" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="HydrostaticShiftRate" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding HydrostaticShiftRate, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding HydrostaticShiftRate, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="1" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="HeadCoreShiftFraction" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding HeadCoreShiftFraction, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding HeadCoreShiftFraction, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Grid.Column="1" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="CoreLowerShiftFraction" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding CoreLowerShiftFraction, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding CoreLowerShiftFraction, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+
+            <!-- Physiological Rates column -->
+            <StackPanel Grid.Row="1" Grid.Column="2" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="PassiveReturnRate" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding PassiveReturnRate, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding PassiveReturnRate, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="2" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="O2DeliveryRate" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding O2DeliveryRate, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding O2DeliveryRate, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Grid.Column="2" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="O2ConsumptionRate" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding O2ConsumptionRate, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding O2ConsumptionRate, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+
+            <!-- Simulation Controls column -->
+            <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" Height="36" Spacing="6">
+                <TextBlock FontSize="14" Foreground="White" Text="Time Mult:" VerticalAlignment="Center"/>
+                <TextBox Width="80" Height="24" Text="{Binding TimeMultiplier, Mode=TwoWay}" Background="#FF404040" Foreground="White" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="3" Orientation="Horizontal" Height="36" Spacing="6">
+                <TextBlock FontSize="14" Foreground="White" Text="Update Mult:" VerticalAlignment="Center"/>
+                <TextBox Width="80" Height="24" Text="{Binding UpdateMultiplier, Mode=TwoWay}" Background="#FF404040" Foreground="White" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Grid.Column="3" Orientation="Horizontal" Height="36" Spacing="6">
+                <TextBlock FontSize="14" Foreground="White" Text="Rec. Time (s):" VerticalAlignment="Center"/>
+                <Slider Width="80" Minimum="5" Maximum="120" Value="{Binding RecordedTime, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="50" Height="24" Text="{Binding RecordedTime, Mode=TwoWay}" Background="#FF404040" Foreground="White" VerticalAlignment="Center"/>
+                <Button Height="28" Width="80"
+                        Content="{Binding PauseButtonText}"
+                        Click="PauseButton_Click"
+                        Background="#FF606060"
+                        Foreground="White"
+                        VerticalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Margin="0,210,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="#FF1E1E1E" Margin="12,22,8,22" Padding="12">
+                <StackPanel Spacing="8">
+                    <TextBlock FontSize="16" FontWeight="Bold" Foreground="LightSkyBlue" Text="Sequence" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Width="90" Foreground="White" Text="startGz" VerticalAlignment="Center"/>
+                        <TextBox Width="140" Height="24" Text="{Binding SequenceStartGz, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Width="90" Foreground="White" Text="endGz" VerticalAlignment="Center"/>
+                        <TextBox Width="140" Height="24" Text="{Binding SequenceEndGz, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Width="90" Foreground="White" Text="duration" VerticalAlignment="Center"/>
+                        <TextBox Width="140" Height="24" Text="{Binding SequenceDuration, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+                    </StackPanel>
+
+                    <Button Width="120" Height="30"
+                            Content="Start"
+                            Click="SequenceStartButton_Click"
+                            Background="#FF606060"
+                            Foreground="White" />
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Column="1" Background="DarkSlateGray">
+                <lvc:CartesianChart Margin="22,22,11,22"
+                                    Series="{Binding SliderSeries}"
+                                    XAxes="{Binding SliderXAxes}"
+                                    YAxes="{Binding SliderYAxes}"
+                                    MinWidth="200" MinHeight="100" Background="Black" />
+            </Grid>
+            <Grid Grid.Column="2" Background="DarkGray">
+                <lvc:CartesianChart Margin="11,22,22,22"
+                                    Series="{Binding SliderSeries2}"
+                                    XAxes="{Binding SliderXAxes2}"
+                                    YAxes="{Binding SliderYAxes2}"
+                                    MinWidth="200" MinHeight="100" Background="Black" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

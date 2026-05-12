@@ -26,12 +26,12 @@ namespace GEffectLogicTests
             for (double t = 0; t < 10; t += 0.1)
             {
                 logicInstance.Update(0.1, 0, 0, t);
-                loggerInstance.LogStr($"Time: {logicInstance.Time}, LastGz: {logicInstance.LastGz}, CummulatedGz: {logicInstance.CummulatedGz}, ConsiousnessLevel: {logicInstance.ConsiousnessLevel}, ConfusionLevel: {logicInstance.ConfusionLevel}, TunnelVisionLevel: {logicInstance.TunnelVisionLevel}, GreyScaleLevel: {logicInstance.GreyScaleLevel}");
+                loggerInstance.LogStr($"Time: {logicInstance.Time}, LastGz: {logicInstance.LastGz}, CummulatedGz: {logicInstance.PerfusionLevel}, ConsiousnessLevel: {logicInstance.ConsiousnessLevel}, ConfusionLevel: {logicInstance.ConfusionLevel}, TunnelVisionLevel: {logicInstance.TunnelVisionLevel}, GreyScaleLevel: {logicInstance.GreyScaleLevel}");
             }
             for (double t = 10; t > 0; t -= 0.1)
             {
                 logicInstance.Update(0.1, 0, 0, t);
-                loggerInstance.LogStr($"Time: {logicInstance.Time}, LastGz: {logicInstance.LastGz}, CummulatedGz: {logicInstance.CummulatedGz}, ConsiousnessLevel: {logicInstance.ConsiousnessLevel}, ConfusionLevel: {logicInstance.ConfusionLevel}, TunnelVisionLevel: {logicInstance.TunnelVisionLevel}, GreyScaleLevel: {logicInstance.GreyScaleLevel}");
+                loggerInstance.LogStr($"Time: {logicInstance.Time}, LastGz: {logicInstance.LastGz}, CummulatedGz: {logicInstance.PerfusionLevel}, ConsiousnessLevel: {logicInstance.ConsiousnessLevel}, ConfusionLevel: {logicInstance.ConfusionLevel}, TunnelVisionLevel: {logicInstance.TunnelVisionLevel}, GreyScaleLevel: {logicInstance.GreyScaleLevel}");
             }
         }
     }

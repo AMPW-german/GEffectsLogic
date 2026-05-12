@@ -21,19 +21,12 @@ Creating an independet logic system for simulating highly realistic g effects on
 - Color: bool (black vs red)
 
 ## Internal data:
-- Cumulated Gx (double)
-- Cumulated Gz (double)
-- Cumulated Gy (double)
+- PerfusionLevel: double (0.0 to 1.0) - The level of blood perfusion in the brain, which affects consciousness and vision
 - Time
+- FatigueLevel: double (0.0 to 1.0) - The level of fatigue in the body, which can affect tolerance to g-forces (for future implementation)
 
 ## Settings:
-- Gx+ tolerance
-- Gx- tolerance
 - Gz+ tolerance reduction through push/pull effect (Gz is vertical axis, Gx is front-back axis, Gy is side-side axis)
 - Gz+ tolerance
 - Gz- tolerance
-- Gy tolerance (humans are pretty much identical on both sides so only one tolerance is necessary)
-- GLoC Onset time
-  - Although irl for very high g forces GLoC can happen without any visual warnings this won't be implemented for now
-
-Unlike the KSP G-Effects mod I don't want hard g limits where the g forces below it are just ignored
+- Max Dt timestep for updates (to prevent instability in the simulation)
