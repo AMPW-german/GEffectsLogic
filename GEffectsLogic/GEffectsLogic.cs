@@ -1,6 +1,5 @@
 ﻿using GEffectsLogic.Logging;
 using System.Diagnostics;
-using static GEffectsLogic.LogicSettings;
 
 namespace GEffectsLogic
 {
@@ -41,8 +40,8 @@ namespace GEffectsLogic
 
 
         #region internalValues
-        private double perfusionLevel = 0.0;
-        private readonly PhysiologicalModel physModel = new PhysiologicalModel();
+        public double perfusionLevel = 0.0;
+        public readonly PhysiologicalModel physModel = new PhysiologicalModel();
 
         public double PerfusionLevel { get { return perfusionLevel; } }
         public PhysiologicalModel PhysModel => physModel;
@@ -50,27 +49,33 @@ namespace GEffectsLogic
 
 
         #region outputValues
-        private double consiousnessLevel = 1.0;
+        private double bloodHead = 1.0;
         private double confusionLevel = 0.0;
         private double tunnelVisionLevel = 0.0;
         private double greyScaleLevel = 0.0;
         private bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
 
-        public double ConsiousnessLevel { get { return consiousnessLevel; } set { consiousnessLevel = value; } }
+        public double BloodHead { get { return bloodHead; } set { bloodHead = value; } }
         public double ConfusionLevel { get { return confusionLevel; } set { confusionLevel = value; } }
         public double TunnelVisionLevel { get { return tunnelVisionLevel; } set { tunnelVisionLevel = value; } }
         public double GreyScaleLevel { get { return greyScaleLevel; } set { greyScaleLevel = value; } }
         public bool PrimaryColor { get { return primaryColor; } set { primaryColor = value; } }
         #endregion
 
+        private double consciousnessLevel = 1.0;
+        public double ConsciousnessLevel { get => consciousnessLevel; set => consciousnessLevel = value; }
 
-        public static double SmoothStep(double x) => x * x * x / (3.0 * x * x - 3.0 * x + 1.0);
+        public static double SmoothStep(double x)
+        {
+            x = Math.Clamp(x, 0.0, 1.0);
+            return x * x * (3.0 - 2.0 * x);
+        }
 
         public static double SmoothStep(double x, double min, double max) => SmoothStep(x) * (max - min) + min;
 
         public void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
         {
-#if DEBUG
+#if PERFDEBUG
             var sw = Stopwatch.StartNew();
 #endif
 
@@ -84,21 +89,76 @@ namespace GEffectsLogic
             // --- Physiological model update ---
             physModel.Update(deltaTime, currentGz, currentGx, currentGy);
 
-            // Map brain O2 to perfusion level for backward compatibility
-            perfusionLevel = physModel.BrainO2;
-
             // Determine blackout vs redout from head blood volume
             primaryColor = physModel.BloodHead <= LogicSettings.RestingBloodHead;
 
             // Map brain O2 to consciousness via smooth step
             double o2Normalized = Math.Clamp(
-                (physModel.BrainO2 - BrainO2Blackout) / (BrainO2Full - BrainO2Blackout),
+                (physModel.BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
                 0.0, 1.0);
-            consiousnessLevel = SmoothStep(o2Normalized);
 
-            Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {consiousnessLevel:f4}, dT: {deltaTime:f4}");
+            double perfRatio = Math.Clamp(physModel.BloodHead / LogicSettings.RestingBloodHead, 0.0, 1.0);
+            perfusionLevel = perfRatio;
 
-#if DEBUG
+            // Use soft minimum for consciousness mapping (not blackout threshold)
+            double perfNorm = Math.Clamp(
+                (perfRatio - LogicSettings.ConsciousnessPerfusionSoftMinRatio) /
+                (1.0 - LogicSettings.ConsciousnessPerfusionSoftMinRatio),
+                0.0, 1.0);
+
+            // "Weakest-link" blend: either low O2 or low perfusion can drive LOC
+            double o2Term = Math.Pow(o2Normalized, LogicSettings.ConsciousnessO2Exponent);
+            double perfTerm = Math.Pow(perfNorm, LogicSettings.ConsciousnessPerfusionExponent);
+
+            // Geometric blend: both channels matter strongly, avoids high flat plateau
+            double targetConsciousness = o2Term * perfTerm;
+
+            // New: sustained hypoxia/hypoperfusion bias (prevents 5G plateau like 0.09)
+            double combinedDeficit = 1.0 - (0.5 * o2Normalized + 0.5 * perfNorm);
+            targetConsciousness = Math.Max(
+                0.0,
+                targetConsciousness - LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
+
+            // Optional: hard cap when perfusion is critically low
+            if (perfNorm < 0.25)
+            {
+                targetConsciousness = Math.Min(targetConsciousness, perfNorm * 0.75);
+            }
+
+            // Dynamic loss tau (non-linear so mid-G loses slower)
+            double lossSeverity = Math.Pow(1.0 - targetConsciousness, LogicSettings.ConsciousnessLossSeverityExponent);
+
+            double baseLossTau = LogicSettings.ConsciousnessLossTauMax +
+                (LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity;
+
+            // Critical collapse accelerator (mostly affects extreme +G)
+            double criticalPerf = 1.0 - Math.Clamp(
+                perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
+
+            double criticalO2 = 1.0 - Math.Clamp(
+                o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
+
+            double critical = Math.Max(criticalPerf, criticalO2);
+            double criticalTauMultiplier = 1.0 -
+                (1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical);
+
+            double lossTau = baseLossTau * criticalTauMultiplier;
+            double tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
+
+            // Remove hard acceleration branch to avoid sudden drop at mid-G
+            consciousnessLevel += (targetConsciousness - consciousnessLevel) * (1.0 - Math.Exp(-deltaTime / tau));
+            consciousnessLevel = Math.Clamp(consciousnessLevel, 0.0, 1.0);
+
+            if (consciousnessLevel < 0.01)
+            {
+                consciousnessLevel = 0.0;
+            }
+
+            bloodHead = physModel.BloodHead;
+
+            Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {consciousnessLevel:f4}, dT: {deltaTime:f4}");
+
+#if PERFDEBUG
             sw.Stop();
             Logger.Log($"[PERF] Instance {UniqueID} update: {sw.Elapsed.TotalMicroseconds:f1} µs", Logging.Logger.LogLevel.Debug);
 #endif

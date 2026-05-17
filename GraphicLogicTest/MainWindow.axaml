@@ -28,6 +28,8 @@
                 <RowDefinition Height="36" />
                 <RowDefinition Height="36" />
                 <RowDefinition Height="36" />
+                <RowDefinition Height="36" />
+                <RowDefinition Height="36" />
             </Grid.RowDefinitions>
 
             <!-- Column headings -->
@@ -86,6 +88,16 @@
                 <Slider Width="120" Minimum="0" Maximum="10" Value="{Binding O2ConsumptionRate, Mode=TwoWay}" VerticalAlignment="Center"/>
                 <TextBox Width="110" Height="24" Text="{Binding O2ConsumptionRate, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
             </StackPanel>
+            <StackPanel Grid.Row="4" Grid.Column="2" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="O2CurveStrength" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="4" Value="{Binding O2PerfusionCurveStrength, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding O2PerfusionCurveStrength, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
+            <StackPanel Grid.Row="5" Grid.Column="2" Width="420" Height="36" Orientation="Horizontal">
+                <TextBlock Height="36" Width="160" FontSize="16" TextAlignment="Right" Margin="0,0,16,0" Foreground="White" Text="O2CurvePivot" VerticalAlignment="Center"/>
+                <Slider Width="120" Minimum="0" Maximum="1" Value="{Binding O2PerfusionCurvePivot, Mode=TwoWay}" VerticalAlignment="Center"/>
+                <TextBox Width="110" Height="24" Text="{Binding O2PerfusionCurvePivot, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
+            </StackPanel>
 
             <!-- Simulation Controls column -->
             <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" Height="36" Spacing="6">
@@ -109,7 +121,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid Margin="0,210,0,0">
+        <Grid Margin="0,290,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="280" />
                 <ColumnDefinition Width="*" />

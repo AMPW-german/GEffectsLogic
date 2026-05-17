@@ -27,7 +27,9 @@ namespace GraphicLogicTest
         private readonly ObservableCollection<ObservablePoint> _gyPoints = new();
         private readonly ObservableCollection<ObservablePoint> _gzPoints = new();
 
-        private readonly ObservableCollection<ObservablePoint> _consiousnessPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _consciounessPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _brainO2HeadPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _bloodHeadPoints = new();
         private readonly ObservableCollection<ObservablePoint> _greyScalePoints = new();
         private readonly ObservableCollection<ObservablePoint> _perfusionPoints = new();
 
@@ -59,8 +61,19 @@ namespace GraphicLogicTest
         public double CoreLowerShiftFraction { get => GEffectsLogic.LogicSettings.CoreLowerShiftFraction; set { GEffectsLogic.LogicSettings.CoreLowerShiftFraction = value; OnPropertyChanged(); } }
 
         public double PassiveReturnRate { get => GEffectsLogic.LogicSettings.PassiveReturnRate; set { GEffectsLogic.LogicSettings.PassiveReturnRate = value; OnPropertyChanged(); } }
-        public double O2DeliveryRate { get => GEffectsLogic.LogicSettings.O2DeliveryRate; set { GEffectsLogic.LogicSettings.O2DeliveryRate = value; OnPropertyChanged(); } }
-        public double O2ConsumptionRate { get => GEffectsLogic.LogicSettings.O2ConsumptionRate; set { GEffectsLogic.LogicSettings.O2ConsumptionRate = value; OnPropertyChanged(); } }
+        public double O2DeliveryRate { get => GEffectsLogic.LogicSettings.BrainO2DepletionTauMild; set { GEffectsLogic.LogicSettings.BrainO2DepletionTauMild = value; OnPropertyChanged(); } }
+        public double O2ConsumptionRate { get => GEffectsLogic.LogicSettings.BrainO2DepletionTauSevere; set { GEffectsLogic.LogicSettings.BrainO2DepletionTauSevere = value; OnPropertyChanged(); } }
+        public double O2PerfusionCurveStrength
+        {
+            get => GEffectsLogic.LogicSettings.O2PerfusionCurveStrength;
+            set { GEffectsLogic.LogicSettings.O2PerfusionCurveStrength = value; OnPropertyChanged(); }
+        }
+
+        public double O2PerfusionCurvePivot
+        {
+            get => GEffectsLogic.LogicSettings.O2PerfusionCurvePivot;
+            set { GEffectsLogic.LogicSettings.O2PerfusionCurvePivot = value; OnPropertyChanged(); }
+        }
         private double _timeMultiplier = 1.0;
         public double TimeMultiplier { get => _timeMultiplier; set { _timeMultiplier = value; OnPropertyChanged(); } }
 
@@ -128,7 +141,9 @@ namespace GraphicLogicTest
 
             SliderSeries2 = new ISeries[]
             {
-                CreateSeries("ConsiousnessLevel", SKColors.Green, _consiousnessPoints),
+                CreateSeries("Consciousness", SKColors.Red, _consciounessPoints),
+                CreateSeries("BloodHeadLevel", SKColors.Green, _bloodHeadPoints),
+                CreateSeries("BrainO2", SKColors.Violet, _brainO2HeadPoints),
                 CreateSeries("GreyScaleLevel", SKColors.Blue, _greyScalePoints),
                 CreateSeries("PerfusionLevel", SKColors.Orange, _perfusionPoints),
             };
@@ -230,7 +245,9 @@ namespace GraphicLogicTest
                 UpdateSeriesPoints(_gxPoints, dtIterationTime, Gx, RecordedTime);
                 UpdateSeriesPoints(_gyPoints, dtIterationTime, Gy, RecordedTime);
                 UpdateSeriesPoints(_gzPoints, dtIterationTime, Gz, RecordedTime);
-                UpdateSeriesPoints(_consiousnessPoints, dtIterationTime, logicInstance.ConsiousnessLevel, RecordedTime);
+                UpdateSeriesPoints(_consciounessPoints, dtIterationTime, logicInstance.ConsciousnessLevel, RecordedTime);
+                UpdateSeriesPoints(_bloodHeadPoints, dtIterationTime, logicInstance.BloodHead, RecordedTime);
+                UpdateSeriesPoints(_brainO2HeadPoints, dtIterationTime, logicInstance.physModel.BrainO2, RecordedTime);
                 UpdateSeriesPoints(_greyScalePoints, dtIterationTime, logicInstance.GreyScaleLevel, RecordedTime);
                 UpdateSeriesPoints(_perfusionPoints, dtIterationTime, logicInstance.PerfusionLevel, RecordedTime);
             }
@@ -273,7 +290,9 @@ namespace GraphicLogicTest
             logicInstance.LastGx = 0;
             logicInstance.LastGy = 0;
             logicInstance.LastGz = 0;
-            logicInstance.ConsiousnessLevel = 1.0;
+            logicInstance.BloodHead = 1.0;
+            logicInstance.perfusionLevel = 1.0;
+            logicInstance.ConsciousnessLevel = 1.0;
             logicInstance.ConfusionLevel = 0.0;
             logicInstance.TunnelVisionLevel = 0.0;
             logicInstance.GreyScaleLevel = 0.0;
@@ -283,7 +302,9 @@ namespace GraphicLogicTest
             _gxPoints.Clear();
             _gyPoints.Clear();
             _gzPoints.Clear();
-            _consiousnessPoints.Clear();
+            _consciounessPoints.Clear();
+            _bloodHeadPoints.Clear();
+            _brainO2HeadPoints.Clear();
             _greyScalePoints.Clear();
             _perfusionPoints.Clear();
         }

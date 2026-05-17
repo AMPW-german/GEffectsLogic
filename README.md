@@ -7,6 +7,16 @@ Currently there are only Gz+ forces modeled. The response curves not perfect but
 
 This project uses a highly simplifyed blod flow/pooling simulation which should give better results compared to the KSP G Effects mod which uses cumulative variables and sharp cutoffs.
 
+## Sequence notation
+
+The sequence notation is as follows:
+[Axis (Gz default), startG endG duration]
+The axis can be ommited if it is Gz. So [0 5 2] is the same as [Gz 0 5 2].\
+Multiple sequences can be chained together by separating them with a comma. For example: [1 5 5],[5 1 5]\
+For chained sequences the startG value can be ommited for all but the first sequence. This then uses the endG value of the previous sequence as startG value, e.g. [1 5 5], [1 5]\
+It's also possible to ommit the startG and endG values. This then adds a plateau phase, e.g. [1 5 5],[5]\
+A hyphen can be used as infinite duration for plateau phases, e.g. [1 5 5],[-]
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).

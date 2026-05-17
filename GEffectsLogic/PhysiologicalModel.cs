@@ -88,13 +88,20 @@ namespace GEffectsLogic
             // Positive Gz pushes blood from head → lower body
             // Negative Gz pushes blood from lower body → head
             // The shift rate is proportional to Gz magnitude beyond the 1G baseline
-            double gzNet = gz - 1.0; // subtract resting 1G (Earth surface sitting upright)
+            double gzNet = gz - 1.0;
 
-            // G-suit and straining reduce effective Gz on the lower compartment
+            // Autoregulation dead-zone: moderate G is buffered more than extreme G
+            double gzBeyondTolerance = Math.Sign(gzNet) *
+                Math.Max(0.0, Math.Abs(gzNet) - LogicSettings.CerebralAutoregulationGzTolerance);
+
+            double gzNetScaled = Math.Sign(gzBeyondTolerance) *
+                Math.Pow(Math.Abs(gzBeyondTolerance), LogicSettings.HydrostaticShiftExponent);
+
+            // G-suit / straining scaling
             double gSuitFactor = 1.0 - LogicSettings.GSuitEffectiveness * strainingLevel;
-            double effectiveGzShift = gzNet * gSuitFactor;
+            double effectiveGzShift = gzNetScaled * gSuitFactor;
 
-            // Blood flow rate between compartments (volume fraction per second per G)
+            // Blood flow rate between compartments
             double shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
 
             // Head ↔ Core shift: head loses blood proportional to positive shiftRate
@@ -136,15 +143,61 @@ namespace GEffectsLogic
             bloodCore /= total;
             bloodLower /= total;
 
+            // New: enforce residual head blood floor while preserving total = 1.0
+            if (bloodHead < LogicSettings.MinHeadBloodFraction)
+            {
+                bloodHead = LogicSettings.MinHeadBloodFraction;
+                double remaining = 1.0 - bloodHead;
+                double coreLower = bloodCore + bloodLower;
+
+                if (coreLower > 1e-9)
+                {
+                    bloodCore = remaining * (bloodCore / coreLower);
+                    bloodLower = remaining * (bloodLower / coreLower);
+                }
+                else
+                {
+                    bloodCore = remaining * 0.45;
+                    bloodLower = remaining * 0.55;
+                }
+            }
+
             // --- 4. Brain oxygen model ---
             // O2 delivery depends on head blood volume relative to resting
             double perfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
-            // O2 consumption is constant; delivery scales with perfusion
-            double o2Delivery = perfusionRatio * LogicSettings.O2DeliveryRate;
-            double o2Consumption = LogicSettings.O2ConsumptionRate;
+            perfusionRatio = Math.Clamp(perfusionRatio, 0.0, 1.0);
 
-            double dO2 = (o2Delivery - o2Consumption) * dt;
-            brainO2 = Math.Clamp(brainO2 + dO2, 0.0, 1.0);
+            // Perfusion shaping
+            double s = LogicSettings.O2PerfusionCurveStrength;
+            double pivot = LogicSettings.O2PerfusionCurvePivot;
+            double shapedPerfusion =
+                perfusionRatio - s * perfusionRatio * (1.0 - perfusionRatio) * (perfusionRatio - pivot);
+            shapedPerfusion = Math.Clamp(shapedPerfusion, 0.0, 1.0);
+
+            // New: convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
+            double effectiveDelivery = Math.Pow(shapedPerfusion, LogicSettings.BrainO2PerfusionExponent);
+
+            double threshold = Math.Clamp(LogicSettings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
+            double hypoperfusion = Math.Max(0.0, threshold - shapedPerfusion) / threshold;
+            double hypoperfusionPenalty = LogicSettings.BrainO2HypoperfusionPenaltyStrength * hypoperfusion * hypoperfusion;
+
+            effectiveDelivery = Math.Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0);
+
+            // Target O2 is bounded by floor, then approached with time constants
+            double targetBrainO2 = LogicSettings.BrainO2Floor + (1.0 - LogicSettings.BrainO2Floor) * effectiveDelivery;
+
+            // Severity-based depletion tau: high perfusion loss => faster depletion
+            double severity = 1.0 - effectiveDelivery;
+            double depletionTau =
+                LogicSettings.BrainO2DepletionTauMild +
+                (LogicSettings.BrainO2DepletionTauSevere - LogicSettings.BrainO2DepletionTauMild) * severity;
+
+            double o2Tau = targetBrainO2 < brainO2
+                ? depletionTau
+                : LogicSettings.BrainO2RecoveryTau;
+
+            brainO2 += (targetBrainO2 - brainO2) * (1.0 - Math.Exp(-dt / o2Tau));
+            brainO2 = Math.Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
 
             // --- 5. Baroreceptor reflex ---
             // When head perfusion drops, heart rate increases (delayed response)
