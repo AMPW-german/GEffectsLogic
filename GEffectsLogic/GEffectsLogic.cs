@@ -156,6 +156,45 @@ namespace GEffectsLogic
 
             bloodHead = physModel.BloodHead;
 
+            // Visual symptoms should start from physiology, but once consciousness is collapsing
+            // they should continue toward full obscuration even if perfusion briefly rebounds.
+            double visualPerf = Math.Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
+            double visualO2 = Math.Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
+
+            // Fast visual reserve from physiology.
+            double visualReserve = 0.7 * visualPerf + 0.3 * visualO2;
+            double visualDeficit = 1.0 - visualReserve;
+
+            // Early/mid visual impairment path.
+            // Keeps onset before LOC, but avoids saturating too early.
+            double physiologicalTunnelTarget = Math.Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
+            physiologicalTunnelTarget = Math.Pow(physiologicalTunnelTarget, 2.2);
+
+            // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
+            // This also reduces sensitivity to short perfusion recoveries.
+            double blackoutTunnelTarget = Math.Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
+            blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 0.65);
+
+            // Use whichever impairment is worse.
+            double tunnelTarget = Math.Max(physiologicalTunnelTarget, blackoutTunnelTarget);
+
+            // Greyscale can remain the same in v1.
+            double greyTarget = tunnelTarget;
+
+            double tunnelTau = tunnelTarget > tunnelVisionLevel ? LogicSettings.VisualInTau : LogicSettings.VisualOutTau;
+            double greyTau = greyTarget > greyScaleLevel ? LogicSettings.VisualInTau : LogicSettings.VisualOutTau;
+
+            tunnelVisionLevel += (tunnelTarget - tunnelVisionLevel) * (1.0 - Math.Exp(-deltaTime / tunnelTau));
+            greyScaleLevel += (greyTarget - greyScaleLevel) * (1.0 - Math.Exp(-deltaTime / greyTau));
+
+            tunnelVisionLevel = Math.Clamp(tunnelVisionLevel, 0.0, 1.0);
+            greyScaleLevel = Math.Clamp(greyScaleLevel, 0.0, 1.0);
+
+            // Hard guarantee: near total LOC means near total visual loss.
+            double tunnelFloorFromConsciousness = SmoothStep(Math.Clamp((1.0 - consciousnessLevel) / 0.92, 0.0, 1.0));
+            tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
+            greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
+
             Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {consciousnessLevel:f4}, dT: {deltaTime:f4}");
 
 #if PERFDEBUG

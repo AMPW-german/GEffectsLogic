@@ -53,7 +53,7 @@ namespace GEffectsLogic
         // --- Hydrostatic/autoregulation ---
         public static double CerebralAutoregulationGzTolerance { get; set; } = 0.55; // G beyond 1G baseline
 
-        // New: keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
+        // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
         public static double MinHeadBloodFraction { get; set; } = 0.02; // 2% of total blood
 
         // --- Brain O2 dynamics ---
@@ -62,7 +62,7 @@ namespace GEffectsLogic
         public static double BrainO2DepletionTauSevere { get; set; } = 4.5;  // severe perfusion loss
         public static double BrainO2RecoveryTau { get; set; } = 9.0;
 
-        // New: stronger non-linearity + sustained mild-loss penalty
+        // stronger non-linearity + sustained mild-loss penalty
         public static double BrainO2PerfusionExponent { get; set; } = 2.2;           // >1 lowers delivery at mid perfusion
         public static double BrainO2HypoperfusionThreshold { get; set; } = 0.92;     // penalty starts below this perfusion
         public static double BrainO2HypoperfusionPenaltyStrength { get; set; } = 0.75;
@@ -74,16 +74,21 @@ namespace GEffectsLogic
         public static double ConsciousnessPerfusionExponent { get; set; } = 1.4;
         public static double ConsciousnessO2Exponent { get; set; } = 1.0;
 
-        // New: subtractive bias so mid-G sustained deficit does not plateau above zero
+        // subtractive bias so mid-G sustained deficit does not plateau above zero
         public static double ConsciousnessDeficitBias { get; set; } = 0.22;
 
-        // New: softer perfusion normalization for consciousness target
+        // softer perfusion normalization for consciousness target
         public static double ConsciousnessPerfusionSoftMinRatio { get; set; } = 0.18;
 
-        // New: non-linear loss + critical collapse gate
+        // non-linear loss + critical collapse gate
         public static double ConsciousnessLossSeverityExponent { get; set; } = 2.2;
         public static double ConsciousnessCriticalPerfusionNorm { get; set; } = 0.16;
         public static double ConsciousnessCriticalO2Norm { get; set; } = 0.28;
         public static double ConsciousnessCriticalTauMultiplierMin { get; set; } = 0.38;
+
+        // Vision effects
+        // Faster buildup than recovery so short rebounds do not immediately reopen vision.
+        public static double VisualInTau { get; set; } = 2.0;
+        public static double VisualOutTau { get; set; } = 7.5;
     }
 }

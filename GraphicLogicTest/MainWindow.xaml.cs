@@ -30,6 +30,7 @@ namespace GraphicLogicTest
         private readonly ObservableCollection<ObservablePoint> _consciounessPoints = new();
         private readonly ObservableCollection<ObservablePoint> _brainO2HeadPoints = new();
         private readonly ObservableCollection<ObservablePoint> _bloodHeadPoints = new();
+        private readonly ObservableCollection<ObservablePoint> _tunnelVisionPoints = new();
         private readonly ObservableCollection<ObservablePoint> _greyScalePoints = new();
         private readonly ObservableCollection<ObservablePoint> _perfusionPoints = new();
 
@@ -145,6 +146,7 @@ namespace GraphicLogicTest
                 CreateSeries("BloodHeadLevel", SKColors.Green, _bloodHeadPoints),
                 CreateSeries("BrainO2", SKColors.Violet, _brainO2HeadPoints),
                 CreateSeries("GreyScaleLevel", SKColors.Blue, _greyScalePoints),
+                CreateSeries("TunnelVisionLevel", SKColors.Cyan, _tunnelVisionPoints),
                 CreateSeries("PerfusionLevel", SKColors.Orange, _perfusionPoints),
             };
 
@@ -249,6 +251,7 @@ namespace GraphicLogicTest
                 UpdateSeriesPoints(_bloodHeadPoints, dtIterationTime, logicInstance.BloodHead, RecordedTime);
                 UpdateSeriesPoints(_brainO2HeadPoints, dtIterationTime, logicInstance.physModel.BrainO2, RecordedTime);
                 UpdateSeriesPoints(_greyScalePoints, dtIterationTime, logicInstance.GreyScaleLevel, RecordedTime);
+                UpdateSeriesPoints(_tunnelVisionPoints, dtIterationTime, logicInstance.TunnelVisionLevel, RecordedTime);
                 UpdateSeriesPoints(_perfusionPoints, dtIterationTime, logicInstance.PerfusionLevel, RecordedTime);
             }
         }
@@ -303,6 +306,7 @@ namespace GraphicLogicTest
             _gyPoints.Clear();
             _gzPoints.Clear();
             _consciounessPoints.Clear();
+            _tunnelVisionPoints.Clear();
             _bloodHeadPoints.Clear();
             _brainO2HeadPoints.Clear();
             _greyScalePoints.Clear();
