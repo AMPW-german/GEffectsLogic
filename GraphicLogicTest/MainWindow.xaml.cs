@@ -558,8 +558,6 @@ namespace GraphicLogicTest
                 var endValue = ParseDouble(tokens[1]);
                 var durationValue = ParseDouble(tokens[2]);
 
-                if (!first) start = previousEnd;
-
                 _segments.Add(new SequenceSegment(start, endValue, durationValue, IsInfinite: false));
                 previousEnd = endValue;
                 first = false;
