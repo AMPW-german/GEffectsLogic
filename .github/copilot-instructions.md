@@ -5,3 +5,6 @@
 
 ## Visibility Semantics
 - TunnelVisionLevel semantics: 1 means no visibility left, and 0.5 means half of the field of view is still free. TunnelVisionLevel should reach 1 when ConsciousnessLevel is close to 0, and tunnel vision should not be driven too directly by short perfusion recovery dips.
+
+## CI/CD Workflow
+- In GitHub Actions for this repo, tests should run after DLL artifact build, and workflow ordering should reflect that.
