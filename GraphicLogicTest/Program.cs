@@ -2,7 +2,7 @@ using Avalonia;
 
 namespace GraphicLogicTest;
 
-class Program
+internal class Program
 {
     [STAThread]
     public static void Main(string[] args) => BuildAvaloniaApp()

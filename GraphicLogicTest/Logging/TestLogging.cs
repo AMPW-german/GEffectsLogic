@@ -1,6 +1,6 @@
 ﻿using static GEffectsLogic.Logging.Logger;
 
-namespace GEffectLogicTests.Logging
+namespace GraphicLogicTest.Logging
 {
     internal class TestLogging
     {

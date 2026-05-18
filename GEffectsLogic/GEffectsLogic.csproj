@@ -6,6 +6,19 @@
     <Nullable>enable</Nullable>
     <Configurations>Debug;Release;PerfDebug</Configurations>
     <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
+
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Version>$(VersionPrefix)</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>$(VersionPrefix).0</FileVersion>
+
+    <GitShortHash>nogit</GitShortHash>
+    <InformationalVersionPostfix></InformationalVersionPostfix>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <Company>AMPW</Company>
+    <Authors>AMPW</Authors>
+    <Copyright>Copyright (C) 2026 AMPW. Licensed under GNU GPL v3.0.</Copyright>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
@@ -16,19 +29,28 @@
     <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
   </PropertyGroup>
 
-  <Target Name="CopyOutputToExternalFolder" AfterTargets="Build">
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <InformationalVersionPostfix>-debug</InformationalVersionPostfix>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='PerfDebug'">
+    <InformationalVersionPostfix>-perfDebug</InformationalVersionPostfix>
+  </PropertyGroup>
+
+  <Target Name="SetVersionMetadata" BeforeTargets="GetAssemblyVersion">
+    <Exec Command="git rev-parse --short HEAD"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          IgnoreStandardErrorWarningFormat="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitShortHashRaw" />
+    </Exec>
 
     <PropertyGroup>
-      <ExternalFolder>$(SolutionDir)Content\KSAGEffects\</ExternalFolder>
+      <GitShortHash Condition="'$(GitShortHashRaw)' != ''">$([System.String]::Copy('$(GitShortHashRaw)').Trim())</GitShortHash>
+      <GitShortHash Condition="'$(GitShortHash)' == ''">nogit</GitShortHash>
+      <InformationalVersion>v$(VersionPrefix).$(GitShortHash)$(InformationalVersionPostfix)</InformationalVersion>
+      <ProductVersion>$(InformationalVersion)</ProductVersion>
     </PropertyGroup>
-
-    <!-- Capture all files WITH folder structure -->
-    <ItemGroup>
-      <FilesToCopy Include="$(OutputPath)**\*" />
-    </ItemGroup>
-
-    <!-- Copy while preserving subfolders -->
-    <Copy SourceFiles="@(FilesToCopy)" DestinationFiles="@(FilesToCopy->'$(ExternalFolder)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" OverwriteReadOnlyFiles="true" />
-
   </Target>
+
 </Project>

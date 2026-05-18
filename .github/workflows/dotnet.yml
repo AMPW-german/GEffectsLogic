@@ -1,5 +1,4 @@
-# This workflow will build a .NET project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+# This workflow will build and test a .NET project and publish DLL artifacts.
 
 name: .NET
 
@@ -11,18 +10,39 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 10.x
+
     - name: Restore dependencies
       run: dotnet restore
-    - name: Build
-      run: dotnet build --no-restore
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
+
+    - name: Build Release (library)
+      run: dotnet build GEffectsLogic/GEffectsLogic.csproj -c Release --no-restore
+
+    - name: Build Debug (library)
+      run: dotnet build GEffectsLogic/GEffectsLogic.csproj -c Debug --no-restore
+
+    - name: Build Debug (tests)
+      run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-restore
+
+    - name: Test (Debug)
+      run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --verbosity normal
+
+    - name: Prepare DLL artifacts
+      run: |
+        mkdir -p artifacts
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.dll artifacts/GEffectsLogic.dll
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.dll artifacts/GEffectsLogic.dev.dll
+
+    - name: Upload DLL artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: GEffectsLogic-dlls
+        path: artifacts/

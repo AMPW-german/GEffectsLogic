@@ -98,7 +98,7 @@ namespace GEffectsLogic
                 Math.Pow(Math.Abs(gzBeyondTolerance), LogicSettings.HydrostaticShiftExponent);
 
             // G-suit / straining scaling
-            double gSuitFactor = 1.0 - LogicSettings.GSuitEffectiveness * strainingLevel;
+            double gSuitFactor = 1.0 - (LogicSettings.GSuitEffectiveness * strainingLevel);
             double effectiveGzShift = gzNetScaled * gSuitFactor;
 
             // Blood flow rate between compartments
@@ -171,7 +171,7 @@ namespace GEffectsLogic
             double s = LogicSettings.O2PerfusionCurveStrength;
             double pivot = LogicSettings.O2PerfusionCurvePivot;
             double shapedPerfusion =
-                perfusionRatio - s * perfusionRatio * (1.0 - perfusionRatio) * (perfusionRatio - pivot);
+                perfusionRatio - (s * perfusionRatio * (1.0 - perfusionRatio) * (perfusionRatio - pivot));
             shapedPerfusion = Math.Clamp(shapedPerfusion, 0.0, 1.0);
 
             // New: convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
@@ -184,13 +184,13 @@ namespace GEffectsLogic
             effectiveDelivery = Math.Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0);
 
             // Target O2 is bounded by floor, then approached with time constants
-            double targetBrainO2 = LogicSettings.BrainO2Floor + (1.0 - LogicSettings.BrainO2Floor) * effectiveDelivery;
+            double targetBrainO2 = LogicSettings.BrainO2Floor + ((1.0 - LogicSettings.BrainO2Floor) * effectiveDelivery);
 
             // Severity-based depletion tau: high perfusion loss => faster depletion
             double severity = 1.0 - effectiveDelivery;
             double depletionTau =
                 LogicSettings.BrainO2DepletionTauMild +
-                (LogicSettings.BrainO2DepletionTauSevere - LogicSettings.BrainO2DepletionTauMild) * severity;
+                ((LogicSettings.BrainO2DepletionTauSevere - LogicSettings.BrainO2DepletionTauMild) * severity);
 
             double o2Tau = targetBrainO2 < brainO2
                 ? depletionTau
@@ -201,7 +201,7 @@ namespace GEffectsLogic
 
             // --- 5. Baroreceptor reflex ---
             // When head perfusion drops, heart rate increases (delayed response)
-            double targetHR = 1.0 + LogicSettings.BaroreceptorGain * Math.Max(0, 1.0 - perfusionRatio);
+            double targetHR = 1.0 + (LogicSettings.BaroreceptorGain * Math.Max(0, 1.0 - perfusionRatio));
             targetHR = Math.Min(targetHR, LogicSettings.MaxHeartRateMultiplier);
 
             double hrTau = LogicSettings.BaroreceptorTimeConstant;

@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using GEffectLogicTests.Logging;
 using GraphicLogicTest.Logging;
 using LiveChartsCore;
 using LiveChartsCore.Defaults;
@@ -484,7 +483,7 @@ namespace GraphicLogicTest
 
             _segmentElapsed += dt;
             var progress = Math.Clamp(_segmentElapsed / current.Duration, 0.0, 1.0);
-            _currentGz = current.StartGz + (current.EndGz - current.StartGz) * progress;
+            _currentGz = current.StartGz + ((current.EndGz - current.StartGz) * progress);
 
             if (progress >= 1.0)
             {
@@ -516,7 +515,6 @@ namespace GraphicLogicTest
             if (matches.Count == 0) return;
 
             double previousEnd = 1.0;
-            bool first = true;
 
             foreach (Match match in matches)
             {
@@ -560,7 +558,6 @@ namespace GraphicLogicTest
 
                 _segments.Add(new SequenceSegment(start, endValue, durationValue, IsInfinite: false));
                 previousEnd = endValue;
-                first = false;
             }
         }
 

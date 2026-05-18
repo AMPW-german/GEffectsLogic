@@ -1,5 +1,4 @@
 ﻿using GEffectLogicTests.Logging;
-using GEffectsLogic;
 using Xunit.Abstractions;
 
 namespace GEffectLogicTests
@@ -7,8 +6,6 @@ namespace GEffectLogicTests
     public class GLoCDurationTests
     {
         private readonly ITestOutputHelper _output;
-        private TestLogging loggerInstance;
-        private GEffectsLogic.GEffectsLogic logicInstance;
 
         public GLoCDurationTests(ITestOutputHelper output)
         {
@@ -32,15 +29,15 @@ namespace GEffectLogicTests
 
         private static void PlataueSequenceGLoC(double startG, double endG, double duration, double expectedGLoCTimeStart, double expectedGLoCTimeEnd, ITestOutputHelper output)
         {
-            TestLogging loggerInstance = new TestLogging(output);
+            TestLogging loggerInstance = new(output);
             GEffectsLogic.Logging.Logger.Instance = new LogicLogging(output);
             GEffectsLogic.LogicSettings.DebugMode = false;
-            GEffectsLogic.GEffectsLogic logicInstance = new GEffectsLogic.GEffectsLogic();
-            List<string> infoStrings = new List<string>();
+            GEffectsLogic.GEffectsLogic logicInstance = new();
+            List<string> infoStrings = [];
 
             for (double t = 0; t < duration; t += 0.1)
             {
-                logicInstance.Update(0.1, 0, 0, startG + (endG - startG) * (t / duration));
+                logicInstance.Update(0.1, 0, 0, startG + ((endG - startG) * (t / duration)));
                 infoStrings.Add($"Time: {logicInstance.Time:F1}, consciousness: {logicInstance.ConsciousnessLevel:F4}, lastGz: {logicInstance.LastGz:F2}");
                 if (logicInstance.ConsciousnessLevel <= 0.01) break;
             }

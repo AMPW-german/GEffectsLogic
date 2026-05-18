@@ -1,12 +1,11 @@
 ﻿using GEffectsLogic.Logging;
-using System.Diagnostics;
 
 namespace GEffectsLogic
 {
     // Main logic class for each vessel/kitten
     public class GEffectsLogic
     {
-        private static Dictionary<int, GEffectsLogic> instances = new Dictionary<int, GEffectsLogic>();
+        private static Dictionary<int, GEffectsLogic> instances = [];
         private int? uniqueID = null;
         public int UniqueID
         {
@@ -41,7 +40,7 @@ namespace GEffectsLogic
 
         #region internalValues
         public double perfusionLevel = 0.0;
-        public readonly PhysiologicalModel physModel = new PhysiologicalModel();
+        public readonly PhysiologicalModel physModel = new();
 
         public double PerfusionLevel { get { return perfusionLevel; } }
         public PhysiologicalModel PhysModel => physModel;
@@ -68,10 +67,10 @@ namespace GEffectsLogic
         public static double SmoothStep(double x)
         {
             x = Math.Clamp(x, 0.0, 1.0);
-            return x * x * (3.0 - 2.0 * x);
+            return x * x * (3.0 - (2.0 * x));
         }
 
-        public static double SmoothStep(double x, double min, double max) => SmoothStep(x) * (max - min) + min;
+        public static double SmoothStep(double x, double min, double max) => (SmoothStep(x) * (max - min)) + min;
 
         public void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
         {
@@ -114,10 +113,10 @@ namespace GEffectsLogic
             double targetConsciousness = o2Term * perfTerm;
 
             // New: sustained hypoxia/hypoperfusion bias (prevents 5G plateau like 0.09)
-            double combinedDeficit = 1.0 - (0.5 * o2Normalized + 0.5 * perfNorm);
+            double combinedDeficit = 1.0 - ((0.5 * o2Normalized) + (0.5 * perfNorm));
             targetConsciousness = Math.Max(
                 0.0,
-                targetConsciousness - LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
+                targetConsciousness - (LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit));
 
             // Optional: hard cap when perfusion is critically low
             if (perfNorm < 0.25)
@@ -129,7 +128,7 @@ namespace GEffectsLogic
             double lossSeverity = Math.Pow(1.0 - targetConsciousness, LogicSettings.ConsciousnessLossSeverityExponent);
 
             double baseLossTau = LogicSettings.ConsciousnessLossTauMax +
-                (LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity;
+                ((LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity);
 
             // Critical collapse accelerator (mostly affects extreme +G)
             double criticalPerf = 1.0 - Math.Clamp(
@@ -140,7 +139,7 @@ namespace GEffectsLogic
 
             double critical = Math.Max(criticalPerf, criticalO2);
             double criticalTauMultiplier = 1.0 -
-                (1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical);
+                ((1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical));
 
             double lossTau = baseLossTau * criticalTauMultiplier;
             double tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
@@ -162,7 +161,7 @@ namespace GEffectsLogic
             double visualO2 = Math.Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
 
             // Fast visual reserve from physiology.
-            double visualReserve = 0.7 * visualPerf + 0.3 * visualO2;
+            double visualReserve = (0.7 * visualPerf) + (0.3 * visualO2);
             double visualDeficit = 1.0 - visualReserve;
 
             // Early/mid visual impairment path.

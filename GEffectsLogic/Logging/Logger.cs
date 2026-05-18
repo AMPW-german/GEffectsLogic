@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace GEffectsLogic.Logging
+﻿namespace GEffectsLogic.Logging
 {
     public abstract class Logger
     {
@@ -14,11 +10,11 @@ namespace GEffectsLogic.Logging
             Error
         }
 
-        public static Logger Instance;
+        public static Logger? Instance { get; set; }
 
         public static bool Log(string message, LogLevel level = LogLevel.Debug) => Instance?.LogStr(message, level) ?? false;
 
-        
+
         public LogLevel Level;
         public abstract bool LogStr(string message, LogLevel level = LogLevel.Debug);
     }

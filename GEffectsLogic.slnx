@@ -5,6 +5,7 @@
     <BuildType Name="Release" />
   </Configurations>
   <Folder Name="/Solution Items/">
+    <File Path=".github/workflows/dotnet.yml" />
     <File Path="README.md" />
   </Folder>
   <Project Path="GEffectLogicTests/GEffectLogicTests.csproj" />
