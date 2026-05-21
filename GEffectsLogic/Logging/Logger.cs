@@ -12,10 +12,10 @@
 
         public static Logger? Instance { get; set; }
 
-        public static bool Log(string message, LogLevel level = LogLevel.Debug) => Instance?.LogStr(message, level) ?? false;
+        public static bool Log(string message, int id, LogLevel level = LogLevel.Debug) => Instance?.LogStr(message, id, level) ?? false;
 
 
         public LogLevel Level;
-        public abstract bool LogStr(string message, LogLevel level = LogLevel.Debug);
+        public abstract bool LogStr(string message, int id, LogLevel level = LogLevel.Debug);
     }
 }

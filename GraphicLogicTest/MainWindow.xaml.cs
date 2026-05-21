@@ -259,7 +259,7 @@ namespace GraphicLogicTest
 
     public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     {
-        private readonly GEffectsLogic.GEffectsLogic _logic = new();
+        private readonly GEffectsLogic.GEffectsLogicInstance _logic = new();
 
         private readonly ObservableCollection<ObservablePoint> _gxPoints = [];
         private readonly ObservableCollection<ObservablePoint> _gyPoints = [];

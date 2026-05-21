@@ -30,9 +30,9 @@ namespace GEffectLogicTests
         private static void PlataueSequenceGLoC(double startG, double endG, double duration, double expectedGLoCTimeStart, double expectedGLoCTimeEnd, ITestOutputHelper output)
         {
             TestLogging loggerInstance = new(output);
-            GEffectsLogic.Logging.Logger.Instance = new LogicLogging(output);
+            new LogicLogging(output);
             GEffectsLogic.LogicSettings.DebugMode = false;
-            GEffectsLogic.GEffectsLogic logicInstance = new();
+            GEffectsLogic.GEffectsLogicInstance logicInstance = new();
             List<string> infoStrings = [];
 
             for (double t = 0; t < duration; t += 0.1)

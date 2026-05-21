@@ -1,11 +1,14 @@
 ﻿using GEffectsLogic.Logging;
+using System.Diagnostics;
 
 namespace GEffectsLogic
 {
     // Main logic class for each vessel/kitten
-    public class GEffectsLogic
+    public class GEffectsLogicInstance
     {
-        private static Dictionary<int, GEffectsLogic> instances = [];
+        private static Dictionary<int, GEffectsLogicInstance> instances = [];
+        public static IReadOnlyDictionary<int, GEffectsLogicInstance> Instances => instances;
+
         private int? uniqueID = null;
         public int UniqueID
         {
@@ -194,7 +197,7 @@ namespace GEffectsLogic
             tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
             greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
 
-            Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {consciousnessLevel:f4}, dT: {deltaTime:f4}");
+            Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {consciousnessLevel:f4}, dT: {deltaTime:f4}", UniqueID);
 
 #if PERFDEBUG
             sw.Stop();
@@ -205,9 +208,9 @@ namespace GEffectsLogic
 
         public override int GetHashCode() => UniqueID;
 
-        public GEffectsLogic()
+        public GEffectsLogicInstance()
         {
-            if (Logger.Instance == null) throw new NullReferenceException("Logger instance is not set. Please initialize a Logger before creating GEffectsLogic instances.");
+            if (Logger.Instance == null) throw new NullReferenceException("Logger instance is not set. Please initialize a Logger before creating GEffectsLogicInstance instances.");
 
             instances.Add(UniqueID, this);
         }

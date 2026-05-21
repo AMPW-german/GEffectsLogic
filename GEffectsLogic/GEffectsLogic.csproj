@@ -18,7 +18,7 @@
 
     <Company>AMPW</Company>
     <Authors>AMPW</Authors>
-    <Copyright>Copyright (C) 2026 AMPW. Licensed under GNU GPL v3.0.</Copyright>
+    <Copyright>GNU GPL v3.0</Copyright>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
