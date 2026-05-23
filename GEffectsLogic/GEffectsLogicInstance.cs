@@ -1,15 +1,18 @@
 ﻿using GEffectsLogic.Logging;
+
+#if PERFDEBUG
 using System.Diagnostics;
+#endif
 
 namespace GEffectsLogic
 {
     // Main logic class for each vessel/kitten
     public class GEffectsLogicInstance
     {
-        private static Dictionary<int, GEffectsLogicInstance> instances = [];
+        protected static Dictionary<int, GEffectsLogicInstance> instances = [];
         public static IReadOnlyDictionary<int, GEffectsLogicInstance> Instances => instances;
 
-        private int? uniqueID = null;
+        protected int? uniqueID;
         public int UniqueID
         {
             get
@@ -27,59 +30,83 @@ namespace GEffectsLogic
             }
         }
 
-
         #region inputValues
-        private double time;
-        private double lastGx = 0.0;
-        private double lastGy = 0.0;
-        private double lastGz = 0.0;
+        protected double time;
+        protected double lastGx = 0.0;
+        protected double lastGy = 0.0;
+        protected double lastGz = 0.0;
 
-        public double Time { get { return time; } set { time = value; } }
-        public double LastGx { get { return lastGx; } set { lastGx = value; } }
-        public double LastGy { get { return lastGy; } set { lastGy = value; } }
-        public double LastGz { get { return lastGz; } set { lastGz = value; } }
+        public double Time => time;
+        public double LastGx => lastGx;
+        public double LastGy => lastGy;
+        public double LastGz => lastGz;
         #endregion
 
 
-        #region internalValues
-        public double perfusionLevel = 0.0;
-        public readonly PhysiologicalModel physModel = new();
-
-        public double PerfusionLevel { get { return perfusionLevel; } }
+        protected readonly PhysiologicalModel physModel = new();
         public PhysiologicalModel PhysModel => physModel;
-        #endregion
 
+        // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
+        // Stabilized conditions:
+        // 1. Gn remains within 0.05 of the last stabilized value for 10 seconds
+        // 2. all physmodel values remain within 0.025 of the recorded values for 10 seconds
+        // Stabilization is lost if Gn deviates by more than 0.05
+        protected bool stable = false;
+        protected bool stableRecorded = false;
+        protected double stabilizationTime = 0.0;
+        protected double stabilizedGx = 0.0;
+        protected double stabilizedGy = 0.0;
+        protected double stabilizedGz = 0.0;
+        protected double stabilizedBloodHead = 0.0;
+        protected double stabilizedBloodCore = 0.0;
+        protected double stabilizedBloodLower = 0.0;
+        protected double stabilizedBrainO2 = 0.0;
+        protected double stabilizedHeartRateMultiplier = 0.0;
+        protected double stabilizedPerfusionLevel = 0.0;
+        protected double stabilizedConsciousnessLevel = 0.0;
+        protected double stabilizedGreyScaleLevel = 0.0;
+        protected double stabilizedTunnelVisionLevel = 0.0;
 
         #region outputValues
-        private double bloodHead = 1.0;
-        private double confusionLevel = 0.0;
-        private double tunnelVisionLevel = 0.0;
-        private double greyScaleLevel = 0.0;
-        private bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
+        public double BloodHead => physModel.BloodHead;
+        //public double ConfusionLevel => physModel.ConfusionLevel;
+        public double TunnelVisionLevel => physModel.TunnelVisionLevel;
+        public double GreyScaleLevel => physModel.GreyScaleLevel;
+        public bool PrimaryColor => physModel.PrimaryColor;
+        public double ConsciousnessLevel => physModel.ConsciousnessLevel;
+        public bool IsStable => stable;
 
-        public double BloodHead { get { return bloodHead; } set { bloodHead = value; } }
-        public double ConfusionLevel { get { return confusionLevel; } set { confusionLevel = value; } }
-        public double TunnelVisionLevel { get { return tunnelVisionLevel; } set { tunnelVisionLevel = value; } }
-        public double GreyScaleLevel { get { return greyScaleLevel; } set { greyScaleLevel = value; } }
-        public bool PrimaryColor { get { return primaryColor; } set { primaryColor = value; } }
+        public bool IsUnconsciouss = false; // Get unconsciousness at 0.1, recover at 0.5. Only used for logging
         #endregion
 
-        private double consciousnessLevel = 1.0;
-        public double ConsciousnessLevel { get => consciousnessLevel; set => consciousnessLevel = value; }
-
-        public static double SmoothStep(double x)
+        public virtual void Reset()
         {
-            x = Math.Clamp(x, 0.0, 1.0);
-            return x * x * (3.0 - (2.0 * x));
+            time = 0;
+            lastGx = 0;
+            lastGy = 0;
+            lastGz = 0;
+            physModel.Reset();
         }
 
-        public static double SmoothStep(double x, double min, double max) => (SmoothStep(x) * (max - min)) + min;
-
-        public void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
+        public virtual void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
         {
 #if PERFDEBUG
             var sw = Stopwatch.StartNew();
 #endif
+            List<double> dtList = new();
+
+            if (deltaTime > 1) { 
+                int stepCount = (int)deltaTime * 2;
+                dtList.AddRange(Enumerable.Repeat(deltaTime / stepCount, stepCount));
+                if (!stable) Logger.Log($"High deltaTime detected: {deltaTime}s - splitting it into {stepCount} steps of {deltaTime / stepCount}s each", UniqueID, Logger.LogLevel.Warning);
+            }
+            else if (deltaTime <= 0) { 
+                Logger.Log($"Negative deltaTime detected: {deltaTime}s", UniqueID, Logger.LogLevel.Error);
+            }
+            else
+            {
+                dtList.Add(deltaTime);
+            }
 
             // Update last G-forces
             lastGx = currentGx;
@@ -88,120 +115,81 @@ namespace GEffectsLogic
             // Update time
             time += deltaTime;
 
-            // --- Physiological model update ---
-            physModel.Update(deltaTime, currentGz, currentGx, currentGy);
-
-            // Determine blackout vs redout from head blood volume
-            primaryColor = physModel.BloodHead <= LogicSettings.RestingBloodHead;
-
-            // Map brain O2 to consciousness via smooth step
-            double o2Normalized = Math.Clamp(
-                (physModel.BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
-                0.0, 1.0);
-
-            double perfRatio = Math.Clamp(physModel.BloodHead / LogicSettings.RestingBloodHead, 0.0, 1.0);
-            perfusionLevel = perfRatio;
-
-            // Use soft minimum for consciousness mapping (not blackout threshold)
-            double perfNorm = Math.Clamp(
-                (perfRatio - LogicSettings.ConsciousnessPerfusionSoftMinRatio) /
-                (1.0 - LogicSettings.ConsciousnessPerfusionSoftMinRatio),
-                0.0, 1.0);
-
-            // "Weakest-link" blend: either low O2 or low perfusion can drive LOC
-            double o2Term = Math.Pow(o2Normalized, LogicSettings.ConsciousnessO2Exponent);
-            double perfTerm = Math.Pow(perfNorm, LogicSettings.ConsciousnessPerfusionExponent);
-
-            // Geometric blend: both channels matter strongly, avoids high flat plateau
-            double targetConsciousness = o2Term * perfTerm;
-
-            // New: sustained hypoxia/hypoperfusion bias (prevents 5G plateau like 0.09)
-            double combinedDeficit = 1.0 - ((0.5 * o2Normalized) + (0.5 * perfNorm));
-            targetConsciousness = Math.Max(
-                0.0,
-                targetConsciousness - (LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit));
-
-            // Optional: hard cap when perfusion is critically low
-            if (perfNorm < 0.25)
+            if (stable && Math.Abs(currentGx - stabilizedGx) <= 0.05 && Math.Abs(currentGy - stabilizedGy) <= 0.05 && Math.Abs(currentGz - stabilizedGz) <= 0.05)
             {
-                targetConsciousness = Math.Min(targetConsciousness, perfNorm * 0.75);
+                // No Gn change, physmodel can't change
+                return;
             }
 
-            // Dynamic loss tau (non-linear so mid-G loses slower)
-            double lossSeverity = Math.Pow(1.0 - targetConsciousness, LogicSettings.ConsciousnessLossSeverityExponent);
-
-            double baseLossTau = LogicSettings.ConsciousnessLossTauMax +
-                ((LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity);
-
-            // Critical collapse accelerator (mostly affects extreme +G)
-            double criticalPerf = 1.0 - Math.Clamp(
-                perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
-
-            double criticalO2 = 1.0 - Math.Clamp(
-                o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
-
-            double critical = Math.Max(criticalPerf, criticalO2);
-            double criticalTauMultiplier = 1.0 -
-                ((1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical));
-
-            double lossTau = baseLossTau * criticalTauMultiplier;
-            double tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
-
-            // Remove hard acceleration branch to avoid sudden drop at mid-G
-            consciousnessLevel += (targetConsciousness - consciousnessLevel) * (1.0 - Math.Exp(-deltaTime / tau));
-            consciousnessLevel = Math.Clamp(consciousnessLevel, 0.0, 1.0);
-
-            if (consciousnessLevel < 0.01)
+            dtList.ForEach(dt =>
             {
-                consciousnessLevel = 0.0;
-            }
+                if (!stableRecorded)
+                {
+                    stableRecorded = true;
+                    stabilizedGx = currentGx;
+                    stabilizedGy = currentGy;
+                    stabilizedGz = currentGz;
+                    stabilizedBloodHead = physModel.BloodHead;
+                    stabilizedBloodCore = physModel.BloodCore;
+                    stabilizedBloodLower = physModel.BloodLower;
+                    stabilizedBrainO2 = physModel.BrainO2;
+                    stabilizedHeartRateMultiplier = physModel.HeartRateMultiplier;
+                    stabilizedPerfusionLevel = physModel.PerfusionLevel;
+                    stabilizedConsciousnessLevel = physModel.ConsciousnessLevel;
+                    stabilizedGreyScaleLevel = physModel.GreyScaleLevel;
+                    stabilizedTunnelVisionLevel = physModel.TunnelVisionLevel;
+                }
+                else if (
+                    Math.Abs(currentGx - stabilizedGx) > 0.05 || Math.Abs(currentGy - stabilizedGy) > 0.05 || Math.Abs(currentGz - stabilizedGz) > 0.05
+                    || Math.Abs(physModel.BloodHead - stabilizedBloodHead) > 0.025 || Math.Abs(physModel.BloodCore - stabilizedBloodCore) > 0.025 || Math.Abs(physModel.BloodLower - stabilizedBloodLower) > 0.025
+                    || Math.Abs(physModel.BrainO2 - stabilizedBrainO2) > 0.025 || Math.Abs(physModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 || Math.Abs(physModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
+                    || Math.Abs(physModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 || Math.Abs(physModel.GreyScaleLevel - stabilizedGreyScaleLevel) > 0.025 || Math.Abs(physModel.TunnelVisionLevel - stabilizedTunnelVisionLevel) > 0.025
+                )
+                {
+                    if (stable)
+                    {
+                        Logger.Log($"Instance {UniqueID} has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.", UniqueID, Logger.LogLevel.Info);
+                    }
 
-            bloodHead = physModel.BloodHead;
+                    stabilizationTime = 0.0; // Reset stabilization time if G-forces deviate significantly
+                    stable = false;
+                    stableRecorded = false;
+                }
+                else
+                {
+                    stabilizationTime += dt;
+                    if (stabilizationTime > 10.0 && !stable)
+                    {
+                        stable = true; // Consider stabilized if conditions are met for 10 seconds
+                        Logger.Log($"Instance {UniqueID} has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.", UniqueID, Logger.LogLevel.Info);
+                    }
+                }
 
-            // Visual symptoms should start from physiology, but once consciousness is collapsing
-            // they should continue toward full obscuration even if perfusion briefly rebounds.
-            double visualPerf = Math.Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
-            double visualO2 = Math.Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
+                if (!stable)
+                {
+                    // Physiological model update
+                    physModel.Update(dt, currentGz, currentGx, currentGy);
+                }
 
-            // Fast visual reserve from physiology.
-            double visualReserve = (0.7 * visualPerf) + (0.3 * visualO2);
-            double visualDeficit = 1.0 - visualReserve;
+                if (IsUnconsciouss && ConsciousnessLevel > 0.5)
+                {
+                    IsUnconsciouss = false;
+                    Logger.Log($"Instance {UniqueID} has regained consciousness.", UniqueID, Logger.LogLevel.Info);
+                }
+                else if (!IsUnconsciouss && ConsciousnessLevel <= 0.1)
+                {
+                    IsUnconsciouss = true;
+                    Logger.Log($"Instance {UniqueID} has lost consciousness.", UniqueID, Logger.LogLevel.Info);
+                }
 
-            // Early/mid visual impairment path.
-            // Keeps onset before LOC, but avoids saturating too early.
-            double physiologicalTunnelTarget = Math.Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
-            physiologicalTunnelTarget = Math.Pow(physiologicalTunnelTarget, 2.2);
 
-            // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
-            // This also reduces sensitivity to short perfusion recoveries.
-            double blackoutTunnelTarget = Math.Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
-            blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 0.65);
+                Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}", UniqueID);
 
-            // Use whichever impairment is worse.
-            double tunnelTarget = Math.Max(physiologicalTunnelTarget, blackoutTunnelTarget);
-
-            // Greyscale can remain the same in v1.
-            double greyTarget = tunnelTarget;
-
-            double tunnelTau = tunnelTarget > tunnelVisionLevel ? LogicSettings.VisualInTau : LogicSettings.VisualOutTau;
-            double greyTau = greyTarget > greyScaleLevel ? LogicSettings.VisualInTau : LogicSettings.VisualOutTau;
-
-            tunnelVisionLevel += (tunnelTarget - tunnelVisionLevel) * (1.0 - Math.Exp(-deltaTime / tunnelTau));
-            greyScaleLevel += (greyTarget - greyScaleLevel) * (1.0 - Math.Exp(-deltaTime / greyTau));
-
-            tunnelVisionLevel = Math.Clamp(tunnelVisionLevel, 0.0, 1.0);
-            greyScaleLevel = Math.Clamp(greyScaleLevel, 0.0, 1.0);
-
-            // Hard guarantee: near total LOC means near total visual loss.
-            double tunnelFloorFromConsciousness = SmoothStep(Math.Clamp((1.0 - consciousnessLevel) / 0.92, 0.0, 1.0));
-            tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
-            greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
-
-            Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {consciousnessLevel:f4}, dT: {deltaTime:f4}", UniqueID);
+            });
 
 #if PERFDEBUG
             sw.Stop();
-            Logger.Log($"[PERF] Instance {UniqueID} update: {sw.Elapsed.TotalMicroseconds:f1} µs", Logging.Logger.LogLevel.Debug);
+            Logger.Log($"[PERF] Instance {UniqueID} update: {sw.Elapsed.TotalMicroseconds:f1} µs", UniqueID, Logging.Logger.LogLevel.Debug);
 #endif
         }
 

@@ -22,22 +22,23 @@ namespace GEffectsLogic
     /// </summary>
     public class PhysiologicalModel
     {
+        // TODO - fix straining level being a fixed input
+
         // --- Compartment blood volumes (fraction of total, sum = 1.0) ---
-        private double bloodHead;
-        private double bloodCore;
-        private double bloodLower;
-
-        // --- Brain oxygen saturation (0..1) ---
-        private double brainO2;
-
-        // --- Baroreceptor reflex: heart rate multiplier (1.0 = resting) ---
-        private double heartRateMultiplier;
-
-        // --- Straining effort (0..1): pilot anti-G straining maneuver ---
-        private double strainingLevel;
+        protected double bloodHead = LogicSettings.RestingBloodHead;
+        protected double bloodCore = LogicSettings.RestingBloodCore;
+        protected double bloodLower = LogicSettings.RestingBloodLower;
+        protected double brainO2 = 1.0;
+        protected double heartRateMultiplier = 0.0; // Baroreceptor reflex: heart rate multiplier (1.0 = resting)
+        protected double strainingLevel = 0.0; // Straining effort (0..1): pilot anti-G straining maneuver including g suit inflation
+        protected double perfusionLevel = 0.0;
+        protected double consciousnessLevel = 1.0;
+        //protected double confusionLevel = 0.0;
+        protected double greyScaleLevel = 0.0;
+        protected double tunnelVisionLevel = 0.0;
+        protected bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
 
         #region Public read-only state
-
         /// <summary>Fraction of total blood in the head compartment.</summary>
         public double BloodHead => bloodHead;
 
@@ -54,25 +55,60 @@ namespace GEffectsLogic
         public double HeartRateMultiplier => heartRateMultiplier;
 
         /// <summary>Current straining level (0 = none, 1 = max).</summary>
-        public double StrainingLevel => strainingLevel;
+        //public double StrainingLevel => strainingLevel;
 
+        /// <summary>Current level of head perfusion relative to resting (0 = none, 1 = normal).</summary>
+        public double PerfusionLevel => perfusionLevel;
+
+        /// <summary>Current level of consciousness (0 = unconscious, 1 = fully conscious).</summary>
+        public double ConsciousnessLevel => consciousnessLevel;
+
+        //public double ConfusionLevel { get { return confusionLevel; } set { confusionLevel = value; } }
+
+        /// <summary>Current level of grey scale vision (0 = normal, 1 = fully grey).</summary>
+        public double GreyScaleLevel => greyScaleLevel;
+
+        /// <summary>Current level of tunnel vision (0 = none, 1 = blackout).</summary>
+        public double TunnelVisionLevel => tunnelVisionLevel;
+
+        /// <summary>True if primary color is normal (blackout), false if inverted (redout).</summary>
+        public bool PrimaryColor => primaryColor;
         #endregion
 
-        public PhysiologicalModel()
-        {
-            Reset();
-        }
-
         /// <summary>Reset all state to resting equilibrium.</summary>
-        public void Reset()
+        public virtual void Reset()
         {
-            // Resting blood distribution (approximate physiological ratios)
             bloodHead = LogicSettings.RestingBloodHead;
             bloodCore = LogicSettings.RestingBloodCore;
             bloodLower = LogicSettings.RestingBloodLower;
             brainO2 = 1.0;
-            heartRateMultiplier = 1.0;
+            heartRateMultiplier = 0.0;
             strainingLevel = 0.0;
+            tunnelVisionLevel = 0.0;
+            greyScaleLevel = 0.0;
+            primaryColor = true;
+            consciousnessLevel = 1.0;
+            perfusionLevel = 0.0;
+        }
+
+        public static double SmoothStep(double x)
+        {
+            x = Math.Clamp(x, 0.0, 1.0);
+            return x * x * (3.0 - (2.0 * x));
+        }
+
+        public static double SmoothStep(double x, double min, double max) => (SmoothStep(x) * (max - min)) + min;
+
+        private static double StepTowardsLinear(double current, double target, double tau, double dt)
+        {
+            if (tau <= 1e-9)
+            {
+                return target;
+            }
+
+            // Backward Euler blend (A-stable, same fixed point for different dt)
+            double alpha = dt / (tau + dt);
+            return current + ((target - current) * alpha);
         }
 
         /// <summary>
@@ -82,9 +118,10 @@ namespace GEffectsLogic
         /// <param name="gz">Current Gz (positive = headward-to-footward).</param>
         /// <param name="gx">Current Gx (unused in v1, reserved).</param>
         /// <param name="gy">Current Gy (unused in v1, reserved).</param>
-        public void Update(double dt, double gz, double gx = 0.0, double gy = 0.0)
+        public virtual void Update(double dt, double gz, double gx = 0.0, double gy = 0.0)
         {
-            // --- 1. Hydrostatic blood shift from Gz ---
+            // Keep dt untouched here (guarded by LogicInstance).
+
             // Positive Gz pushes blood from head → lower body
             // Negative Gz pushes blood from lower body → head
             // The shift rate is proportional to Gz magnitude beyond the 1G baseline
@@ -104,29 +141,22 @@ namespace GEffectsLogic
             // Blood flow rate between compartments
             double shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
 
-            // Head ↔ Core shift: head loses blood proportional to positive shiftRate
-            double headCoreShift = shiftRate * LogicSettings.HeadCoreShiftFraction * dt;
-            // Core ↔ Lower shift: lower gains blood proportional to positive shiftRate
-            double coreLowerShift = shiftRate * LogicSettings.CoreLowerShiftFraction * dt;
+            // Blood flow rates between compartments (per second)
+            double shiftHeadRate = -shiftRate * LogicSettings.HeadCoreShiftFraction;
+            double shiftCoreRate = shiftRate * (LogicSettings.HeadCoreShiftFraction - LogicSettings.CoreLowerShiftFraction);
+            double shiftLowerRate = shiftRate * LogicSettings.CoreLowerShiftFraction;
 
-            bloodHead -= headCoreShift;
-            bloodCore += headCoreShift - coreLowerShift;
-            bloodLower += coreLowerShift;
-
-            // --- 2. Passive return toward resting distribution ---
-            // Blood naturally returns toward equilibrium via venous return, muscle tone, etc.
-            // Heart rate multiplier accelerates this return.
+            // Passive return toward resting distribution
             double returnRate = LogicSettings.PassiveReturnRate * heartRateMultiplier;
+            double k = returnRate * dt;
+            double denom = 1.0 + k;
 
-            double headReturn = returnRate * (LogicSettings.RestingBloodHead - bloodHead) * dt;
-            double coreReturn = returnRate * (LogicSettings.RestingBloodCore - bloodCore) * dt;
-            double lowerReturn = returnRate * (LogicSettings.RestingBloodLower - bloodLower) * dt;
+            // Backward Euler on: db/dt = shiftRate_i + returnRate * (rest_i - b_i)
+            bloodHead = (bloodHead + (shiftHeadRate + (returnRate * LogicSettings.RestingBloodHead)) * dt) / denom;
+            bloodCore = (bloodCore + (shiftCoreRate + (returnRate * LogicSettings.RestingBloodCore)) * dt) / denom;
+            bloodLower = (bloodLower + (shiftLowerRate + (returnRate * LogicSettings.RestingBloodLower)) * dt) / denom;
 
-            bloodHead += headReturn;
-            bloodCore += coreReturn;
-            bloodLower += lowerReturn;
-
-            // --- 3. Enforce conservation (redistribute any numerical drift) ---
+            // Enforce conservation (redistribute any numerical drift)
             double total = bloodHead + bloodCore + bloodLower;
             bloodHead /= total;
             bloodCore /= total;
@@ -143,7 +173,7 @@ namespace GEffectsLogic
             bloodCore /= total;
             bloodLower /= total;
 
-            // New: enforce residual head blood floor while preserving total = 1.0
+            // enforce residual head blood floor while preserving total = 1.0
             if (bloodHead < LogicSettings.MinHeadBloodFraction)
             {
                 bloodHead = LogicSettings.MinHeadBloodFraction;
@@ -162,7 +192,6 @@ namespace GEffectsLogic
                 }
             }
 
-            // --- 4. Brain oxygen model ---
             // O2 delivery depends on head blood volume relative to resting
             double perfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
             perfusionRatio = Math.Clamp(perfusionRatio, 0.0, 1.0);
@@ -174,7 +203,7 @@ namespace GEffectsLogic
                 perfusionRatio - (s * perfusionRatio * (1.0 - perfusionRatio) * (perfusionRatio - pivot));
             shapedPerfusion = Math.Clamp(shapedPerfusion, 0.0, 1.0);
 
-            // New: convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
+            // convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
             double effectiveDelivery = Math.Pow(shapedPerfusion, LogicSettings.BrainO2PerfusionExponent);
 
             double threshold = Math.Clamp(LogicSettings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
@@ -196,16 +225,123 @@ namespace GEffectsLogic
                 ? depletionTau
                 : LogicSettings.BrainO2RecoveryTau;
 
-            brainO2 += (targetBrainO2 - brainO2) * (1.0 - Math.Exp(-dt / o2Tau));
+            brainO2 = StepTowardsLinear(brainO2, targetBrainO2, o2Tau, dt);
             brainO2 = Math.Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
 
-            // --- 5. Baroreceptor reflex ---
             // When head perfusion drops, heart rate increases (delayed response)
             double targetHR = 1.0 + (LogicSettings.BaroreceptorGain * Math.Max(0, 1.0 - perfusionRatio));
             targetHR = Math.Min(targetHR, LogicSettings.MaxHeartRateMultiplier);
 
             double hrTau = LogicSettings.BaroreceptorTimeConstant;
-            heartRateMultiplier += (targetHR - heartRateMultiplier) * (1.0 - Math.Exp(-dt / hrTau));
+            heartRateMultiplier = StepTowardsLinear(heartRateMultiplier, targetHR, hrTau, dt);
+
+            // Determine blackout vs redout from head blood volume
+            primaryColor = bloodHead <= LogicSettings.RestingBloodHead;
+
+            // Map brain O2 to consciousness via smooth step
+            double o2Normalized = Math.Clamp(
+                (BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
+                0.0, 1.0);
+
+            double perfRatio = Math.Clamp(bloodHead / LogicSettings.RestingBloodHead, 0.0, 1.0);
+            perfusionLevel = perfRatio;
+
+            // Use soft minimum for consciousness mapping (not blackout threshold)
+            double perfNorm = Math.Clamp(
+                (perfRatio - LogicSettings.ConsciousnessPerfusionSoftMinRatio) /
+                (1.0 - LogicSettings.ConsciousnessPerfusionSoftMinRatio),
+                0.0, 1.0);
+
+            // "Weakest-link" blend: either low O2 or low perfusion can drive LOC
+            double o2Term = Math.Pow(o2Normalized, LogicSettings.ConsciousnessO2Exponent);
+            double perfTerm = Math.Pow(perfNorm, LogicSettings.ConsciousnessPerfusionExponent);
+
+            // Geometric blend: both channels matter strongly, avoids high flat plateau
+            double targetConsciousness = o2Term * perfTerm;
+
+            // sustained hypoxia/hypoperfusion bias (prevents 5G plateau like 0.09)
+            double combinedDeficit = 1.0 - ((0.5 * o2Normalized) + (0.5 * perfNorm));
+            targetConsciousness = Math.Max(
+                0.0,
+                targetConsciousness - (LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit));
+
+            // hard cap when perfusion is critically low
+            if (perfNorm < 0.25)
+            {
+                targetConsciousness = Math.Min(targetConsciousness, perfNorm * 0.75);
+            }
+
+            // Dynamic loss tau (non-linear so mid-G loses slower)
+            double lossSeverity = Math.Pow(1.0 - targetConsciousness, LogicSettings.ConsciousnessLossSeverityExponent);
+
+            double baseLossTau = LogicSettings.ConsciousnessLossTauMax +
+                ((LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity);
+
+            // Critical collapse accelerator (mostly affects extreme +G)
+            double criticalPerf = 1.0 - Math.Clamp(
+                perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
+
+            double criticalO2 = 1.0 - Math.Clamp(
+                o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
+
+            double critical = Math.Max(criticalPerf, criticalO2);
+            double criticalTauMultiplier = 1.0 -
+                ((1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical));
+
+            double lossTau = baseLossTau * criticalTauMultiplier;
+            double tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
+
+            consciousnessLevel = StepTowardsLinear(consciousnessLevel, targetConsciousness, tau, dt);
+            consciousnessLevel = Math.Clamp(consciousnessLevel, 0.0, 1.0);
+
+            if (consciousnessLevel < 0.01)
+            {
+                consciousnessLevel = 0.0;
+            }
+
+            // Visual symptoms should start from physiology, but once consciousness is collapsing
+            // they should continue toward full obscuration even if perfusion briefly rebounds.
+            double visualPerf = Math.Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
+            double visualO2 = Math.Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
+
+            // Fast visual reserve from physiology.
+            double visualReserve = (0.7 * visualPerf) + (0.3 * visualO2);
+            double visualDeficit = 1.0 - visualReserve;
+
+            // Early/mid visual impairment path.
+            // Keeps onset before LOC, but avoids saturating too early.
+            double physiologicalTunnelTarget = Math.Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
+            physiologicalTunnelTarget = Math.Pow(physiologicalTunnelTarget, 2.2);
+
+            // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
+            // This also reduces sensitivity to short perfusion recoveries.
+            double blackoutTunnelTarget = Math.Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
+            blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 0.65);
+
+            // Use whichever impairment is worse.
+            double tunnelTarget = Math.Max(physiologicalTunnelTarget, blackoutTunnelTarget);
+
+            // Greyscale can remain the same in v1.
+            double greyTarget = tunnelTarget;
+
+            double tunnelTau = tunnelTarget > tunnelVisionLevel ? LogicSettings.VisualInTau : LogicSettings.VisualOutTau;
+            double greyTau = greyTarget > greyScaleLevel ? LogicSettings.VisualInTau : LogicSettings.VisualOutTau;
+
+            tunnelVisionLevel = StepTowardsLinear(tunnelVisionLevel, tunnelTarget, tunnelTau, dt);
+            greyScaleLevel = StepTowardsLinear(greyScaleLevel, greyTarget, greyTau, dt);
+
+            tunnelVisionLevel = Math.Clamp(tunnelVisionLevel, 0.0, 1.0);
+            greyScaleLevel = Math.Clamp(greyScaleLevel, 0.0, 1.0);
+
+            // Hard guarantee: near total LOC means near total visual loss.
+            double tunnelFloorFromConsciousness = SmoothStep(Math.Clamp((1.0 - consciousnessLevel) / 0.92, 0.0, 1.0));
+            tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
+            greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
+        }
+
+        public PhysiologicalModel()
+        {
+            Reset();
         }
     }
 }

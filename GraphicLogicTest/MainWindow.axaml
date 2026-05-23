@@ -20,28 +20,7 @@
         <ScrollViewer Grid.Row="1" Grid.Column="0" Margin="12,8,8,12">
             <!-- fixed width container so all 3 expanders are identical -->
             <StackPanel Spacing="10" Width="390">
-                <Expander IsExpanded="True" Background="#FF1E1E1E" Width="390" HorizontalAlignment="Stretch">
-                    <Expander.Header>
-                        <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="G-Force Inputs"/>
-                    </Expander.Header>
-                    <StackPanel Margin="8" Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Width="40" Foreground="White" Text="Gx" VerticalAlignment="Center"/>
-                            <Slider Width="170" Minimum="-10" Maximum="10" Value="{Binding Gx, Mode=TwoWay}" />
-                            <TextBox Width="120" Text="{Binding Gx, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Width="40" Foreground="White" Text="Gy" VerticalAlignment="Center"/>
-                            <Slider Width="170" Minimum="-10" Maximum="10" Value="{Binding Gy, Mode=TwoWay}" />
-                            <TextBox Width="120" Text="{Binding Gy, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Width="40" Foreground="White" Text="Gz" VerticalAlignment="Center"/>
-                            <Slider Width="170" Minimum="-10" Maximum="12" Value="{Binding Gz, Mode=TwoWay}" />
-                            <TextBox Width="120" Text="{Binding Gz, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Expander>
+
 
                 <!-- 1) Simulation Controls expander content -->
                 <Expander IsExpanded="True" Background="#FF1E1E1E" Width="390" HorizontalAlignment="Stretch">
@@ -209,6 +188,8 @@
                                                 Background="{Binding Legend4Background}" Foreground="{Binding Legend4Foreground}"/>
                                         <Button HorizontalAlignment="Stretch" Content="Perfusion" Click="ToggleMetricSeries_Click" Tag="5"
                                                 Background="{Binding Legend5Background}" Foreground="{Binding Legend5Foreground}"/>
+                                        <Button HorizontalAlignment="Stretch" Content="HeartRateMultiplier" Click="ToggleMetricSeries_Click" Tag="6"
+                                                Background="{Binding Legend6Background}" Foreground="{Binding Legend6Foreground}"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>

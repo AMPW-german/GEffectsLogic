@@ -28,15 +28,6 @@ namespace GraphicLogicTest
         public ObservableCollection<SimulationInstanceViewModel> Instances { get; } = [];
         public ObservableCollection<LogicSettingEntry> LogicSettingsEntries { get; } = [];
 
-        private double _gx;
-        public double Gx { get => _gx; set { _gx = value; OnPropertyChanged(); } }
-
-        private double _gy;
-        public double Gy { get => _gy; set { _gy = value; OnPropertyChanged(); } }
-
-        private double _gz = 1.0;
-        public double Gz { get => _gz; set { _gz = value; OnPropertyChanged(); } }
-
         private double _timeMultiplier = 5.0;
         public double TimeMultiplier { get => _timeMultiplier; set { _timeMultiplier = value; OnPropertyChanged(); } }
 
@@ -66,8 +57,8 @@ namespace GraphicLogicTest
 
             BuildLogicSettingsEntries();
 
-            AddInstanceInternal("[1 5 5]");
-            AddInstanceInternal("[1 9 9]");
+            AddInstanceInternal("[1 5 5],[25]");
+            AddInstanceInternal("[1 9 9],[21]");
 
             _lastTime = DateTime.Now;
             _timer.Tick += UpdateGraph;
@@ -98,8 +89,6 @@ namespace GraphicLogicTest
             var dt = (now - _lastTime).TotalSeconds;
             _lastTime = now;
 
-            if (_globalPaused) return;
-
             var scaledDt = dt * TimeMultiplier;
             var iterations = Math.Max(1, UpdateMultiplier);
             var dtIteration = scaledDt / iterations;
@@ -109,15 +98,13 @@ namespace GraphicLogicTest
                 foreach (var vm in Instances)
                 {
                     if (vm.IsPaused) continue;
-                    vm.Step(dtIteration, Gx, Gy, RecordedTime);
+                    vm.Step(dtIteration, RecordedTime);
                 }
             }
         }
 
         private void GlobalStart_Click(object? sender, RoutedEventArgs e)
         {
-            _globalPaused = false;
-
             foreach (var vm in Instances)
             {
                 if (!vm.HasStarted)
@@ -129,7 +116,10 @@ namespace GraphicLogicTest
 
         private void GlobalStop_Click(object? sender, RoutedEventArgs e)
         {
-            _globalPaused = true;
+            foreach (var item in Instances)
+            {
+                item.IsPaused = true;
+            }
         }
 
         private void ResetAll_Click(object? sender, RoutedEventArgs e)
@@ -142,7 +132,7 @@ namespace GraphicLogicTest
 
         private void AddInstance_Click(object? sender, RoutedEventArgs e)
         {
-            AddInstanceInternal("[1 5 5]");
+            AddInstanceInternal("[1 5 5],[25]");
         }
 
         private void InstanceStart_Click(object? sender, RoutedEventArgs e)
@@ -264,6 +254,7 @@ namespace GraphicLogicTest
         private readonly ObservableCollection<ObservablePoint> _gxPoints = [];
         private readonly ObservableCollection<ObservablePoint> _gyPoints = [];
         private readonly ObservableCollection<ObservablePoint> _gzPoints = [];
+        private readonly ObservableCollection<ObservablePoint> _stabilityPoints = [];
 
         private readonly ObservableCollection<ObservablePoint> _consciousnessPoints = [];
         private readonly ObservableCollection<ObservablePoint> _bloodHeadPoints = [];
@@ -271,6 +262,8 @@ namespace GraphicLogicTest
         private readonly ObservableCollection<ObservablePoint> _greyScalePoints = [];
         private readonly ObservableCollection<ObservablePoint> _tunnelVisionPoints = [];
         private readonly ObservableCollection<ObservablePoint> _perfusionPoints = [];
+
+        private readonly ObservableCollection<ObservablePoint> _heartRateMultiplierPoints = [];
 
         private readonly List<SequenceSegment> _segments = [];
         private int _segmentIndex;
@@ -308,7 +301,8 @@ namespace GraphicLogicTest
             "#FF9C5CFF", // BrainO2
             "#FF3D79FF", // GreyScale
             "#FF2CC8D6", // TunnelVision
-            "#FFE6942E"  // Perfusion
+            "#FFE6942E", // Perfusion
+            "#FFF2C14E",  // HeartRateMultiplier
         ];
 
         private static readonly string[] DimLegendColors =
@@ -318,7 +312,8 @@ namespace GraphicLogicTest
             "#66332655",
             "#66202E55",
             "#66203E44",
-            "#66553C1F"
+            "#66553C1F",
+            "#66543F1A",
         ];
 
         public SimulationInstanceViewModel(string title, string defaultSequence, double recordedTime)
@@ -330,7 +325,8 @@ namespace GraphicLogicTest
             [
                 CreateSeries("Gx", SKColors.Red, _gxPoints),
                 CreateSeries("Gy", SKColors.Green, _gyPoints),
-                CreateSeries("Gz", SKColors.DeepSkyBlue, _gzPoints)
+                CreateSeries("Gz", SKColors.DeepSkyBlue, _gzPoints),
+                CreateSeries("Stability", SKColors.Gold, _stabilityPoints)
             ];
             GXAxes = [CreateAxis("Time (s)", -recordedTime, 0, axisTextSize: 9, axisNameTextSize: 9)];
             GYAxes = [CreateAxis("G", -10, 12, axisTextSize: 9, axisNameTextSize: 9)];
@@ -342,7 +338,8 @@ namespace GraphicLogicTest
                 CreateSeries("BrainO2", SKColors.Violet, _brainO2Points),
                 CreateSeries("GreyScale", SKColors.Blue, _greyScalePoints),
                 CreateSeries("TunnelVision", SKColors.Cyan, _tunnelVisionPoints),
-                CreateSeries("Perfusion", SKColors.Orange, _perfusionPoints)
+                CreateSeries("Perfusion", SKColors.Orange, _perfusionPoints),
+                CreateSeries("HeartRateMultiplier", SKColors.Gold, _heartRateMultiplierPoints)
             ];
             MXAxes = [CreateAxis("Time (s)", -recordedTime, 0)];
             MYAxes =
@@ -369,6 +366,7 @@ namespace GraphicLogicTest
         public string Legend3Background => GetLegendBackground(3);
         public string Legend4Background => GetLegendBackground(4);
         public string Legend5Background => GetLegendBackground(5);
+        public string Legend6Foreground => GetLegendForeground(6);
 
         public string Legend0Foreground => GetLegendForeground(0);
         public string Legend1Foreground => GetLegendForeground(1);
@@ -376,6 +374,7 @@ namespace GraphicLogicTest
         public string Legend3Foreground => GetLegendForeground(3);
         public string Legend4Foreground => GetLegendForeground(4);
         public string Legend5Foreground => GetLegendForeground(5);
+        public string Legend6Background => GetLegendBackground(6);
 
         public void UpdateRecordedTime(double recordedTime)
         {
@@ -395,17 +394,6 @@ namespace GraphicLogicTest
 
         public void ResetModel()
         {
-            _logic.Time = 0;
-            _logic.LastGx = 0;
-            _logic.LastGy = 0;
-            _logic.LastGz = 0;
-            _logic.BloodHead = 1.0;
-            _logic.perfusionLevel = 1.0;
-            _logic.ConsciousnessLevel = 1.0;
-            _logic.ConfusionLevel = 0.0;
-            _logic.TunnelVisionLevel = 0.0;
-            _logic.GreyScaleLevel = 0.0;
-            _logic.PrimaryColor = true;
             _logic.PhysModel.Reset();
 
             _segmentIndex = 0;
@@ -416,30 +404,34 @@ namespace GraphicLogicTest
             _gxPoints.Clear();
             _gyPoints.Clear();
             _gzPoints.Clear();
+            _stabilityPoints.Clear();
             _consciousnessPoints.Clear();
             _bloodHeadPoints.Clear();
             _brainO2Points.Clear();
             _greyScalePoints.Clear();
             _tunnelVisionPoints.Clear();
             _perfusionPoints.Clear();
+            _heartRateMultiplierPoints.Clear();
         }
 
-        public void Step(double dt, double gx, double gy, double recordedTime)
+        public void Step(double dt, double recordedTime)
         {
             AdvanceSequence(dt);
 
-            _logic.Update(dt, gx, gy, _currentGz);
+            _logic.Update(dt, 0, 0, _currentGz);
 
-            UpdateSeriesPoints(_gxPoints, dt, gx, recordedTime);
-            UpdateSeriesPoints(_gyPoints, dt, gy, recordedTime);
+            //UpdateSeriesPoints(_gxPoints, dt, gx, recordedTime);
+            //UpdateSeriesPoints(_gyPoints, dt, gy, recordedTime);
             UpdateSeriesPoints(_gzPoints, dt, _currentGz, recordedTime);
+            UpdateSeriesPoints(_stabilityPoints, dt, _logic.IsStable ? 1.0 : 0.0, recordedTime);
 
             UpdateSeriesPoints(_consciousnessPoints, dt, _logic.ConsciousnessLevel, recordedTime);
             UpdateSeriesPoints(_bloodHeadPoints, dt, _logic.BloodHead, recordedTime);
             UpdateSeriesPoints(_brainO2Points, dt, _logic.PhysModel.BrainO2, recordedTime);
             UpdateSeriesPoints(_greyScalePoints, dt, _logic.GreyScaleLevel, recordedTime);
             UpdateSeriesPoints(_tunnelVisionPoints, dt, _logic.TunnelVisionLevel, recordedTime);
-            UpdateSeriesPoints(_perfusionPoints, dt, _logic.PerfusionLevel, recordedTime);
+            UpdateSeriesPoints(_perfusionPoints, dt, _logic.PhysModel.PerfusionLevel, recordedTime);
+            UpdateSeriesPoints(_heartRateMultiplierPoints, dt, _logic.PhysModel.HeartRateMultiplier, recordedTime);
         }
 
         public void ToggleMetricSeries(int index)
@@ -461,6 +453,9 @@ namespace GraphicLogicTest
             OnPropertyChanged(nameof(Legend3Foreground));
             OnPropertyChanged(nameof(Legend4Foreground));
             OnPropertyChanged(nameof(Legend5Foreground));
+
+            OnPropertyChanged(nameof(Legend6Background));
+            OnPropertyChanged(nameof(Legend6Foreground));
         }
 
         private void AdvanceSequence(double dt)
