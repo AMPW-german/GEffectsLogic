@@ -10,7 +10,7 @@
         public static double RestingBloodLower { get; set; } = 0.45;
 
         // Hydrostatic shift: make mid-G less aggressive, keep high-G strong
-        public static double HydrostaticShiftRate { get; set; } = 0.01;
+        public static double HydrostaticShiftRate { get; set; } = 0.0053;
         public static double HydrostaticShiftExponent { get; set; } = 2.2;
 
         // Keep these summing to ~1.0
@@ -47,44 +47,54 @@
         public static bool SuppresInfoLogs { get; set; } = false;
 
         // --- Hydrostatic/autoregulation ---
-        public static double CerebralAutoregulationGzTolerance { get; set; } = 0.55; // G beyond 1G baseline
+        public static double CerebralAutoregulationGzTolerance { get; set; } = 0.65; // G beyond 1G baseline
 
         // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
         public static double MinHeadBloodFraction { get; set; } = 0.02; // 2% of total blood
 
         // --- Brain O2 dynamics ---
         public static double BrainO2Floor { get; set; } = 0.18;
-        public static double BrainO2DepletionTauMild { get; set; } = 10.5;   // mild perfusion loss
+        public static double BrainO2DepletionTauMild { get; set; } = 12.5;   // mild perfusion loss
         public static double BrainO2DepletionTauSevere { get; set; } = 4.5;  // severe perfusion loss
         public static double BrainO2RecoveryTau { get; set; } = 9.0;
 
         // stronger non-linearity + sustained mild-loss penalty
-        public static double BrainO2PerfusionExponent { get; set; } = 2.2;           // >1 lowers delivery at mid perfusion
+        public static double BrainO2PerfusionExponent { get; set; } = 1.9;           // >1 lowers delivery at mid perfusion
         public static double BrainO2HypoperfusionThreshold { get; set; } = 0.92;     // penalty starts below this perfusion
-        public static double BrainO2HypoperfusionPenaltyStrength { get; set; } = 0.75;
+        public static double BrainO2HypoperfusionPenaltyStrength { get; set; } = 0.55;
 
         // --- Consciousness mapping ---
         public static double ConsciousnessLossTauMin { get; set; } = 5.0;
-        public static double ConsciousnessLossTauMax { get; set; } = 22.0;
+        public static double ConsciousnessLossTauMax { get; set; } = 24.0; // was 22.0
         public static double ConsciousnessRecoveryTau { get; set; } = 12.0;
         public static double ConsciousnessPerfusionExponent { get; set; } = 1.4;
         public static double ConsciousnessO2Exponent { get; set; } = 1.0;
 
         // subtractive bias so mid-G sustained deficit does not plateau above zero
-        public static double ConsciousnessDeficitBias { get; set; } = 0.22;
+        public static double ConsciousnessDeficitBias { get; set; } = 0.14; // was 0.16
 
         // softer perfusion normalization for consciousness target
         public static double ConsciousnessPerfusionSoftMinRatio { get; set; } = 0.18;
 
         // non-linear loss + critical collapse gate
-        public static double ConsciousnessLossSeverityExponent { get; set; } = 2.2;
+        public static double ConsciousnessLossSeverityExponent { get; set; } = 2.9; // was 2.6
         public static double ConsciousnessCriticalPerfusionNorm { get; set; } = 0.16;
         public static double ConsciousnessCriticalO2Norm { get; set; } = 0.28;
-        public static double ConsciousnessCriticalTauMultiplierMin { get; set; } = 0.38;
+        public static double ConsciousnessCriticalTauMultiplierMin { get; set; } = 0.15;
 
         // Vision effects
         // Faster buildup than recovery so short rebounds do not immediately reopen vision.
         public static double VisualInTau { get; set; } = 2.0;
         public static double VisualOutTau { get; set; } = 7.5;
+
+        // --- Straining / G-suit activation ---
+        public static double StrainingStartGz { get; set; } = 1.5;   // starts building
+        public static double StrainingFullGz { get; set; } = 2.5;    // reaches 1.0 target
+        public static double StrainingTau { get; set; } = 1.0;       // ~1s to approach target
+
+        // --- G-suit coupling strengths ---
+        public static double GSuitGlobalShiftReductionMax { get; set; } = 0.20; // optional mild global scaling
+        public static double GSuitCoreLowerReductionMax { get; set; } = 0.60;   // reduce core->lower pooling
+        public static double GSuitLowerReturnBoostMax { get; set; } = 0.80;     // increase lower return
     }
 }

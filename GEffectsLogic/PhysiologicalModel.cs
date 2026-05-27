@@ -1,3 +1,5 @@
+using GEffectsLogic.Logging;
+
 namespace GEffectsLogic
 {
     /// <summary>
@@ -29,7 +31,7 @@ namespace GEffectsLogic
         protected double bloodCore = LogicSettings.RestingBloodCore;
         protected double bloodLower = LogicSettings.RestingBloodLower;
         protected double brainO2 = 1.0;
-        protected double heartRateMultiplier = 0.0; // Baroreceptor reflex: heart rate multiplier (1.0 = resting)
+        protected double heartRateMultiplier = 1.0; // Baroreceptor reflex: heart rate multiplier (1.0 = resting)
         protected double strainingLevel = 0.0; // Straining effort (0..1): pilot anti-G straining maneuver including g suit inflation
         protected double perfusionLevel = 0.0;
         protected double consciousnessLevel = 1.0;
@@ -39,6 +41,8 @@ namespace GEffectsLogic
         protected bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
 
         #region Public read-only state
+        public readonly int UniqueID;
+        
         /// <summary>Fraction of total blood in the head compartment.</summary>
         public double BloodHead => bloodHead;
 
@@ -82,7 +86,7 @@ namespace GEffectsLogic
             bloodCore = LogicSettings.RestingBloodCore;
             bloodLower = LogicSettings.RestingBloodLower;
             brainO2 = 1.0;
-            heartRateMultiplier = 0.0;
+            heartRateMultiplier = 1.0;
             strainingLevel = 0.0;
             tunnelVisionLevel = 0.0;
             greyScaleLevel = 0.0;
@@ -134,27 +138,42 @@ namespace GEffectsLogic
             double gzNetScaled = Math.Sign(gzBeyondTolerance) *
                 Math.Pow(Math.Abs(gzBeyondTolerance), LogicSettings.HydrostaticShiftExponent);
 
-            // G-suit / straining scaling
-            double gSuitFactor = 1.0 - (LogicSettings.GSuitEffectiveness * strainingLevel);
-            double effectiveGzShift = gzNetScaled * gSuitFactor;
+            // Drive straining level from +Gz with first-order lag
+            double targetStraining = 0.0;
+            if (gz > LogicSettings.StrainingStartGz)
+            {
+                targetStraining = (gz - LogicSettings.StrainingStartGz) /
+                    (LogicSettings.StrainingFullGz - LogicSettings.StrainingStartGz);
+            }
+            targetStraining = Math.Clamp(targetStraining, 0.0, 1.0);
+            strainingLevel = StepTowardsLinear(strainingLevel, targetStraining, LogicSettings.StrainingTau, dt);
+
+            // Suit effect only for +Gz loading
+            double suitActivation = Math.Clamp(LogicSettings.GSuitEffectiveness * strainingLevel, 0.0, 1.0);
+            double suit = gzNet > 0.0 ? suitActivation : 0.0;
+
+            // Mild global scaling + targeted redistribution
+            double effectiveGzShift = gzNetScaled * (1.0 - (LogicSettings.GSuitGlobalShiftReductionMax * suit));
+
+            double coreLowerFractionEffective = Math.Clamp(
+                LogicSettings.CoreLowerShiftFraction * (1.0 - (LogicSettings.GSuitCoreLowerReductionMax * suit)),
+                0.05, 0.95);
+
+            Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", UniqueID);
 
             // Blood flow rate between compartments
             double shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
+            double shiftHeadRate = -shiftRate;
+            double shiftCoreRate = shiftRate;
+            double shiftLowerRate = shiftRate * coreLowerFractionEffective;
 
-            // Blood flow rates between compartments (per second)
-            double shiftHeadRate = -shiftRate * LogicSettings.HeadCoreShiftFraction;
-            double shiftCoreRate = shiftRate * (LogicSettings.HeadCoreShiftFraction - LogicSettings.CoreLowerShiftFraction);
-            double shiftLowerRate = shiftRate * LogicSettings.CoreLowerShiftFraction;
-
-            // Passive return toward resting distribution
+            // Passive return (boost lower pool return under suit)
             double returnRate = LogicSettings.PassiveReturnRate * heartRateMultiplier;
-            double k = returnRate * dt;
-            double denom = 1.0 + k;
+            double lowerReturnRate = returnRate * (1.0 + (LogicSettings.GSuitLowerReturnBoostMax * suit));
 
-            // Backward Euler on: db/dt = shiftRate_i + returnRate * (rest_i - b_i)
-            bloodHead = (bloodHead + (shiftHeadRate + (returnRate * LogicSettings.RestingBloodHead)) * dt) / denom;
-            bloodCore = (bloodCore + (shiftCoreRate + (returnRate * LogicSettings.RestingBloodCore)) * dt) / denom;
-            bloodLower = (bloodLower + (shiftLowerRate + (returnRate * LogicSettings.RestingBloodLower)) * dt) / denom;
+            bloodHead = (bloodHead + (shiftHeadRate + (returnRate * LogicSettings.RestingBloodHead)) * dt) / (1.0 + (returnRate * dt));
+            bloodCore = (bloodCore + (shiftCoreRate + (returnRate * LogicSettings.RestingBloodCore)) * dt) / (1.0 + (returnRate * dt));
+            bloodLower = (bloodLower + (shiftLowerRate + (lowerReturnRate * LogicSettings.RestingBloodLower)) * dt) / (1.0 + (lowerReturnRate * dt));
 
             // Enforce conservation (redistribute any numerical drift)
             double total = bloodHead + bloodCore + bloodLower;
@@ -316,10 +335,13 @@ namespace GEffectsLogic
             // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
             // This also reduces sensitivity to short perfusion recoveries.
             double blackoutTunnelTarget = Math.Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
-            blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 0.65);
+            blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 2);
 
             // Use whichever impairment is worse.
             double tunnelTarget = Math.Max(physiologicalTunnelTarget, blackoutTunnelTarget);
+
+            if (physiologicalTunnelTarget > blackoutTunnelTarget) Logger.Log("physiologicalTunnelTarget used", UniqueID);
+            else Logger.Log("blackoutTunnelTarget used", UniqueID);
 
             // Greyscale can remain the same in v1.
             double greyTarget = tunnelTarget;
@@ -333,14 +355,17 @@ namespace GEffectsLogic
             tunnelVisionLevel = Math.Clamp(tunnelVisionLevel, 0.0, 1.0);
             greyScaleLevel = Math.Clamp(greyScaleLevel, 0.0, 1.0);
 
-            // Hard guarantee: near total LOC means near total visual loss.
-            double tunnelFloorFromConsciousness = SmoothStep(Math.Clamp((1.0 - consciousnessLevel) / 0.92, 0.0, 1.0));
+            // Hard guarantee: only enforce near total visual loss when consciousness is very close to zero.
+            double nearLoc = Math.Clamp((0.12 - consciousnessLevel) / 0.12, 0.0, 1.0);
+            double tunnelFloorFromConsciousness = SmoothStep(nearLoc);
+
             tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
             greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
         }
 
-        public PhysiologicalModel()
+        public PhysiologicalModel(int uniqueID)
         {
+            UniqueID = uniqueID;
             Reset();
         }
     }

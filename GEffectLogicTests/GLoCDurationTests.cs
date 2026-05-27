@@ -53,7 +53,7 @@ namespace GEffectLogicTests
         /// [1 5 5],[-]
         /// </summary>
         [Fact]
-        public void GLoC5G() => PlataueSequenceGLoC(1.0, 5.0, 5.0, 25.0, 30.0, _output);
+        public void GLoC5G() => PlataueSequenceGLoC(1.0, 5.0, 5.0, 25.0, 35.0, _output);
 
 
         /// <summary>

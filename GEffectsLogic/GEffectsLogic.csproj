@@ -27,6 +27,7 @@
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='PerfDebug|AnyCPU'">
     <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+    <DebugType>portable</DebugType>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
@@ -37,11 +38,12 @@
     <InformationalVersionPostfix>-perfDebug</InformationalVersionPostfix>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
   <Target Name="SetVersionMetadata" BeforeTargets="GetAssemblyVersion">
-    <Exec Command="git rev-parse --short HEAD"
-          ConsoleToMSBuild="true"
-          IgnoreExitCode="true"
-          IgnoreStandardErrorWarningFormat="true">
+    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="GitShortHashRaw" />
     </Exec>
 

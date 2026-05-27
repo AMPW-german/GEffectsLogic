@@ -43,7 +43,8 @@ namespace GEffectsLogic
         #endregion
 
 
-        protected readonly PhysiologicalModel physModel = new();
+        /// <summary>Do not change during runtime!</summary>
+        private PhysiologicalModel physModel;
         public PhysiologicalModel PhysModel => physModel;
 
         // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
@@ -68,12 +69,12 @@ namespace GEffectsLogic
         protected double stabilizedTunnelVisionLevel = 0.0;
 
         #region outputValues
-        public double BloodHead => physModel.BloodHead;
+        public double BloodHead => PhysModel.BloodHead;
         //public double ConfusionLevel => physModel.ConfusionLevel;
-        public double TunnelVisionLevel => physModel.TunnelVisionLevel;
-        public double GreyScaleLevel => physModel.GreyScaleLevel;
-        public bool PrimaryColor => physModel.PrimaryColor;
-        public double ConsciousnessLevel => physModel.ConsciousnessLevel;
+        public double TunnelVisionLevel => PhysModel.TunnelVisionLevel;
+        public double GreyScaleLevel => PhysModel.GreyScaleLevel;
+        public bool PrimaryColor => PhysModel.PrimaryColor;
+        public double ConsciousnessLevel => PhysModel.ConsciousnessLevel;
         public bool IsStable => stable;
 
         public bool IsUnconsciouss = false; // Get unconsciousness at 0.1, recover at 0.5. Only used for logging
@@ -85,7 +86,7 @@ namespace GEffectsLogic
             lastGx = 0;
             lastGy = 0;
             lastGz = 0;
-            physModel.Reset();
+            PhysModel.Reset();
         }
 
         public virtual void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
@@ -129,21 +130,21 @@ namespace GEffectsLogic
                     stabilizedGx = currentGx;
                     stabilizedGy = currentGy;
                     stabilizedGz = currentGz;
-                    stabilizedBloodHead = physModel.BloodHead;
-                    stabilizedBloodCore = physModel.BloodCore;
-                    stabilizedBloodLower = physModel.BloodLower;
-                    stabilizedBrainO2 = physModel.BrainO2;
-                    stabilizedHeartRateMultiplier = physModel.HeartRateMultiplier;
-                    stabilizedPerfusionLevel = physModel.PerfusionLevel;
-                    stabilizedConsciousnessLevel = physModel.ConsciousnessLevel;
-                    stabilizedGreyScaleLevel = physModel.GreyScaleLevel;
-                    stabilizedTunnelVisionLevel = physModel.TunnelVisionLevel;
+                    stabilizedBloodHead = PhysModel.BloodHead;
+                    stabilizedBloodCore = PhysModel.BloodCore;
+                    stabilizedBloodLower = PhysModel.BloodLower;
+                    stabilizedBrainO2 = PhysModel.BrainO2;
+                    stabilizedHeartRateMultiplier = PhysModel.HeartRateMultiplier;
+                    stabilizedPerfusionLevel = PhysModel.PerfusionLevel;
+                    stabilizedConsciousnessLevel = PhysModel.ConsciousnessLevel;
+                    stabilizedGreyScaleLevel = PhysModel.GreyScaleLevel;
+                    stabilizedTunnelVisionLevel = PhysModel.TunnelVisionLevel;
                 }
                 else if (
                     Math.Abs(currentGx - stabilizedGx) > 0.05 || Math.Abs(currentGy - stabilizedGy) > 0.05 || Math.Abs(currentGz - stabilizedGz) > 0.05
-                    || Math.Abs(physModel.BloodHead - stabilizedBloodHead) > 0.025 || Math.Abs(physModel.BloodCore - stabilizedBloodCore) > 0.025 || Math.Abs(physModel.BloodLower - stabilizedBloodLower) > 0.025
-                    || Math.Abs(physModel.BrainO2 - stabilizedBrainO2) > 0.025 || Math.Abs(physModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 || Math.Abs(physModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
-                    || Math.Abs(physModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 || Math.Abs(physModel.GreyScaleLevel - stabilizedGreyScaleLevel) > 0.025 || Math.Abs(physModel.TunnelVisionLevel - stabilizedTunnelVisionLevel) > 0.025
+                    || Math.Abs(PhysModel.BloodHead - stabilizedBloodHead) > 0.025 || Math.Abs(PhysModel.BloodCore - stabilizedBloodCore) > 0.025 || Math.Abs(PhysModel.BloodLower - stabilizedBloodLower) > 0.025
+                    || Math.Abs(PhysModel.BrainO2 - stabilizedBrainO2) > 0.025 || Math.Abs(PhysModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 || Math.Abs(PhysModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
+                    || Math.Abs(PhysModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 || Math.Abs(PhysModel.GreyScaleLevel - stabilizedGreyScaleLevel) > 0.025 || Math.Abs(PhysModel.TunnelVisionLevel - stabilizedTunnelVisionLevel) > 0.025
                 )
                 {
                     if (stable)
@@ -168,7 +169,7 @@ namespace GEffectsLogic
                 if (!stable)
                 {
                     // Physiological model update
-                    physModel.Update(dt, currentGz, currentGx, currentGy);
+                    PhysModel.Update(dt, currentGz, currentGx, currentGy);
                 }
 
                 if (IsUnconsciouss && ConsciousnessLevel > 0.5)
@@ -183,7 +184,7 @@ namespace GEffectsLogic
                 }
 
 
-                Logger.Log($"Gz: {currentGz:f2}, headBlood: {physModel.BloodHead:f4}, brainO2: {physModel.BrainO2:f4}, HR: {physModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}", UniqueID);
+                Logger.Log($"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BrainO2:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}", UniqueID);
 
             });
 
@@ -196,10 +197,13 @@ namespace GEffectsLogic
 
         public override int GetHashCode() => UniqueID;
 
+        protected virtual void SetPhysiologicalModel() => physModel = new PhysiologicalModel(UniqueID);
+
         public GEffectsLogicInstance()
         {
             if (Logger.Instance == null) throw new NullReferenceException("Logger instance is not set. Please initialize a Logger before creating GEffectsLogicInstance instances.");
 
+            SetPhysiologicalModel();
             instances.Add(UniqueID, this);
         }
     }
