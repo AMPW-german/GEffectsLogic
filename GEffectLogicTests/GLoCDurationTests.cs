@@ -5,6 +5,10 @@ namespace GEffectLogicTests
 {
     public class GLoCDurationTests
     {
+        // TODO:
+        // - more test cases
+        // - extension to the sequence solver to support a "GLoC" flag at the end that indicates that in the given sequence step the GLoC is expected to occur, e.g. [1 9 9 GLoC],[1 GLoC],[-] (this would fail after 10 seconds)
+
         private readonly ITestOutputHelper _output;
 
         public GLoCDurationTests(ITestOutputHelper output)
