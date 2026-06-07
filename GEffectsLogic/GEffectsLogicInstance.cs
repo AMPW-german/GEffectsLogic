@@ -140,28 +140,39 @@ namespace GEffectsLogic
                     stabilizedGreyScaleLevel = PhysModel.GreyScaleLevel;
                     stabilizedTunnelVisionLevel = PhysModel.TunnelVisionLevel;
                 }
-                else if (
-                    Math.Abs(currentGx - stabilizedGx) > 0.05 || Math.Abs(currentGy - stabilizedGy) > 0.05 || Math.Abs(currentGz - stabilizedGz) > 0.05
-                    || Math.Abs(PhysModel.BloodHead - stabilizedBloodHead) > 0.025 || Math.Abs(PhysModel.BloodCore - stabilizedBloodCore) > 0.025 || Math.Abs(PhysModel.BloodLower - stabilizedBloodLower) > 0.025
+                else if (Math.Abs(currentGx - stabilizedGx) > 0.025 || Math.Abs(currentGy - stabilizedGy) > 0.025 || Math.Abs(currentGz - stabilizedGz) > 0.025)
+                {
+                    // Separate check for Gn deviation to reduce deviation checks for the physmodel
+                    if (stable)
+                    {
+                        Logger.Log($"Instance {UniqueID} has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.", UniqueID, Logger.LogLevel.Info);
+                    }
+
+                    stabilizationTime = 0.0;
+                    stable = false;
+                    stableRecorded = false;
+                }
+                else if (!stable && (
+                    Math.Abs(PhysModel.BloodHead - stabilizedBloodHead) > 0.025 || Math.Abs(PhysModel.BloodCore - stabilizedBloodCore) > 0.025 || Math.Abs(PhysModel.BloodLower - stabilizedBloodLower) > 0.025
                     || Math.Abs(PhysModel.BrainO2 - stabilizedBrainO2) > 0.025 || Math.Abs(PhysModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 || Math.Abs(PhysModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
                     || Math.Abs(PhysModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 || Math.Abs(PhysModel.GreyScaleLevel - stabilizedGreyScaleLevel) > 0.025 || Math.Abs(PhysModel.TunnelVisionLevel - stabilizedTunnelVisionLevel) > 0.025
-                )
+                ))
                 {
                     if (stable)
                     {
                         Logger.Log($"Instance {UniqueID} has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.", UniqueID, Logger.LogLevel.Info);
                     }
 
-                    stabilizationTime = 0.0; // Reset stabilization time if G-forces deviate significantly
+                    stabilizationTime = 0.0;
                     stable = false;
                     stableRecorded = false;
                 }
                 else
                 {
                     stabilizationTime += dt;
-                    if (stabilizationTime > 10.0 && !stable)
+                    if (stabilizationTime > LogicSettings.StabilizationTimeThreshold && !stable)
                     {
-                        stable = true; // Consider stabilized if conditions are met for 10 seconds
+                        stable = true; // Consider stabilized if conditions are met for the threshold duration
                         Logger.Log($"Instance {UniqueID} has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.", UniqueID, Logger.LogLevel.Info);
                     }
                 }
@@ -199,6 +210,8 @@ namespace GEffectsLogic
 
         protected virtual void SetPhysiologicalModel() => physModel = new PhysiologicalModel(UniqueID);
 
+        // physModel will always be set by the SetPhysiologicalModel method which is called in the constructor but the compiler doesn't recognize this
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
         public GEffectsLogicInstance()
         {
             if (Logger.Instance == null) throw new NullReferenceException("Logger instance is not set. Please initialize a Logger before creating GEffectsLogicInstance instances.");
@@ -206,5 +219,6 @@ namespace GEffectsLogic
             SetPhysiologicalModel();
             instances.Add(UniqueID, this);
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     }
 }

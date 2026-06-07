@@ -2,6 +2,8 @@
 {
     public static class LogicSettings
     {
+        public static double StabilizationTimeThreshold { get; set; } = 30.0;
+
         // --- Physiological model parameters ---
 
         // Resting blood distribution (fractions, must sum to 1.0)

@@ -313,11 +313,6 @@ namespace GEffectsLogic
             consciousnessLevel = StepTowardsLinear(consciousnessLevel, targetConsciousness, tau, dt);
             consciousnessLevel = Math.Clamp(consciousnessLevel, 0.0, 1.0);
 
-            if (consciousnessLevel < 0.01)
-            {
-                consciousnessLevel = 0.0;
-            }
-
             // Visual symptoms should start from physiology, but once consciousness is collapsing
             // they should continue toward full obscuration even if perfusion briefly rebounds.
             double visualPerf = Math.Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
