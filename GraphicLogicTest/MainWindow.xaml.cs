@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Threading;
-using GraphicLogicTest.Logging;
+using GraphicLogicTest.Views;
 using LiveChartsCore;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.Measure;
@@ -19,157 +18,92 @@ namespace GraphicLogicTest
 {
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
-        private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
-        private DateTime _lastTime;
-        private bool _globalPaused;
+        private WindowViewEntry? _activeWindow;
+        public ObservableCollection<WindowViewEntry> WindowViews { get; } = [];
+        private readonly SimulationViewModel _simulationViewModel = new();
 
-        private int _instanceCounter = 1;
-
-        public ObservableCollection<SimulationInstanceViewModel> Instances { get; } = [];
-        public ObservableCollection<LogicSettingEntry> LogicSettingsEntries { get; } = [];
-
-        private double _timeMultiplier = 5.0;
-        public double TimeMultiplier { get => _timeMultiplier; set { _timeMultiplier = value; OnPropertyChanged(); } }
-
-        private int _updateMultiplier = 5;
-        public int UpdateMultiplier { get => _updateMultiplier; set { _updateMultiplier = value; OnPropertyChanged(); } }
-
-        private double _recordedTime = 30.0;
-        public double RecordedTime
-        {
-            get => _recordedTime;
-            set
-            {
-                _recordedTime = value;
-                OnPropertyChanged();
-                foreach (var vm in Instances) vm.UpdateRecordedTime(value);
-            }
-        }
+        public Control? ActiveWindowContent => _activeWindow?.Content;
 
         public MainWindow()
         {
             InitializeComponent();
             DataContext = this;
-
-            _ = new TestLogging();
-            GEffectsLogic.Logging.Logger.Instance = new LogicLogging();
-            GEffectsLogic.LogicSettings.DebugMode = true;
-
-            BuildLogicSettingsEntries();
-
-            AddInstanceInternal("[1 5 5],[25]");
-            AddInstanceInternal("[1 9 9],[21]");
-
-            _lastTime = DateTime.Now;
-            _timer.Tick += UpdateGraph;
-            _timer.Start();
+            RegisterWindowViews();
         }
 
-        private void BuildLogicSettingsEntries()
+        private void RegisterWindowViews()
         {
-            var props = typeof(GEffectsLogic.LogicSettings)
-                .GetProperties(BindingFlags.Public | BindingFlags.Static)
-                .Where(p => p.CanRead && p.CanWrite);
+            WindowViews.Clear();
 
-            foreach (var prop in props)
+            // Register new windows only here.
+            WindowViews.Add(new WindowViewEntry(0, "Simulation", new SimulationView { DataContext = _simulationViewModel }));
+            WindowViews.Add(new WindowViewEntry(1, "GLoC Plot", new SecondaryView()));
+
+            SetActiveWindow(0);
+        }
+
+        private void SetActiveWindow(int index)
+        {
+            if (index < 0 || index >= WindowViews.Count) return;
+
+            var next = WindowViews[index];
+            if (ReferenceEquals(_activeWindow, next)) return;
+
+            _activeWindow = next;
+
+            foreach (var item in WindowViews)
             {
-                LogicSettingsEntries.Add(new LogicSettingEntry(prop));
+                item.IsActive = ReferenceEquals(item, _activeWindow);
             }
+
+            OnPropertyChanged(nameof(ActiveWindowContent));
         }
 
-        private void AddInstanceInternal(string defaultSequence)
+        private void SelectWindow_Click(object? sender, RoutedEventArgs e)
         {
-            var vm = new SimulationInstanceViewModel($"Instance {_instanceCounter++}", defaultSequence, RecordedTime);
-            Instances.Add(vm);
-        }
-
-        private void UpdateGraph(object? sender, EventArgs e)
-        {
-            var now = DateTime.Now;
-            var dt = (now - _lastTime).TotalSeconds;
-            _lastTime = now;
-
-            var scaledDt = dt * TimeMultiplier;
-            var iterations = Math.Max(1, UpdateMultiplier);
-            var dtIteration = scaledDt / iterations;
-
-            for (int i = 0; i < iterations; i++)
-            {
-                foreach (var vm in Instances)
-                {
-                    if (vm.IsPaused) continue;
-                    vm.Step(dtIteration, RecordedTime);
-                }
-            }
-        }
-
-        private void GlobalStart_Click(object? sender, RoutedEventArgs e)
-        {
-            foreach (var vm in Instances)
-            {
-                if (!vm.HasStarted)
-                    vm.StartInstance();
-                else
-                    vm.IsPaused = false;
-            }
-        }
-
-        private void GlobalStop_Click(object? sender, RoutedEventArgs e)
-        {
-            foreach (var item in Instances)
-            {
-                item.IsPaused = true;
-            }
-        }
-
-        private void ResetAll_Click(object? sender, RoutedEventArgs e)
-        {
-            foreach (var vm in Instances)
-            {
-                vm.ResetModel();
-            }
-        }
-
-        private void AddInstance_Click(object? sender, RoutedEventArgs e)
-        {
-            AddInstanceInternal("[1 5 5],[25]");
-        }
-
-        private void InstanceStart_Click(object? sender, RoutedEventArgs e)
-        {
-            if (sender is Control c && c.DataContext is SimulationInstanceViewModel vm)
-            {
-                vm.StartInstance();
-            }
-        }
-
-        private void InstancePause_Click(object? sender, RoutedEventArgs e)
-        {
-            if (sender is Control c && c.DataContext is SimulationInstanceViewModel vm)
-            {
-                vm.IsPaused = !vm.IsPaused;
-            }
-        }
-
-        private void InstanceDelete_Click(object? sender, RoutedEventArgs e)
-        {
-            if (sender is Control c && c.DataContext is SimulationInstanceViewModel vm)
-            {
-                Instances.Remove(vm);
-            }
-        }
-
-        private void ToggleMetricSeries_Click(object? sender, RoutedEventArgs e)
-        {
-            if (sender is not Button b || b.DataContext is not SimulationInstanceViewModel vm) return;
+            if (sender is not Button b) return;
             if (b.Tag is null) return;
             if (!int.TryParse(b.Tag.ToString(), out var index)) return;
 
-            vm.ToggleMetricSeries(index);
+            SetActiveWindow(index);
         }
 
         public new event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    public sealed class WindowViewEntry : INotifyPropertyChanged
+    {
+        private bool _isActive;
+
+        public int Index { get; }
+        public string Title { get; }
+        public Control Content { get; }
+
+        public bool IsActive
+        {
+            get => _isActive;
+            set
+            {
+                if (_isActive == value) return;
+                _isActive = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ButtonBackground));
+            }
+        }
+
+        public string ButtonBackground => IsActive ? "#FF2D6FDB" : "#FF606060";
+
+        public WindowViewEntry(int index, string title, Control content)
+        {
+            Index = index;
+            Title = title;
+            Content = content;
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
