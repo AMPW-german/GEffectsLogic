@@ -24,15 +24,17 @@ namespace GEffectsLogic
     /// </summary>
     public class PhysiologicalModel
     {
-        // TODO - fix straining level being a fixed input
-
         // --- Compartment blood volumes (fraction of total, sum = 1.0) ---
         protected double bloodHead = LogicSettings.RestingBloodHead;
         protected double bloodCore = LogicSettings.RestingBloodCore;
         protected double bloodLower = LogicSettings.RestingBloodLower;
         protected double brainO2 = 1.0;
         protected double heartRateMultiplier = 1.0; // Baroreceptor reflex: heart rate multiplier (1.0 = resting)
-        protected double strainingLevel = 0.0; // Straining effort (0..1): pilot anti-G straining maneuver including g suit inflation
+        protected double strainingLevel = 0.0; // Straining effort (0..1): pilot anti-G straining maneuver including g-suit inflation
+        protected double strainingFatigue = 0.0; // Accumulated AGSM fatigue (0..1): degrades the human straining component
+        protected double gSuitFatigue = 0.0;     // Accumulated g-suit fatigue (0..1): degrades mechanical suit compression
+        protected double hrFatigue = 0.0;        // Cardiovascular fatigue (0..1): suppresses baroreceptor HR toward fatigueHeartRateFloor
+        protected double fatigueHeartRateFloor = LogicSettings.CardioFatigueMaxHRFloor;
         protected double perfusionLevel = 0.0;
         protected double consciousnessLevel = 1.0;
         //protected double confusionLevel = 0.0;
@@ -42,7 +44,7 @@ namespace GEffectsLogic
 
         #region Public read-only state
         public readonly int UniqueID;
-        
+
         /// <summary>Fraction of total blood in the head compartment.</summary>
         public double BloodHead => bloodHead;
 
@@ -57,6 +59,18 @@ namespace GEffectsLogic
 
         /// <summary>Current heart rate multiplier from baroreceptor reflex.</summary>
         public double HeartRateMultiplier => heartRateMultiplier;
+
+        /// <summary>Accumulated AGSM fatigue (0 = fresh, 1 = fully exhausted).</summary>
+        public double StrainingFatigue => strainingFatigue;
+
+        /// <summary>Accumulated g-suit mechanical fatigue (0 = full effectiveness, 1 = degraded to passive fraction).</summary>
+        public double GSuitFatigue => gSuitFatigue;
+
+        /// <summary>Cardiovascular fatigue accumulator (0 = fresh, 1 = fully fatigued — HR pinned to floor).</summary>
+        public double HrFatigue => hrFatigue;
+
+        /// <summary>Fixed HR floor the baroreceptor is suppressed toward when fully fatigued.</summary>
+        public double FatigueHeartRateFloor => fatigueHeartRateFloor;
 
         /// <summary>Current straining level (0 = none, 1 = max).</summary>
         //public double StrainingLevel => strainingLevel;
@@ -88,6 +102,10 @@ namespace GEffectsLogic
             brainO2 = 1.0;
             heartRateMultiplier = 1.0;
             strainingLevel = 0.0;
+            strainingFatigue = 0.0;
+            gSuitFatigue = 0.0;
+            hrFatigue = 0.0;
+            fatigueHeartRateFloor = LogicSettings.CardioFatigueMaxHRFloor;
             tunnelVisionLevel = 0.0;
             greyScaleLevel = 0.0;
             primaryColor = true;
@@ -148,8 +166,32 @@ namespace GEffectsLogic
             targetStraining = Math.Clamp(targetStraining, 0.0, 1.0);
             strainingLevel = StepTowardsLinear(strainingLevel, targetStraining, LogicSettings.StrainingTau, dt);
 
-            // Suit effect only for +Gz loading
-            double suitActivation = Math.Clamp(LogicSettings.GSuitEffectiveness * strainingLevel, 0.0, 1.0);
+            // Fatigue: straining fatigue fills while strainingLevel is high, drains slowly at rest
+            double strainingFatigueBuildRate = LogicSettings.StrainingFatigueBuildRate * strainingLevel * strainingLevel;
+            double strainingFatigueDecayRate = 1.0 / LogicSettings.StrainingFatigueRecoveryTau;
+            strainingFatigue += strainingLevel > 0.01
+                ? strainingFatigueBuildRate * dt
+                : -strainingFatigueDecayRate * strainingFatigue * dt;
+            strainingFatigue = Math.Clamp(strainingFatigue, 0.0, 1.0);
+
+            // G-suit fatigue builds more slowly (mechanical, outlasts the pilot's AGSM), also drains slowly
+            double gSuitFatigueBuildRate = LogicSettings.GSuitFatigueBuildRate * strainingLevel;
+            double gSuitFatigueDecayRate = 1.0 / LogicSettings.GSuitFatigueRecoveryTau;
+            gSuitFatigue += strainingLevel > 0.01
+                ? gSuitFatigueBuildRate * dt
+                : -gSuitFatigueDecayRate * gSuitFatigue * dt;
+            gSuitFatigue = Math.Clamp(gSuitFatigue, 0.0, 1.0);
+
+            // Effective straining: human AGSM component fully degrades with strainingFatigue
+            double effectiveStraining = strainingLevel * (1.0 - strainingFatigue);
+
+            // Effective g-suit: mechanical suit retains a passive fraction, only the active compression degrades
+            double gSuitActiveFraction = 1.0 - LogicSettings.GSuitPassiveFraction;
+            double effectiveGSuit = LogicSettings.GSuitEffectiveness *
+                (LogicSettings.GSuitPassiveFraction + (gSuitActiveFraction * (1.0 - gSuitFatigue)));
+
+            // Suit effect only for +Gz loading, coupled to effective straining
+            double suitActivation = Math.Clamp(effectiveGSuit * effectiveStraining, 0.0, 1.0);
             double suit = gzNet > 0.0 ? suitActivation : 0.0;
 
             // Mild global scaling + targeted redistribution
@@ -171,9 +213,9 @@ namespace GEffectsLogic
             double returnRate = LogicSettings.PassiveReturnRate * heartRateMultiplier;
             double lowerReturnRate = returnRate * (1.0 + (LogicSettings.GSuitLowerReturnBoostMax * suit));
 
-            bloodHead = (bloodHead + (shiftHeadRate + (returnRate * LogicSettings.RestingBloodHead)) * dt) / (1.0 + (returnRate * dt));
-            bloodCore = (bloodCore + (shiftCoreRate + (returnRate * LogicSettings.RestingBloodCore)) * dt) / (1.0 + (returnRate * dt));
-            bloodLower = (bloodLower + (shiftLowerRate + (lowerReturnRate * LogicSettings.RestingBloodLower)) * dt) / (1.0 + (lowerReturnRate * dt));
+            bloodHead = (bloodHead + ((shiftHeadRate + (returnRate * LogicSettings.RestingBloodHead)) * dt)) / (1.0 + (returnRate * dt));
+            bloodCore = (bloodCore + ((shiftCoreRate + (returnRate * LogicSettings.RestingBloodCore)) * dt)) / (1.0 + (returnRate * dt));
+            bloodLower = (bloodLower + ((shiftLowerRate + (lowerReturnRate * LogicSettings.RestingBloodLower)) * dt)) / (1.0 + (lowerReturnRate * dt));
 
             // Enforce conservation (redistribute any numerical drift)
             double total = bloodHead + bloodCore + bloodLower;
@@ -247,9 +289,23 @@ namespace GEffectsLogic
             brainO2 = StepTowardsLinear(brainO2, targetBrainO2, o2Tau, dt);
             brainO2 = Math.Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
 
-            // When head perfusion drops, heart rate increases (delayed response)
-            double targetHR = 1.0 + (LogicSettings.BaroreceptorGain * Math.Max(0, 1.0 - perfusionRatio));
-            targetHR = Math.Min(targetHR, LogicSettings.MaxHeartRateMultiplier);
+            // Cardiovascular fatigue: hrFatigue (0..1) accumulates with time × HR elevation,
+            // decays slowly at rest. It is independent of current HR so it always wins eventually.
+            double hrElevation = Math.Max(0.0, heartRateMultiplier - 1.0);
+            double hrFatigueBuildRate = LogicSettings.CardioFatigueBuildRate * hrElevation;
+            hrFatigue += hrElevation > 0.05
+                ? hrFatigueBuildRate * dt
+                : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
+            hrFatigue = Math.Clamp(hrFatigue, 0.0, 1.0);
+
+            // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
+            // system is stuck at once fully fatigued (independent of feedback).
+            // Baroreceptor target from current perfusion deficit.
+            double baroTarget = 1.0 + (LogicSettings.BaroreceptorGain * Math.Max(0, 1.0 - perfusionRatio));
+            baroTarget = Math.Min(baroTarget, LogicSettings.MaxHeartRateMultiplier);
+
+            // hrFatigue suppresses baroreceptor response: at hrFatigue=1 the target is pinned to the floor.
+            double targetHR = baroTarget + (hrFatigue * (fatigueHeartRateFloor - baroTarget));
 
             double hrTau = LogicSettings.BaroreceptorTimeConstant;
             heartRateMultiplier = StepTowardsLinear(heartRateMultiplier, targetHR, hrTau, dt);
@@ -322,7 +378,7 @@ namespace GEffectsLogic
             double visualReserve = (0.7 * visualPerf) + (0.3 * visualO2);
             double visualDeficit = 1.0 - visualReserve;
 
-            // Early/mid visual impairment path.
+            // Early/mid-visual impairment path.
             // Keeps onset before LOC, but avoids saturating too early.
             double physiologicalTunnelTarget = Math.Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
             physiologicalTunnelTarget = Math.Pow(physiologicalTunnelTarget, 2.2);

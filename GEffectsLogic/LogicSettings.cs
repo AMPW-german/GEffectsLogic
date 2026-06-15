@@ -2,7 +2,7 @@
 {
     public static class LogicSettings
     {
-        public static double StabilizationTimeThreshold { get; set; } = 30.0;
+        public static double StabilizationTimeThreshold { get; set; } = 600.0;
 
         // --- Physiological model parameters ---
 
@@ -16,7 +16,6 @@
         public static double HydrostaticShiftExponent { get; set; } = 2.2;
 
         // Keep these summing to ~1.0
-        public static double HeadCoreShiftFraction { get; set; } = 0.45;
         public static double CoreLowerShiftFraction { get; set; } = 0.55;
 
         // Passive return / compensation
@@ -98,5 +97,26 @@
         public static double GSuitGlobalShiftReductionMax { get; set; } = 0.20; // optional mild global scaling
         public static double GSuitCoreLowerReductionMax { get; set; } = 0.60;   // reduce core->lower pooling
         public static double GSuitLowerReturnBoostMax { get; set; } = 0.80;     // increase lower return
+
+        // --- Fatigue / resistance reduction ---
+
+        // Fraction of GSuitEffectiveness that the suit retains passively (hardware inflation) regardless of fatigue
+        public static double GSuitPassiveFraction { get; set; } = 0.25;
+
+        // Straining (AGSM) fatigue: rate at which the human straining component degrades
+        // Build rate is per-second at strainingLevel=1 (quadratic: actual rate = BuildRate * strainingLevel²)
+        // ~60-90s of max straining to saturate (1/BuildRate ≈ saturation time)
+        public static double StrainingFatigueBuildRate { get; set; } = 0.015; // saturates ~67s at full strain
+        public static double StrainingFatigueRecoveryTau { get; set; } = 150.0; // ~2.5 min to recover
+
+        // G-suit mechanical fatigue: slower than straining fatigue (suit outlasts the pilot's AGSM)
+        // Build rate is per-second at strainingLevel=1 (linear: actual rate = BuildRate * strainingLevel)
+        public static double GSuitFatigueBuildRate { get; set; } = 0.004;  // saturates ~250s at full strain
+        public static double GSuitFatigueRecoveryTau { get; set; } = 300.0; // ~5 min to recover
+
+        // Cardiovascular fatigue: hrFatigue (0..1) accumulates at CardioFatigueBuildRate × hrElevation per second
+        public static double CardioFatigueBuildRate { get; set; } = 0.008;  // ~125s at max HR elevation to fully fatigue
+        public static double CardioFatigueRecoveryTau { get; set; } = 240.0; // ~4 min to fully recover
+        public static double CardioFatigueMaxHRFloor { get; set; } = 1.25;  // HR floor when fully fatigued
     }
 }
