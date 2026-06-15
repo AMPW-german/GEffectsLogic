@@ -1,210 +1,40 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.Avalonia;assembly=LiveChartsCore.SkiaSharpView.Avalonia"
         xmlns:local="clr-namespace:GraphicLogicTest"
         x:Class="GraphicLogicTest.MainWindow"
         x:DataType="local:MainWindow"
         Title="GEffects Logic Test"
         Height="900"
         Width="1800">
-    <Grid Background="Black" RowDefinitions="Auto,*" ColumnDefinitions="420,*">
+    <Grid Background="Black" RowDefinitions="Auto,*,Auto">
         <TextBlock Grid.Row="0"
-                   Grid.ColumnSpan="2"
                    Margin="16,10,0,8"
                    FontSize="28"
                    FontWeight="Bold"
                    Foreground="White"
                    Text="GEffects Logic Test Bench" />
 
-        <!-- LEFT SIDEBAR -->
-        <ScrollViewer Grid.Row="1" Grid.Column="0" Margin="12,8,8,12">
-            <!-- fixed width container so all 3 expanders are identical -->
-            <StackPanel Spacing="10" Width="390">
+        <Border Grid.Row="1" Margin="0" Background="Transparent">
+            <ContentControl Content="{Binding ActiveWindowContent}"/>
+        </Border>
 
-
-                <!-- 1) Simulation Controls expander content -->
-                <Expander IsExpanded="True" Background="#FF1E1E1E" Width="390" HorizontalAlignment="Stretch">
-                    <Expander.Header>
-                        <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="Simulation Controls"/>
-                    </Expander.Header>
-
-                    <StackPanel Margin="8" Spacing="8">
-                        <!-- Time Mult with slider -->
-                        <Grid ColumnDefinitions="120,*,70" ColumnSpacing="8">
-                            <TextBlock Grid.Column="0" Foreground="White" Text="Time Mult:" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="0.1" Maximum="20" Value="{Binding TimeMultiplier, Mode=TwoWay}" VerticalAlignment="Center"/>
-                            <TextBox Grid.Column="2" Text="{Binding TimeMultiplier, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                        </Grid>
-
-                        <!-- Update Mult with slider -->
-                        <Grid ColumnDefinitions="120,*,70" ColumnSpacing="8">
-                            <TextBlock Grid.Column="0" Foreground="White" Text="Update Mult:" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="1" Maximum="30" Value="{Binding UpdateMultiplier, Mode=TwoWay}" VerticalAlignment="Center"/>
-                            <TextBox Grid.Column="2" Text="{Binding UpdateMultiplier, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                        </Grid>
-
-                        <!-- Recorded time -->
-                        <Grid ColumnDefinitions="120,*,70" ColumnSpacing="8">
-                            <TextBlock Grid.Column="0" Foreground="White" Text="Rec. Time (s):" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="5" Maximum="120" Value="{Binding RecordedTime, Mode=TwoWay}" VerticalAlignment="Center"/>
-                            <TextBox Grid.Column="2" Text="{Binding RecordedTime, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                        </Grid>
-
-                        <!-- one-line global buttons -->
-                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="6" HorizontalAlignment="Stretch">
-                            <Button Grid.Column="0"
-                                    Height="30"
-                                    HorizontalAlignment="Stretch"
-                                    Content="Global Start"
-                                    Click="GlobalStart_Click"
-                                    Background="#FF606060"
-                                    Foreground="White"/>
-                            <Button Grid.Column="1"
-                                    Height="30"
-                                    HorizontalAlignment="Stretch"
-                                    Content="Global Stop"
-                                    Click="GlobalStop_Click"
-                                    Background="#FF606060"
-                                    Foreground="White"/>
-                            <Button Grid.Column="2"
-                                    Height="30"
-                                    HorizontalAlignment="Stretch"
-                                    Content="Reset All"
-                                    Click="ResetAll_Click"
-                                    Background="#FF606060"
-                                    Foreground="White"/>
-                        </Grid>
-                    </StackPanel>
-                </Expander>
-
-                <Expander IsExpanded="False" Background="#FF1E1E1E" Width="390" HorizontalAlignment="Stretch">
-                    <Expander.Header>
-                        <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="LogicSettings.cs (all variables)"/>
-                    </Expander.Header>
-                    <ScrollViewer MaxHeight="520">
-                        <ItemsControl ItemsSource="{Binding LogicSettingsEntries}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="local:LogicSettingEntry">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4,8,4">
-                                        <TextBlock Width="240" Foreground="White" Text="{Binding Name}" VerticalAlignment="Center"/>
-                                        <TextBox Width="130" Text="{Binding ValueText, Mode=TwoWay}" Background="#FF404040" Foreground="White"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-                </Expander>
-            </StackPanel>
-        </ScrollViewer>
-
-        <!-- INSTANCES -->
-        <ScrollViewer Grid.Row="1" Grid.Column="1" Margin="8,8,12,12" VerticalScrollBarVisibility="Auto">
-            <StackPanel Spacing="10">
-                <ItemsControl ItemsSource="{Binding Instances}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="local:SimulationInstanceViewModel">
-                            <!-- 2) Instance panel template (replace the inner Border content) -->
-                            <Border Background="#FF1E1E1E"
-                                    BorderBrush="#FF505050"
-                                    BorderThickness="1"
-                                    CornerRadius="4"
-                                    Padding="10"
-                                    MinHeight="360">
-                                <!-- legend column is Auto so middle chart gets leftover width -->
-                                <Grid ColumnDefinitions="1.25*,3*,Auto" ColumnSpacing="10">
-                                    <!-- LEFT -->
-                                    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" RowSpacing="8">
-                                        <TextBlock Grid.Row="0" Foreground="LightSkyBlue" FontWeight="Bold" Text="{Binding Title}"/>
-
-                                        <!-- Sequence + buttons aligned by shared 2-col grid -->
-                                        <Grid Grid.Row="1" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" RowSpacing="6" ColumnSpacing="6">
-                                            <TextBlock Grid.Row="0" Grid.Column="0"
-                                                       Foreground="White"
-                                                       VerticalAlignment="Center"
-                                                       Text="Sequence:"/>
-
-                                            <TextBox Grid.Row="0" Grid.Column="1"
-                                                     HorizontalAlignment="Stretch"
-                                                     Text="{Binding SequenceText, Mode=TwoWay}"
-                                                     Background="#FF404040"
-                                                     Foreground="White"/>
-
-                                            <!-- buttons now fill same width as sequence textbox -->
-                                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,*,*" ColumnSpacing="6">
-                                                <Button Grid.Column="0"
-                                                        HorizontalAlignment="Stretch"
-                                                        Content="Start"
-                                                        Click="InstanceStart_Click"
-                                                        Background="#FF606060"
-                                                        Foreground="White"/>
-                                                <Button Grid.Column="1"
-                                                        HorizontalAlignment="Stretch"
-                                                        Content="{Binding PauseButtonText}"
-                                                        Click="InstancePause_Click"
-                                                        Background="#FF606060"
-                                                        Foreground="White"/>
-                                                <Button Grid.Column="2"
-                                                        HorizontalAlignment="Stretch"
-                                                        Content="Delete"
-                                                        Click="InstanceDelete_Click"
-                                                        Background="#FF803030"
-                                                        Foreground="White"/>
-                                            </Grid>
-                                        </Grid>
-
-                                        <lvc:CartesianChart Grid.Row="2"
-                                                            Series="{Binding GSeries}"
-                                                            XAxes="{Binding GXAxes}"
-                                                            YAxes="{Binding GYAxes}"
-                                                            Background="Black"
-                                                            HorizontalAlignment="Stretch"
-                                                            VerticalAlignment="Stretch"/>
-                                    </Grid>
-
-                                    <!-- MIDDLE -->
-                                    <lvc:CartesianChart Grid.Column="1"
-                                                        Series="{Binding MetricSeries}"
-                                                        XAxes="{Binding MXAxes}"
-                                                        YAxes="{Binding MYAxes}"
-                                                        Background="Black"
-                                                        HorizontalAlignment="Stretch"
-                                                        VerticalAlignment="Stretch"/>
-
-                                    <!-- RIGHT legend: Auto width, buttons stretch inside it -->
-                                    <StackPanel Grid.Column="2"
-                                                Spacing="6"
-                                                HorizontalAlignment="Left"
-                                                MinWidth="190">
-                                        <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="Legend / Visibility"/>
-                                        <Button HorizontalAlignment="Stretch" Content="Consciousness" Click="ToggleMetricSeries_Click" Tag="0"
-                                                Background="{Binding Legend0Background}" Foreground="{Binding Legend0Foreground}"/>
-                                        <Button HorizontalAlignment="Stretch" Content="BloodHead" Click="ToggleMetricSeries_Click" Tag="1"
-                                                Background="{Binding Legend1Background}" Foreground="{Binding Legend1Foreground}"/>
-                                        <Button HorizontalAlignment="Stretch" Content="BrainO2" Click="ToggleMetricSeries_Click" Tag="2"
-                                                Background="{Binding Legend2Background}" Foreground="{Binding Legend2Foreground}"/>
-                                        <Button HorizontalAlignment="Stretch" Content="GreyScale" Click="ToggleMetricSeries_Click" Tag="3"
-                                                Background="{Binding Legend3Background}" Foreground="{Binding Legend3Foreground}"/>
-                                        <Button HorizontalAlignment="Stretch" Content="TunnelVision" Click="ToggleMetricSeries_Click" Tag="4"
-                                                Background="{Binding Legend4Background}" Foreground="{Binding Legend4Foreground}"/>
-                                        <Button HorizontalAlignment="Stretch" Content="Perfusion" Click="ToggleMetricSeries_Click" Tag="5"
-                                                Background="{Binding Legend5Background}" Foreground="{Binding Legend5Foreground}"/>
-                                        <Button HorizontalAlignment="Stretch" Content="HeartRateMultiplier" Click="ToggleMetricSeries_Click" Tag="6"
-                                                Background="{Binding Legend6Background}" Foreground="{Binding Legend6Foreground}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <Button Width="160"
-                        Height="34"
-                        Content="+ Add Instance"
-                        HorizontalAlignment="Left"
-                        Click="AddInstance_Click"
-                        Background="#FF606060"
-                        Foreground="White"/>
-            </StackPanel>
-        </ScrollViewer>
+        <Border Grid.Row="2" Background="#FF151515" BorderBrush="#FF505050" BorderThickness="1,1,1,0" Padding="10,8">
+            <ItemsControl ItemsSource="{Binding WindowViews}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Content="{Binding Title}"
+                                Tag="{Binding Index}"
+                                Click="SelectWindow_Click"
+                                Background="{Binding ButtonBackground}"
+                                Foreground="White"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
     </Grid>
 </Window>
