@@ -113,9 +113,16 @@ namespace GEffectsLogic
             perfusionLevel = 0.0;
         }
 
+#if NET481
+        public static double Clamp(double value, double min, double max) => Math.Max(Math.Min(value, max), min);
+#else
+        public static double Clamp(double value, double min, double max) => Math.Clamp(value, min, max);
+#endif
+
+
         public static double SmoothStep(double x)
         {
-            x = Math.Clamp(x, 0.0, 1.0);
+            x = Clamp(x, 0.0, 1.0);
             return x * x * (3.0 - (2.0 * x));
         }
 
@@ -163,7 +170,7 @@ namespace GEffectsLogic
                 targetStraining = (gz - LogicSettings.StrainingStartGz) /
                     (LogicSettings.StrainingFullGz - LogicSettings.StrainingStartGz);
             }
-            targetStraining = Math.Clamp(targetStraining, 0.0, 1.0);
+            targetStraining = Clamp(targetStraining, 0.0, 1.0);
             strainingLevel = StepTowardsLinear(strainingLevel, targetStraining, LogicSettings.StrainingTau, dt);
 
             // Fatigue: straining fatigue fills while strainingLevel is high, drains slowly at rest
@@ -172,7 +179,7 @@ namespace GEffectsLogic
             strainingFatigue += strainingLevel > 0.01
                 ? strainingFatigueBuildRate * dt
                 : -strainingFatigueDecayRate * strainingFatigue * dt;
-            strainingFatigue = Math.Clamp(strainingFatigue, 0.0, 1.0);
+            strainingFatigue = Clamp(strainingFatigue, 0.0, 1.0);
 
             // G-suit fatigue builds more slowly (mechanical, outlasts the pilot's AGSM), also drains slowly
             double gSuitFatigueBuildRate = LogicSettings.GSuitFatigueBuildRate * strainingLevel;
@@ -180,7 +187,7 @@ namespace GEffectsLogic
             gSuitFatigue += strainingLevel > 0.01
                 ? gSuitFatigueBuildRate * dt
                 : -gSuitFatigueDecayRate * gSuitFatigue * dt;
-            gSuitFatigue = Math.Clamp(gSuitFatigue, 0.0, 1.0);
+            gSuitFatigue = Clamp(gSuitFatigue, 0.0, 1.0);
 
             // Effective straining: human AGSM component fully degrades with strainingFatigue
             double effectiveStraining = strainingLevel * (1.0 - strainingFatigue);
@@ -191,13 +198,13 @@ namespace GEffectsLogic
                 (LogicSettings.GSuitPassiveFraction + (gSuitActiveFraction * (1.0 - gSuitFatigue)));
 
             // Suit effect only for +Gz loading, coupled to effective straining
-            double suitActivation = Math.Clamp(effectiveGSuit * effectiveStraining, 0.0, 1.0);
+            double suitActivation = Clamp(effectiveGSuit * effectiveStraining, 0.0, 1.0);
             double suit = gzNet > 0.0 ? suitActivation : 0.0;
 
             // Mild global scaling + targeted redistribution
             double effectiveGzShift = gzNetScaled * (1.0 - (LogicSettings.GSuitGlobalShiftReductionMax * suit));
 
-            double coreLowerFractionEffective = Math.Clamp(
+            double coreLowerFractionEffective = Clamp(
                 LogicSettings.CoreLowerShiftFraction * (1.0 - (LogicSettings.GSuitCoreLowerReductionMax * suit)),
                 0.05, 0.95);
 
@@ -255,23 +262,23 @@ namespace GEffectsLogic
 
             // O2 delivery depends on head blood volume relative to resting
             double perfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
-            perfusionRatio = Math.Clamp(perfusionRatio, 0.0, 1.0);
+            perfusionRatio = Clamp(perfusionRatio, 0.0, 1.0);
 
             // Perfusion shaping
             double s = LogicSettings.O2PerfusionCurveStrength;
             double pivot = LogicSettings.O2PerfusionCurvePivot;
             double shapedPerfusion =
                 perfusionRatio - (s * perfusionRatio * (1.0 - perfusionRatio) * (perfusionRatio - pivot));
-            shapedPerfusion = Math.Clamp(shapedPerfusion, 0.0, 1.0);
+            shapedPerfusion = Clamp(shapedPerfusion, 0.0, 1.0);
 
             // convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
             double effectiveDelivery = Math.Pow(shapedPerfusion, LogicSettings.BrainO2PerfusionExponent);
 
-            double threshold = Math.Clamp(LogicSettings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
+            double threshold = Clamp(LogicSettings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
             double hypoperfusion = Math.Max(0.0, threshold - shapedPerfusion) / threshold;
             double hypoperfusionPenalty = LogicSettings.BrainO2HypoperfusionPenaltyStrength * hypoperfusion * hypoperfusion;
 
-            effectiveDelivery = Math.Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0);
+            effectiveDelivery = Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0);
 
             // Target O2 is bounded by floor, then approached with time constants
             double targetBrainO2 = LogicSettings.BrainO2Floor + ((1.0 - LogicSettings.BrainO2Floor) * effectiveDelivery);
@@ -287,7 +294,7 @@ namespace GEffectsLogic
                 : LogicSettings.BrainO2RecoveryTau;
 
             brainO2 = StepTowardsLinear(brainO2, targetBrainO2, o2Tau, dt);
-            brainO2 = Math.Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
+            brainO2 = Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
 
             // Cardiovascular fatigue: hrFatigue (0..1) accumulates with time × HR elevation,
             // decays slowly at rest. It is independent of current HR so it always wins eventually.
@@ -296,7 +303,7 @@ namespace GEffectsLogic
             hrFatigue += hrElevation > 0.05
                 ? hrFatigueBuildRate * dt
                 : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
-            hrFatigue = Math.Clamp(hrFatigue, 0.0, 1.0);
+            hrFatigue = Clamp(hrFatigue, 0.0, 1.0);
 
             // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
             // system is stuck at once fully fatigued (independent of feedback).
@@ -314,15 +321,15 @@ namespace GEffectsLogic
             primaryColor = bloodHead <= LogicSettings.RestingBloodHead;
 
             // Map brain O2 to consciousness via smooth step
-            double o2Normalized = Math.Clamp(
+            double o2Normalized = Clamp(
                 (BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
                 0.0, 1.0);
 
-            double perfRatio = Math.Clamp(bloodHead / LogicSettings.RestingBloodHead, 0.0, 1.0);
+            double perfRatio = Clamp(bloodHead / LogicSettings.RestingBloodHead, 0.0, 1.0);
             perfusionLevel = perfRatio;
 
             // Use soft minimum for consciousness mapping (not blackout threshold)
-            double perfNorm = Math.Clamp(
+            double perfNorm = Clamp(
                 (perfRatio - LogicSettings.ConsciousnessPerfusionSoftMinRatio) /
                 (1.0 - LogicSettings.ConsciousnessPerfusionSoftMinRatio),
                 0.0, 1.0);
@@ -353,10 +360,10 @@ namespace GEffectsLogic
                 ((LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity);
 
             // Critical collapse accelerator (mostly affects extreme +G)
-            double criticalPerf = 1.0 - Math.Clamp(
+            double criticalPerf = 1.0 - Clamp(
                 perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
 
-            double criticalO2 = 1.0 - Math.Clamp(
+            double criticalO2 = 1.0 - Clamp(
                 o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
 
             double critical = Math.Max(criticalPerf, criticalO2);
@@ -367,12 +374,12 @@ namespace GEffectsLogic
             double tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
 
             consciousnessLevel = StepTowardsLinear(consciousnessLevel, targetConsciousness, tau, dt);
-            consciousnessLevel = Math.Clamp(consciousnessLevel, 0.0, 1.0);
+            consciousnessLevel = Clamp(consciousnessLevel, 0.0, 1.0);
 
             // Visual symptoms should start from physiology, but once consciousness is collapsing
             // they should continue toward full obscuration even if perfusion briefly rebounds.
-            double visualPerf = Math.Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
-            double visualO2 = Math.Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
+            double visualPerf = Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
+            double visualO2 = Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
 
             // Fast visual reserve from physiology.
             double visualReserve = (0.7 * visualPerf) + (0.3 * visualO2);
@@ -380,12 +387,12 @@ namespace GEffectsLogic
 
             // Early/mid-visual impairment path.
             // Keeps onset before LOC, but avoids saturating too early.
-            double physiologicalTunnelTarget = Math.Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
+            double physiologicalTunnelTarget = Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
             physiologicalTunnelTarget = Math.Pow(physiologicalTunnelTarget, 2.2);
 
             // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
             // This also reduces sensitivity to short perfusion recoveries.
-            double blackoutTunnelTarget = Math.Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
+            double blackoutTunnelTarget = Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
             blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 2);
 
             // Use whichever impairment is worse.
@@ -403,11 +410,11 @@ namespace GEffectsLogic
             tunnelVisionLevel = StepTowardsLinear(tunnelVisionLevel, tunnelTarget, tunnelTau, dt);
             greyScaleLevel = StepTowardsLinear(greyScaleLevel, greyTarget, greyTau, dt);
 
-            tunnelVisionLevel = Math.Clamp(tunnelVisionLevel, 0.0, 1.0);
-            greyScaleLevel = Math.Clamp(greyScaleLevel, 0.0, 1.0);
+            tunnelVisionLevel = Clamp(tunnelVisionLevel, 0.0, 1.0);
+            greyScaleLevel = Clamp(greyScaleLevel, 0.0, 1.0);
 
             // Hard guarantee: only enforce near total visual loss when consciousness is very close to zero.
-            double nearLoc = Math.Clamp((0.12 - consciousnessLevel) / 0.12, 0.0, 1.0);
+            double nearLoc = Clamp((0.12 - consciousnessLevel) / 0.12, 0.0, 1.0);
             double tunnelFloorFromConsciousness = SmoothStep(nearLoc);
 
             tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
