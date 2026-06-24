@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using GraphicLogicTest.Views;
+using GraphicLogicTest.Views.SimulationView;
 using LiveChartsCore;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.Measure;
@@ -13,6 +13,8 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using GraphicLogicTest.Logging;
+using GraphicLogicTest.Views.GLoCPlot;
 
 namespace GraphicLogicTest
 {
@@ -20,12 +22,18 @@ namespace GraphicLogicTest
     {
         private WindowViewEntry? _activeWindow;
         public ObservableCollection<WindowViewEntry> WindowViews { get; } = [];
-        private readonly SimulationViewModel _simulationViewModel = new();
+        private readonly SimulationViewModel _simulationViewModel;
 
         public Control? ActiveWindowContent => _activeWindow?.Content;
 
         public MainWindow()
         {
+            _ = new TestLogging();
+            GEffectsLogic.Logging.Logger.Instance = new LogicLogging();
+            GEffectsLogic.LogicSettings.DebugMode = true;
+            
+            _simulationViewModel = new SimulationViewModel();
+            
             InitializeComponent();
             DataContext = this;
             RegisterWindowViews();
@@ -37,7 +45,7 @@ namespace GraphicLogicTest
 
             // Register new windows only here.
             WindowViews.Add(new WindowViewEntry(0, "Simulation", new SimulationView { DataContext = _simulationViewModel }));
-            WindowViews.Add(new WindowViewEntry(1, "GLoC Plot", new SecondaryView()));
+            WindowViews.Add(new WindowViewEntry(1, "GLoC Plot", new GLoCPlot()));
 
             SetActiveWindow(0);
         }

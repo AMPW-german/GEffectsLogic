@@ -23,28 +23,31 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    - name: Build Release (library)
-      run: dotnet build GEffectsLogic/GEffectsLogic.csproj -c Release --no-restore
-
-    - name: Build Debug (library)
-      run: dotnet build GEffectsLogic/GEffectsLogic.csproj -c Debug --no-restore
-
-    - name: Upload Release DLL artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: GEffectsLogic.dll
-        path: GEffectsLogic/bin/Release/net10.0/GEffectsLogic.dll
-
-    - name: Prepare Debug DLL name
+    - name: Build all configurations
       run: |
-        mkdir -p artifacts/debug
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.dll artifacts/debug/GEffectsLogic.dev.dll
+        dotnet build GEffectsLogic/GEffectsLogic.csproj -c Release --no-restore
+        dotnet build GEffectsLogic/GEffectsLogic.csproj -c Debug --no-restore
 
-    - name: Upload Debug DLL artifact
+    - name: Collect artifacts
+      run: |
+        mkdir -p artifacts/net10.0/release
+        mkdir -p artifacts/net10.0/debug
+        mkdir -p artifacts/net481/release
+        mkdir -p artifacts/net481/debug
+
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.dll  artifacts/net10.0/release/
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.dll    artifacts/net10.0/debug/
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.pdb    artifacts/net10.0/debug/
+
+        cp GEffectsLogic/bin/Release/net481/GEffectsLogic.dll   artifacts/net481/release/
+        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic.dll     artifacts/net481/debug/
+        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic.pdb     artifacts/net481/debug/
+
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: GEffectsLogic.dev.dll
-        path: artifacts/debug/GEffectsLogic.dev.dll
+        name: GEffectsLogic
+        path: artifacts/
 
   test:
     runs-on: ubuntu-latest

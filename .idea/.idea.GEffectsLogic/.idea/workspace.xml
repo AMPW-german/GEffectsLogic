@@ -5,22 +5,11 @@
     <projectFile profileName="StarMapStart">GEffectsLogic/GEffectsLogic.csproj</projectFile>
     <projectFile>GraphicLogicTest/GraphicLogicTest.csproj</projectFile>
   </component>
+  <component name="CMakeProjectFlavorService">
+    <option name="flavorId" value="CMakePlainProjectFlavor" />
+  </component>
   <component name="ChangeListManager">
-    <list default="true" id="d23d968c-45d5-4bd6-9369-c6843b2a92d2" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/GEffectsLogic/*Undefined*Content/KSAGEffects/GEffectsLogic.deps.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/GEffectsLogic/*Undefined*Content/KSAGEffects/GEffectsLogic.dll" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/GraphicLogicTest/App.axaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.axaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/GraphicLogicTest/Program.cs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GEffectsLogic.slnx" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic.slnx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/App.xaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/App.xaml.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/App.xaml.cs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/AssemblyInfo.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/AssemblyInfo.cs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/GraphicLogicTest.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/GraphicLogicTest.csproj" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.xaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.xaml.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.xaml.cs" afterDir="false" />
-    </list>
+    <list default="true" id="d23d968c-45d5-4bd6-9369-c6843b2a92d2" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -30,7 +19,17 @@
     <option name="firstShow" value="false" />
   </component>
   <component name="Git.Settings">
+    <option name="INCOMING_COMMITS_CHECK_STRATEGY" value="FETCH" />
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$APPLICATION_CONFIG_DIR$/resharper-host/SourcesCache/38117f7e4bb35bfac079ed84d7aae1c7bff1bb847552dcaac73d75a77d9dbc/INotifyPropertyChanged.cs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/GraphicLogicTest/Views/SimulationView/SimulationView.axaml.cs" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="MetaFilesCheckinStateConfiguration" checkMetaFiles="true" />
   <component name="ProjectColorInfo">{
@@ -42,25 +41,32 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    ".NET Project.GraphicLogicTest.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.cidr.known.project.marker": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.readMode.enableVisualFormatting": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "cidr.known.project.marker": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "main",
-    "last_opened_file_path": "/Users/LINBASS/repos/GEffectsLogic",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.lookFeel",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;.NET Project.GraphicLogicTest.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;XThreadsFramesViewSplitterKey&quot;: &quot;0.3137255&quot;,
+    &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;develop-GLoCPlot&quot;,
+    &quot;git.auto.fetch.suggestion.counter&quot;: &quot;1&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/LINBASS/repos/GEffectsLogic&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;vcs.Git&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  },
+  &quot;keyToStringList&quot;: {
+    &quot;com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File&quot;: [
+      &quot;TEXT&quot;
+    ]
   }
-}]]></component>
+}</component>
   <component name="RunManager" selected=".NET Project.GraphicLogicTest">
     <configuration name="GraphicLogicTest" type="DotNetProject" factoryName=".NET Project">
       <option name="EXE_PATH" value="" />
@@ -126,7 +132,38 @@
       <workItem from="1776688634423" duration="93000" />
       <workItem from="1776688743627" duration="95000" />
       <workItem from="1776690939946" duration="788000" />
+      <workItem from="1780984330823" duration="3609000" />
+      <workItem from="1781070378028" duration="1928000" />
+      <workItem from="1781077414675" duration="3377000" />
+      <workItem from="1781117747271" duration="43000" />
+      <workItem from="1781594982878" duration="9102000" />
+      <workItem from="1782280369654" duration="2508000" />
     </task>
+    <task id="LOCAL-00001" summary="- Add time to GLoC with constant acceleration plot&#10;- Add multi tab support to the GraphicLogicTest window">
+      <option name="closed" value="true" />
+      <created>1782282281457</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1782282281457</updated>
+    </task>
+    <task id="LOCAL-00002" summary="- Add time to GLoC with constant acceleration plot&#10;- Add multi tab support to the GraphicLogicTest window">
+      <option name="closed" value="true" />
+      <created>1782282890523</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1782282890523</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Test">
+      <option name="closed" value="true" />
+      <created>1782286897653</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1782286897653</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -134,8 +171,23 @@
   </component>
   <component name="UnityCheckinConfiguration" checkUnsavedScenes="true" />
   <component name="UnityProjectConfiguration" hasMinimizedUI="false" />
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
   <component name="VcsManagerConfiguration">
     <option name="CLEAR_INITIAL_COMMIT_MESSAGE" value="true" />
+    <MESSAGE value="- Add time to GLoC with constant acceleration plot&#10;- Add multi tab support to the GraphicLogicTest window" />
+    <MESSAGE value="fixup! - Add time to GLoC with constant acceleration plot - Add multi tab support to the GraphicLogicTest window" />
+    <MESSAGE value="Test" />
+    <option name="LAST_COMMIT_MESSAGE" value="Test" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

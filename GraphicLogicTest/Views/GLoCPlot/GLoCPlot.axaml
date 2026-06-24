@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+			 xmlns:avalonia="clr-namespace:LiveChartsCore.SkiaSharpView.Avalonia;assembly=LiveChartsCore.SkiaSharpView.Avalonia"
+			 xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.Avalonia;assembly=LiveChartsCore.SkiaSharpView.Avalonia"
+			 xmlns:gloc="clr-namespace:GraphicLogicTest.Views.GLoCPlot"
+			 x:Class="GraphicLogicTest.Views.GLoCPlot.GLoCPlot"
+			 x:DataType="gloc:GLoCPlot">
+	<Grid ColumnDefinitions="200,*">
+
+		<!-- Left panel -->
+		<Border Grid.Column="0"
+				Margin="12,8,6,12"
+				Padding="10"
+				Background="#FF1E1E1E"
+				BorderBrush="#FF505050"
+				BorderThickness="1"
+				CornerRadius="4">
+			<StackPanel Spacing="8" VerticalAlignment="Top">
+				<StackPanel Spacing="4">
+					<TextBlock Text="Start G" Foreground="#FFCCCCCC" FontSize="12"/>
+					<TextBox Text="{Binding StartG}" />
+				</StackPanel>
+				<StackPanel Spacing="4">
+					<TextBlock Text="End G" Foreground="#FFCCCCCC" FontSize="12"/>
+					<TextBox Text="{Binding EndG}" />
+				</StackPanel>
+				<StackPanel Spacing="4">
+					<TextBlock Text="Iterations" Foreground="#FFCCCCCC" FontSize="12"/>
+					<TextBox Text="{Binding Iterations}" />
+				</StackPanel>
+				<Button Content="Start"
+						HorizontalAlignment="Stretch"
+						HorizontalContentAlignment="Center"
+						Click="OnStartClicked" />
+			</StackPanel>
+		</Border>
+
+		<!-- Chart -->
+		<lvc:CartesianChart Grid.Column="1"
+							Margin="6,8,12,12"
+							HorizontalAlignment="Stretch"
+							VerticalAlignment="Stretch"
+							Background="Black"
+							Series="{Binding Series}"
+							XAxes="{Binding XAxes}"
+							YAxes="{Binding YAxes}" />
+
+	</Grid>
+</UserControl>
