@@ -21,4 +21,15 @@
     <ProjectReference Include="..\GEffectsLogic\GEffectsLogic.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Update="Views\SimulationView\SimulationView.axaml.cs">
+      <DependentUpon>SimulationView.axaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="Views\GLoCPlot\GLoCPlot.axaml.cs">
+      <DependentUpon>SecondaryView.axaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
+
 </Project>

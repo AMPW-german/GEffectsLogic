@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 
-namespace GraphicLogicTest.Views
+namespace GraphicLogicTest.Views.SimulationView
 {
     public partial class SimulationView : UserControl
     {

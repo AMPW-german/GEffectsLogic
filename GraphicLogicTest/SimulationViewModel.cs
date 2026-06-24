@@ -38,10 +38,6 @@ namespace GraphicLogicTest
 
         public SimulationViewModel()
         {
-            _ = new TestLogging();
-            GEffectsLogic.Logging.Logger.Instance = new LogicLogging();
-            GEffectsLogic.LogicSettings.DebugMode = true;
-
             BuildLogicSettingsEntries();
 
             AddInstanceInternal("[1 5 5],[25]");
