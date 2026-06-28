@@ -94,14 +94,16 @@ namespace GEffectsLogic
 #if PERFDEBUG
             var sw = Stopwatch.StartNew();
 #endif
-            List<double> dtList = new();
+            List<double> dtList = [];
 
-            if (deltaTime > 1) { 
+            if (deltaTime > 1)
+            {
                 int stepCount = (int)deltaTime * 2;
                 dtList.AddRange(Enumerable.Repeat(deltaTime / stepCount, stepCount));
                 if (!stable) Logger.Log($"High deltaTime detected: {deltaTime}s - splitting it into {stepCount} steps of {deltaTime / stepCount}s each", UniqueID, Logger.LogLevel.Warning);
             }
-            else if (deltaTime <= 0) { 
+            else if (deltaTime <= 0)
+            {
                 Logger.Log($"Negative deltaTime detected: {deltaTime}s", UniqueID, Logger.LogLevel.Error);
             }
             else
