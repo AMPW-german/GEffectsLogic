@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -8,6 +7,7 @@ using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
+using System.Collections.ObjectModel;
 
 namespace GraphicLogicTest.Views.GLoCPlot
 {
@@ -19,7 +19,7 @@ namespace GraphicLogicTest.Views.GLoCPlot
         public string EndG { get; set; } = "9";
         public string Iterations { get; set; } = "10";
 
-        private ObservableCollection<ObservablePoint> GLoCPoints = new();
+        private ObservableCollection<ObservablePoint> GLoCPoints = [];
 
         public List<ISeries> Series { get; private set; }
 
@@ -57,8 +57,8 @@ namespace GraphicLogicTest.Views.GLoCPlot
                 Name = "GAcceleration",
                 Values = new ObservableCollection<ObservablePoint>()
                 {
-                    new ObservablePoint(0.0, startG),
-                    new ObservablePoint(endTime, endG)
+                    new(0.0, startG),
+                    new(endTime, endG)
                 },
                 GeometrySize = 0,
                 Stroke = new SolidColorPaint(SKColors.DarkViolet),

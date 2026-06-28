@@ -1,5 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using GraphicLogicTest.Logging;
+using GraphicLogicTest.Views.GLoCPlot;
 using GraphicLogicTest.Views.SimulationView;
 using LiveChartsCore;
 using LiveChartsCore.Defaults;
@@ -13,8 +15,6 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
-using GraphicLogicTest.Logging;
-using GraphicLogicTest.Views.GLoCPlot;
 
 namespace GraphicLogicTest
 {
@@ -31,9 +31,9 @@ namespace GraphicLogicTest
             _ = new TestLogging();
             GEffectsLogic.Logging.Logger.Instance = new LogicLogging();
             GEffectsLogic.LogicSettings.DebugMode = true;
-            
+
             _simulationViewModel = new SimulationViewModel();
-            
+
             InitializeComponent();
             DataContext = this;
             RegisterWindowViews();

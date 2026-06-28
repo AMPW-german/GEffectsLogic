@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using GraphicLogicTest.Logging;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Reflection;
