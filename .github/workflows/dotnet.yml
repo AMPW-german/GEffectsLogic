@@ -1,12 +1,11 @@
 # This workflow will build and test a .NET project and publish DLL artifacts.
 
-name: .NET
+name: Build
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
 
 jobs:
   build-artifacts:
@@ -36,10 +35,14 @@ jobs:
         mkdir -p artifacts/net481/debug
 
         cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.dll  artifacts/net10.0/release/
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.deps.json artifacts/net10.0/release/
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.pdb  artifacts/net10.0/release/
         cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.dll    artifacts/net10.0/debug/
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.deps.json artifacts/net10.0/debug/
         cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.pdb    artifacts/net10.0/debug/
 
         cp GEffectsLogic/bin/Release/net481/GEffectsLogic.dll   artifacts/net481/release/
+        cp GEffectsLogic/bin/Release/net481/GEffectsLogic.pdb   artifacts/net481/release/
         cp GEffectsLogic/bin/Debug/net481/GEffectsLogic.dll     artifacts/net481/debug/
         cp GEffectsLogic/bin/Debug/net481/GEffectsLogic.pdb     artifacts/net481/debug/
 
