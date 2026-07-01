@@ -29,7 +29,6 @@ jobs:
 
     - name: Detect VersionPrefix change on main push
       id: versionprefix
-      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       shell: bash
       run: |
         version=v$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' GEffectsLogic/GEffectsLogic.csproj)
@@ -78,12 +77,14 @@ jobs:
         version="${{ steps.versionprefix.outputs.version }}"
         short_hash="${GITHUB_SHA::7}"
 
-        if [ "$CONFIGURATION" = "Debug" ]; then
-          artifact_name="GEffectsLogic-${version}-${short_hash}-debug"
-        elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ] && [ "${{ steps.versionprefix.outputs.changed }}" = "true" ]; then
-          artifact_name="GEffectsLogic-${version}"
+        if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+          if [ "${{ steps.versionprefix.outputs.changed }}" = "true" ]; then
+            artifact_name="GEffectsLogic-${version}"
+          else
+            artifact_name="GEffectsLogic-${version}-${short_hash}"
+          fi
         else
-          artifact_name="GEffectsLogic-${version}-${short_hash}"
+          artifact_name="GEffectsLogic-${version}-${short_hash}-debug"
         fi
 
         echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
