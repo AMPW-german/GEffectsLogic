@@ -15,6 +15,7 @@ jobs:
       versionprefix_changed: ${{ steps.versionprefix.outputs.changed }}
       version: ${{ steps.versionprefix.outputs.version }}
       artifact_name: ${{ steps.artifact-name.outputs.name }}
+      release_needed: ${{ steps.release-check.outputs.release_needed }}
     
     steps:
     - uses: actions/checkout@v4
@@ -44,6 +45,32 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
         else
           echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check if current version needs release
+      id: release-check
+      shell: bash
+      run: |
+        if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
+          echo "release_needed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        new_version="${{ steps.versionprefix.outputs.version }}"
+        release_response=$(curl -sS -L \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -H "X-GitHub-Api-Version: 2026-03-10" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/latest")
+
+        current_version=$(echo "$release_response" | jq -r '.tag_name // empty')
+
+        if [ -z "$current_version" ]; then
+          echo "release_needed=true" >> "$GITHUB_OUTPUT"
+        elif [ "$new_version" != "$current_version" ]; then
+          echo "release_needed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "release_needed=false" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Build all configurations
@@ -119,22 +146,8 @@ jobs:
   release-artifacts:
     runs-on: ubuntu-slim
     needs: build-artifacts
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-artifacts.outputs.versionprefix_changed == 'true' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-artifacts.outputs.release_needed == 'true' }}
     steps:
-      - name: Verify version change
-        shell: bash
-        run: |
-          new_version="${{ needs.build-artifacts.outputs.version }}"
-          current_version=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -oP '"tag_name": "\K(.*)(?=")')
-
-          echo "csproj version: $new_version"
-          echo "latest release version: $current_version"
-
-          if [ "$new_version" = "$current_version" ]; then
-            echo "VersionPrefix has not changed since the last release. Skipping release."
-            exit 1
-          fi
-
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
