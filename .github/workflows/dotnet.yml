@@ -1,6 +1,7 @@
-# This workflow will build and test a .NET project and publish DLL artifacts.
+name: GEffectsLogic CI
 
-name: Build
+permissions:
+  contents: write
 
 on:
   push:
@@ -9,8 +10,12 @@ on:
 
 jobs:
   build-artifacts:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-slim
+    outputs:
+      versionprefix_changed: ${{ steps.versionprefix.outputs.changed }}
+      version: ${{ steps.versionprefix.outputs.version }}
+      artifact_name: ${{ steps.artifact-name.outputs.name }}
+    
     steps:
     - uses: actions/checkout@v4
 
@@ -21,6 +26,26 @@ jobs:
 
     - name: Restore dependencies
       run: dotnet restore
+
+    - name: Detect VersionPrefix change on main push
+      id: versionprefix
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      shell: bash
+      run: |
+        version=v$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' GEffectsLogic/GEffectsLogic.csproj)
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        
+        before="${{ github.event.before }}"
+        if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        
+        if git diff "$before" "${{ github.sha }}" -- GEffectsLogic/GEffectsLogic.csproj | grep -q 'VersionPrefix'; then
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Build all configurations
       run: |
@@ -34,22 +59,39 @@ jobs:
         mkdir -p artifacts/net481/release
         mkdir -p artifacts/net481/debug
 
-        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.dll  artifacts/net10.0/release/
-        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.deps.json artifacts/net10.0/release/
-        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic.pdb  artifacts/net10.0/release/
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.dll    artifacts/net10.0/debug/
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.deps.json artifacts/net10.0/debug/
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic.pdb    artifacts/net10.0/debug/
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.dll  artifacts/net10.0/release/
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/release/
+        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.pdb  artifacts/net10.0/release/
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.dll    artifacts/net10.0/debug/
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/debug/
+        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.pdb    artifacts/net10.0/debug/
 
-        cp GEffectsLogic/bin/Release/net481/GEffectsLogic.dll   artifacts/net481/release/
-        cp GEffectsLogic/bin/Release/net481/GEffectsLogic.pdb   artifacts/net481/release/
-        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic.dll     artifacts/net481/debug/
-        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic.pdb     artifacts/net481/debug/
+        cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.dll   artifacts/net481/release/
+        cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.pdb   artifacts/net481/release/
+        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.dll     artifacts/net481/debug/
+        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.pdb     artifacts/net481/debug/
+
+    - name: Compute artifact name
+      id: artifact-name
+      shell: bash
+      run: |
+        version="${{ steps.versionprefix.outputs.version }}"
+        short_hash="${GITHUB_SHA::7}"
+
+        if [ "$CONFIGURATION" = "Debug" ]; then
+          artifact_name="GEffectsLogic-${version}-${short_hash}-debug"
+        elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ] && [ "${{ steps.versionprefix.outputs.changed }}" = "true" ]; then
+          artifact_name="GEffectsLogic-${version}"
+        else
+          artifact_name="GEffectsLogic-${version}-${short_hash}"
+        fi
+
+        echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: GEffectsLogic
+        name: ${{ steps.artifact-name.outputs.name }}
         path: artifacts/
 
   test:
@@ -72,3 +114,122 @@ jobs:
 
     - name: Test (Debug)
       run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal
+
+  release-artifacts:
+    runs-on: ubuntu-slim
+    needs: build-artifacts
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-artifacts.outputs.versionprefix_changed == 'true' }}
+    steps:
+      - name: Verify version change
+        shell: bash
+        run: |
+          new_version="${{ needs.build-artifacts.outputs.version }}"
+          current_version=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -oP '"tag_name": "\K(.*)(?=")')
+
+          echo "csproj version: $new_version"
+          echo "latest release version: $current_version"
+
+          if [ "$new_version" = "$current_version" ]; then
+            echo "VersionPrefix has not changed since the last release. Skipping release."
+            exit 1
+          fi
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-artifacts.outputs.artifact_name }}
+          path: release-assets
+
+      - name: Zip release payload
+        shell: bash
+        run: |
+          artifact_name="${{ needs.build-artifacts.outputs.artifact_name }}"
+          cd release-assets
+          zip -r "../${artifact_name}.zip" .
+
+      - name: Create GitHub release
+        id: github-release
+        shell: bash
+        run: |
+          json_payload=$(jq -n \
+            --arg tag_name "${{ needs.build-artifacts.outputs.version }}" \
+            --arg name "${{ needs.build-artifacts.outputs.version }}" \
+            '{ tag_name: $tag_name, name: $name, draft: true, prerelease: false, generate_release_notes: true }')
+
+          echo "Creating release with payload: $json_payload"
+          response_file=$(mktemp)
+          http_status=$(curl -sS -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            https://api.github.com/repos/${{ github.repository }}/releases \
+            -d "$json_payload" \
+            -o "$response_file" \
+            -w "%{http_code}")
+
+          if [ "$http_status" -ne 201 ]; then
+            echo "Failed to create release. Expected HTTP 201, got HTTP $http_status." >&2
+            cat "$response_file" >&2
+            exit 1
+          fi
+
+          upload_url=$(jq -r '.upload_url' "$response_file")
+          if [ -z "$upload_url" ] || [ "$upload_url" = "null" ]; then
+            echo "Release created but upload_url is missing in response." >&2
+            cat "$response_file" >&2
+            exit 1
+          fi
+
+          upload_url="${upload_url%\{*}"
+          asset_name="${{ needs.build-artifacts.outputs.artifact_name }}.zip"
+          asset_path="$asset_name"
+
+          if [ ! -f "$asset_path" ]; then
+            echo "Expected release asset file '$asset_path' was not found." >&2
+            exit 1
+          fi
+
+          echo "Uploading release asset: $asset_name"
+          upload_response_file=$(mktemp)
+          upload_status=$(curl -sS -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/zip" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            --data-binary @"$asset_path" \
+            "${upload_url}?name=${asset_name}" \
+            -o "$upload_response_file" \
+            -w "%{http_code}")
+
+          if [ "$upload_status" -ne 201 ]; then
+            echo "Failed to upload release asset. Expected HTTP 201, got HTTP $upload_status." >&2
+            cat "$upload_response_file" >&2
+            exit 1
+          fi
+
+          release_id=$(jq -r '.id' "$response_file")
+          if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
+            echo "Release created but id is missing in response." >&2
+            cat "$response_file" >&2
+            exit 1
+          fi
+
+          publish_payload='{"draft":false}'
+          publish_response_file=$(mktemp)
+          publish_status=$(curl -sS -L -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            https://api.github.com/repos/${{ github.repository }}/releases/$release_id \
+            -d "$publish_payload" \
+            -o "$publish_response_file" \
+            -w "%{http_code}")
+
+          if [ "$publish_status" -ne 200 ]; then
+            echo "Failed to publish release. Expected HTTP 200, got HTTP $publish_status." >&2
+            cat "$publish_response_file" >&2
+            exit 1
+          fi
+
+          echo "Release created and asset uploaded successfully."
