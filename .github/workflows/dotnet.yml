@@ -105,7 +105,7 @@ jobs:
         short_hash="${GITHUB_SHA::7}"
 
         if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
-          if [ "${{ steps.versionprefix.outputs.changed }}" = "true" ]; then
+          if [ "${{ steps.release-check.outputs.release_needed }}" = "true" ]; then
             artifact_name="GEffectsLogic-${version}"
           else
             artifact_name="GEffectsLogic-${version}-${short_hash}"
