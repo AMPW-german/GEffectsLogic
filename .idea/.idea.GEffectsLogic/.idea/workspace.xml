@@ -9,7 +9,36 @@
     <option name="flavorId" value="CMakePlainProjectFlavor" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d23d968c-45d5-4bd6-9369-c6843b2a92d2" name="Changes" comment="" />
+    <list default="true" id="d23d968c-45d5-4bd6-9369-c6843b2a92d2" name="Changes" comment="fixup! - Add time to GLoC with constant acceleration plot - Add multi tab support to the GraphicLogicTest window">
+      <change beforePath="$PROJECT_DIR$/.github/workflows/dotnet.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/dotnet.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.idea.GEffectsLogic/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.GEffectsLogic/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectLogicTests/GEffectLogicTests.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectLogicTests/GEffectLogicTests.csproj" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectLogicTests/GLoCDurationTests.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectLogicTests/GLoCDurationTests.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectLogicTests/Logging/LogicLogging.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectLogicTests/Logging/LogicLogging.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectLogicTests/Logging/TestLogging.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectLogicTests/Logging/TestLogging.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic.slnx" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic.slnx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic/GEffectsLogic.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic/GEffectsLogic.csproj" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic/GEffectsLogicInstance.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic/GEffectsLogicInstance.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic/Logging/Logger.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic/Logging/Logger.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic/Logic.md" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic/Logic.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic/LogicSettings.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic/LogicSettings.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEffectsLogic/PhysiologicalModel.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GEffectsLogic/PhysiologicalModel.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/App.axaml" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/App.axaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/App.xaml.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/App.xaml.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/AssemblyInfo.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/AssemblyInfo.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/GraphicLogicTest.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/GraphicLogicTest.csproj" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Logging/LogicLogging.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Logging/LogicLogging.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Logging/TestLogging.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Logging/TestLogging.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.axaml" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.axaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.xaml.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/MainWindow.xaml.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Program.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Program.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/SimulationViewModel.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/SimulationViewModel.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Views/GLoCPlot/GLoCPlot.axaml" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Views/GLoCPlot/GLoCPlot.axaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Views/GLoCPlot/GLoCPlot.axaml.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Views/GLoCPlot/GLoCPlot.axaml.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Views/SimulationView/SimulationView.axaml" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Views/SimulationView/SimulationView.axaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GraphicLogicTest/Views/SimulationView/SimulationView.axaml.cs" beforeDir="false" afterPath="$PROJECT_DIR$/GraphicLogicTest/Views/SimulationView/SimulationView.axaml.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -54,7 +83,7 @@
     &quot;XThreadsFramesViewSplitterKey&quot;: &quot;0.3137255&quot;,
     &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
     &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;develop-GLoCPlot&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;develop&quot;,
     &quot;git.auto.fetch.suggestion.counter&quot;: &quot;1&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/LINBASS/repos/GEffectsLogic&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
@@ -138,6 +167,8 @@
       <workItem from="1781117747271" duration="43000" />
       <workItem from="1781594982878" duration="9102000" />
       <workItem from="1782280369654" duration="2508000" />
+      <workItem from="1783410062256" duration="8613000" />
+      <workItem from="1783490373739" duration="512000" />
     </task>
     <task id="LOCAL-00001" summary="- Add time to GLoC with constant acceleration plot&#10;- Add multi tab support to the GraphicLogicTest window">
       <option name="closed" value="true" />
@@ -176,7 +207,19 @@
       <map>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="develop" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
           </value>
         </entry>
       </map>
@@ -185,9 +228,11 @@
   <component name="VcsManagerConfiguration">
     <option name="CLEAR_INITIAL_COMMIT_MESSAGE" value="true" />
     <MESSAGE value="- Add time to GLoC with constant acceleration plot&#10;- Add multi tab support to the GraphicLogicTest window" />
-    <MESSAGE value="fixup! - Add time to GLoC with constant acceleration plot - Add multi tab support to the GraphicLogicTest window" />
     <MESSAGE value="Test" />
-    <option name="LAST_COMMIT_MESSAGE" value="Test" />
+    <MESSAGE value="Fix release artifact name" />
+    <MESSAGE value="fixup! - Add time to GLoC with constant acceleration plot - Add multi tab support to the GraphicLogicTest window" />
+    <option name="LAST_COMMIT_MESSAGE" value="fixup! - Add time to GLoC with constant acceleration plot - Add multi tab support to the GraphicLogicTest window" />
+    <option name="OPTIMIZE_IMPORTS_BEFORE_PROJECT_COMMIT" value="true" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

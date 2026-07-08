@@ -1,64 +1,62 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFrameworks>net481;net10.0</TargetFrameworks>
+        <RootNamespace>GEffectsLogic</RootNamespace>
+        <PackageId>GEffectsLogic</PackageId>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Configurations>Debug;Release;PerfDebug</Configurations>
+        <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
 
-  <PropertyGroup>
-    <TargetFrameworks>net481;net10.0</TargetFrameworks>
-    <RootNamespace>GEffectsLogic</RootNamespace>
-    <PackageId>GEffectsLogic</PackageId>
-    <LangVersion>latest</LangVersion>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Configurations>Debug;Release;PerfDebug</Configurations>
-    <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
+        <VersionPrefix>0.3.4</VersionPrefix>
+        <Version>$(VersionPrefix)</Version>
+        <AssemblyVersion>0.3.1.0</AssemblyVersion>
+        <FileVersion>$(VersionPrefix).0</FileVersion>
 
-    <VersionPrefix>0.3.4</VersionPrefix>
-    <Version>$(VersionPrefix)</Version>
-    <AssemblyVersion>0.3.1.0</AssemblyVersion>
-    <FileVersion>$(VersionPrefix).0</FileVersion>
+        <GitShortHash>nogit</GitShortHash>
+        <InformationalVersionPostfix></InformationalVersionPostfix>
+        <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
-    <GitShortHash>nogit</GitShortHash>
-    <InformationalVersionPostfix></InformationalVersionPostfix>
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-
-    <Company>AMPW</Company>
-    <Authors>AMPW</Authors>
-    <Copyright>GNU GPL v3.0</Copyright>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <AssemblyName>GEffectsLogic-$(TargetFramework)</AssemblyName>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DebugType>none</DebugType>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='PerfDebug|AnyCPU'">
-    <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
-    <DebugType>portable</DebugType>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
-    <InformationalVersionPostfix>-debug</InformationalVersionPostfix>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)'=='PerfDebug'">
-    <InformationalVersionPostfix>-perfDebug</InformationalVersionPostfix>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <DebugType>portable</DebugType>
-  </PropertyGroup>
-
-  <Target Name="SetVersionMetadata" BeforeTargets="GetAssemblyVersion">
-    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitShortHashRaw" />
-    </Exec>
+        <Company>AMPW</Company>
+        <Authors>AMPW</Authors>
+        <Copyright>GNU GPL v3.0</Copyright>
+    </PropertyGroup>
 
     <PropertyGroup>
-      <GitShortHash Condition="'$(GitShortHashRaw)' != ''">$([System.String]::Copy('$(GitShortHashRaw)').Trim())</GitShortHash>
-      <GitShortHash Condition="'$(GitShortHash)' == ''">nogit</GitShortHash>
-      <InformationalVersion>v$(VersionPrefix).$(GitShortHash)$(InformationalVersionPostfix)</InformationalVersion>
-      <ProductVersion>$(InformationalVersion)</ProductVersion>
+        <AssemblyName>GEffectsLogic-$(TargetFramework)</AssemblyName>
     </PropertyGroup>
-  </Target>
 
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+        <DebugType>none</DebugType>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='PerfDebug|AnyCPU'">
+        <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+        <DebugType>portable</DebugType>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+        <InformationalVersionPostfix>-debug</InformationalVersionPostfix>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)'=='PerfDebug'">
+        <InformationalVersionPostfix>-perfDebug</InformationalVersionPostfix>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <DebugType>portable</DebugType>
+    </PropertyGroup>
+
+    <Target Name="SetVersionMetadata" BeforeTargets="GetAssemblyVersion">
+        <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
+            <Output TaskParameter="ConsoleOutput" PropertyName="GitShortHashRaw"/>
+        </Exec>
+
+        <PropertyGroup>
+            <GitShortHash Condition="'$(GitShortHashRaw)' != ''">$([System.String]::Copy('$(GitShortHashRaw)').Trim())</GitShortHash>
+            <GitShortHash Condition="'$(GitShortHash)' == ''">nogit</GitShortHash>
+            <InformationalVersion>v$(VersionPrefix).$(GitShortHash)$(InformationalVersionPostfix)</InformationalVersion>
+            <ProductVersion>$(InformationalVersion)</ProductVersion>
+        </PropertyGroup>
+    </Target>
 </Project>
