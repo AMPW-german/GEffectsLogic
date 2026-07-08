@@ -246,12 +246,12 @@ public class GEffectsLogicInstance
     #endregion
 
     #region outputValues
-
-    public double BloodHead => PhysModel.BloodHead;
-
+    
     //public double ConfusionLevel => physModel.ConfusionLevel;
     public double TunnelVisionLevel => PhysModel.TunnelVisionLevel;
     public double GreyScaleLevel => PhysModel.GreyScaleLevel;
+    public double FilmGrainLevel => PhysModel.FilmGrainLevel;
+    public double BlurLevel => PhysModel.BlurLevel;
     public bool PrimaryColor => PhysModel.PrimaryColor;
     public double ConsciousnessLevel => PhysModel.ConsciousnessLevel;
     public bool IsStable => stable;
