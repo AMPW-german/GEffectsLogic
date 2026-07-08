@@ -61,6 +61,8 @@ public class PhysiologicalModel
     //protected double confusionLevel = 0.0;
     protected double greyScaleLevel;
     protected double tunnelVisionLevel;
+    protected double blurLevel; // Higher than tunnelvision, matches at 0.85
+    protected double filmgrainLevel; // 25% influence on filmgrain, 75% from vignette alpha
     protected bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
 
     #region Public read-only state
@@ -110,6 +112,12 @@ public class PhysiologicalModel
 
     /// <summary>Current level of tunnel vision (0 = none, 1 = blackout).</summary>
     public double TunnelVisionLevel => tunnelVisionLevel;
+    
+    /// <summary>Current level of filmgrain, based on TunnelVisionLevel (intended: 25% filmGrainLevel, 75% tunnelvision alpha)</summary>
+    public double FilmGrainLevel => filmgrainLevel;
+    
+    /// <summary>Current blur percentage (currently recommended: 0.0 - 5.0 pixels gaussian blur)</summary>
+    public double BlurLevel => blurLevel;
 
     /// <summary>True if primary color is normal (blackout), false if inverted (redout).</summary>
     public bool PrimaryColor => primaryColor;
@@ -131,6 +139,8 @@ public class PhysiologicalModel
         fatigueHeartRateFloor = LogicSettings.CardioFatigueMaxHrFloor;
         tunnelVisionLevel = 0.0;
         greyScaleLevel = 0.0;
+        filmgrainLevel = 0.0;
+        blurLevel = 0.0;
         primaryColor = true;
         consciousnessLevel = 1.0;
         perfusionLevel = 0.0;
@@ -412,7 +422,6 @@ public class PhysiologicalModel
         var visualDeficit = 1.0 - visualReserve;
 
         #region Tunnelvision
-
         // Early/mid-visual impairment path.
         // Keeps onset before LOC, but avoids saturating too early.
         var physiologicalVisualTarget = Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
@@ -439,18 +448,27 @@ public class PhysiologicalModel
             : LogicSettings.TunnelVisualOutTau;
         tunnelVisionLevel = StepTowardsLinear(tunnelVisionLevel, blackoutTunnelTarget, tunnelTau, dt);
         tunnelVisionLevel = Clamp(tunnelVisionLevel, 0.0, 1.0);
+        #endregion
+
+        #region Blur
+
+        blurLevel = Clamp(Math.Pow(TunnelVisionLevel, 0.5), 0.0, 1.0);
 
         #endregion
 
-        #region Greyscale
+        #region Filmgrain
 
+        filmgrainLevel = Clamp(Math.Pow(TunnelVisionLevel, 1.5), 0.0, 1.0);
+
+        #endregion
+        
+        #region Greyscale
         // physiologicalVisualTarget produces good enough curve, no extra target needed
         var greyTau = physiologicalVisualTarget > greyScaleLevel
             ? LogicSettings.GreyscaleVisualInTau
             : LogicSettings.GreyscaleVisualOutTau;
         greyScaleLevel = StepTowardsLinear(greyScaleLevel, physiologicalVisualTarget, greyTau, dt);
         greyScaleLevel = Clamp(greyScaleLevel, 0.0, 1.0);
-
         #endregion
 
         // Hard guarantee: only enforce near total visual loss when consciousness is very close to zero.

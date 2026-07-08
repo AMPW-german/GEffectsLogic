@@ -224,26 +224,27 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     private static readonly string[] ActiveLegendColors =
     [
         "#FFD93A3A", // Consciousness
-        "#FF2FAF5A", // BloodHead
         "#FF9C5CFF", // BrainO2
         "#FF3D79FF", // GreyScale
         "#FF2CC8D6", // TunnelVision
         "#FFE6942E", // Perfusion
-        "#FFF2C14E" // HeartRateMultiplier
+        "#FFF2C14E", // HeartRateMultiplier
+        "#FFFF69B4", // FilmGrain
+        "#FF90EE90"  // Blur
     ];
 
     private static readonly string[] DimLegendColors =
     [
         "#66402020",
-        "#66203A2A",
         "#66332655",
         "#66202E55",
         "#66203E44",
         "#66553C1F",
-        "#66543F1A"
+        "#66543F1A",
+        "#66552040",
+        "#66304830"
     ];
 
-    private readonly ObservableCollection<ObservablePoint> _bloodHeadPoints = [];
     private readonly ObservableCollection<ObservablePoint> _brainO2Points = [];
 
     private readonly ObservableCollection<ObservablePoint> _consciousnessPoints = [];
@@ -260,6 +261,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     private readonly List<SequenceSegment> _segments = [];
     private readonly ObservableCollection<ObservablePoint> _stabilityPoints = [];
     private readonly ObservableCollection<ObservablePoint> _tunnelVisionPoints = [];
+    private readonly ObservableCollection<ObservablePoint> _filmGrainPoints = [];
+    private readonly ObservableCollection<ObservablePoint> _blurPoints = [];
     private double _currentGz = 1.0;
 
     private bool _isPaused = true;
@@ -287,12 +290,13 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         MetricSeries =
         [
             CreateSeries("Consciousness", SKColors.Red, _consciousnessPoints),
-            CreateSeries("BloodHead", SKColors.Green, _bloodHeadPoints),
             CreateSeries("BrainO2", SKColors.Violet, _brainO2Points),
             CreateSeries("GreyScale", SKColors.Blue, _greyScalePoints),
             CreateSeries("TunnelVision", SKColors.Cyan, _tunnelVisionPoints),
             CreateSeries("Perfusion", SKColors.Orange, _perfusionPoints),
-            CreateSeries("HeartRateMultiplier", SKColors.Gold, _heartRateMultiplierPoints)
+            CreateSeries("HeartRateMultiplier", SKColors.Gold, _heartRateMultiplierPoints),
+            CreateSeries("FilmGrain", SKColors.HotPink, _filmGrainPoints),
+            CreateSeries("Blur", SKColors.LightGreen, _blurPoints)
         ];
         MXAxes = [CreateAxis("Time (s)", -recordedTime, 0)];
         MYAxes =
@@ -350,7 +354,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     public string Legend3Background => GetLegendBackground(3);
     public string Legend4Background => GetLegendBackground(4);
     public string Legend5Background => GetLegendBackground(5);
-    public string Legend6Foreground => GetLegendForeground(6);
+    public string Legend6Background => GetLegendBackground(6);
+    public string Legend7Background => GetLegendBackground(7);
 
     public string Legend0Foreground => GetLegendForeground(0);
     public string Legend1Foreground => GetLegendForeground(1);
@@ -358,7 +363,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     public string Legend3Foreground => GetLegendForeground(3);
     public string Legend4Foreground => GetLegendForeground(4);
     public string Legend5Foreground => GetLegendForeground(5);
-    public string Legend6Background => GetLegendBackground(6);
+    public string Legend6Foreground => GetLegendForeground(6);
+    public string Legend7Foreground => GetLegendForeground(7);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -402,12 +408,13 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         _gzPoints.Clear();
         _stabilityPoints.Clear();
         _consciousnessPoints.Clear();
-        _bloodHeadPoints.Clear();
         _brainO2Points.Clear();
         _greyScalePoints.Clear();
         _tunnelVisionPoints.Clear();
         _perfusionPoints.Clear();
         _heartRateMultiplierPoints.Clear();
+        _filmGrainPoints.Clear();
+        _blurPoints.Clear();
     }
 
     public void Step(double dt, double recordedTime)
@@ -422,12 +429,13 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         UpdateSeriesPoints(_stabilityPoints, dt, _logic.IsStable ? 1.0 : 0.0, recordedTime);
 
         UpdateSeriesPoints(_consciousnessPoints, dt, _logic.ConsciousnessLevel, recordedTime);
-        UpdateSeriesPoints(_bloodHeadPoints, dt, _logic.BloodHead, recordedTime);
         UpdateSeriesPoints(_brainO2Points, dt, _logic.PhysModel.BrainO2, recordedTime);
         UpdateSeriesPoints(_greyScalePoints, dt, _logic.GreyScaleLevel, recordedTime);
         UpdateSeriesPoints(_tunnelVisionPoints, dt, _logic.TunnelVisionLevel, recordedTime);
         UpdateSeriesPoints(_perfusionPoints, dt, _logic.PhysModel.PerfusionLevel, recordedTime);
         UpdateSeriesPoints(_heartRateMultiplierPoints, dt, _logic.PhysModel.HeartRateMultiplier, recordedTime);
+        UpdateSeriesPoints(_filmGrainPoints, dt, _logic.FilmGrainLevel, recordedTime);
+        UpdateSeriesPoints(_blurPoints, dt, _logic.BlurLevel, recordedTime);
     }
 
     public void ToggleMetricSeries(int index)
@@ -442,6 +450,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Legend3Background));
         OnPropertyChanged(nameof(Legend4Background));
         OnPropertyChanged(nameof(Legend5Background));
+        OnPropertyChanged(nameof(Legend6Background));
+        OnPropertyChanged(nameof(Legend7Background));
 
         OnPropertyChanged(nameof(Legend0Foreground));
         OnPropertyChanged(nameof(Legend1Foreground));
@@ -449,9 +459,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Legend3Foreground));
         OnPropertyChanged(nameof(Legend4Foreground));
         OnPropertyChanged(nameof(Legend5Foreground));
-
-        OnPropertyChanged(nameof(Legend6Background));
         OnPropertyChanged(nameof(Legend6Foreground));
+        OnPropertyChanged(nameof(Legend7Foreground));
     }
 
     private void AdvanceSequence(double dt)

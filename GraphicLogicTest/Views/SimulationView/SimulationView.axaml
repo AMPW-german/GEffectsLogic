@@ -167,30 +167,34 @@
                                                 Click="ToggleMetricSeries_Click" Tag="0"
                                                 Background="{Binding Legend0Background}"
                                                 Foreground="{Binding Legend0Foreground}" />
-                                        <Button HorizontalAlignment="Stretch" Content="BloodHead"
+                                        <Button HorizontalAlignment="Stretch" Content="BrainO2"
                                                 Click="ToggleMetricSeries_Click" Tag="1"
                                                 Background="{Binding Legend1Background}"
                                                 Foreground="{Binding Legend1Foreground}" />
-                                        <Button HorizontalAlignment="Stretch" Content="BrainO2"
+                                        <Button HorizontalAlignment="Stretch" Content="GreyScale"
                                                 Click="ToggleMetricSeries_Click" Tag="2"
                                                 Background="{Binding Legend2Background}"
                                                 Foreground="{Binding Legend2Foreground}" />
-                                        <Button HorizontalAlignment="Stretch" Content="GreyScale"
+                                        <Button HorizontalAlignment="Stretch" Content="TunnelVision"
                                                 Click="ToggleMetricSeries_Click" Tag="3"
                                                 Background="{Binding Legend3Background}"
                                                 Foreground="{Binding Legend3Foreground}" />
-                                        <Button HorizontalAlignment="Stretch" Content="TunnelVision"
+                                        <Button HorizontalAlignment="Stretch" Content="Perfusion"
                                                 Click="ToggleMetricSeries_Click" Tag="4"
                                                 Background="{Binding Legend4Background}"
                                                 Foreground="{Binding Legend4Foreground}" />
-                                        <Button HorizontalAlignment="Stretch" Content="Perfusion"
+                                        <Button HorizontalAlignment="Stretch" Content="HeartRateMultiplier"
                                                 Click="ToggleMetricSeries_Click" Tag="5"
                                                 Background="{Binding Legend5Background}"
                                                 Foreground="{Binding Legend5Foreground}" />
-                                        <Button HorizontalAlignment="Stretch" Content="HeartRateMultiplier"
+                                        <Button HorizontalAlignment="Stretch" Content="FilmGrain"
                                                 Click="ToggleMetricSeries_Click" Tag="6"
                                                 Background="{Binding Legend6Background}"
                                                 Foreground="{Binding Legend6Foreground}" />
+                                        <Button HorizontalAlignment="Stretch" Content="Blur"
+                                                Click="ToggleMetricSeries_Click" Tag="7"
+                                                Background="{Binding Legend7Background}"
+                                                Foreground="{Binding Legend7Foreground}" />
                                     </StackPanel>
                                 </Grid>
                             </Border>
