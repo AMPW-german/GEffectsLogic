@@ -1,4 +1,20 @@
-﻿using GEffectsLogic.Logging;
+﻿// GEffectsLogic
+// Copyright (C) 2026 AMPW
+// 
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// 
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+// 
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+using GEffectsLogic.Logging;
 #if PERFDEBUG
 using System.Diagnostics;
 #endif
@@ -79,7 +95,7 @@ public class GEffectsLogicInstance
     public virtual void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
     {
 #if PERFDEBUG
-            var sw = Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
 #endif
         List<double> dtList = [];
 
@@ -199,8 +215,8 @@ public class GEffectsLogicInstance
         }
 
 #if PERFDEBUG
-            sw.Stop();
-            Logger.Log($"[PERF] Instance {UniqueID} update: {sw.Elapsed.TotalMicroseconds:f1} µs", UniqueID, Logging.Logger.LogLevel.Debug);
+        sw.Stop();
+        Logger.Log($"[PERF] Instance {UniqueID} update: {sw.Elapsed.TotalMicroseconds:f1} µs", UniqueID, Logging.Logger.LogLevel.Debug);
 #endif
     }
 
