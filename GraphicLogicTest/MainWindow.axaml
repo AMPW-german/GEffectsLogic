@@ -15,14 +15,14 @@
                    Text="GEffects Logic Test Bench" />
 
         <Border Grid.Row="1" Margin="0" Background="Transparent">
-            <ContentControl Content="{Binding ActiveWindowContent}"/>
+            <ContentControl Content="{Binding ActiveWindowContent}" />
         </Border>
 
         <Border Grid.Row="2" Background="#FF151515" BorderBrush="#FF505050" BorderThickness="1,1,1,0" Padding="10,8">
             <ItemsControl ItemsSource="{Binding WindowViews}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -31,7 +31,7 @@
                                 Tag="{Binding Index}"
                                 Click="SelectWindow_Click"
                                 Background="{Binding ButtonBackground}"
-                                Foreground="White"/>
+                                Foreground="White" />
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

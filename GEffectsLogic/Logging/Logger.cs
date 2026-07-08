@@ -1,21 +1,24 @@
-﻿namespace GEffectsLogic.Logging
+﻿namespace GEffectsLogic.Logging;
+
+public abstract class Logger
 {
-    public abstract class Logger
+    public enum LogLevel
     {
-        public enum LogLevel
-        {
-            Debug,
-            Info,
-            Warning,
-            Error
-        }
-
-        public static Logger? Instance { get; set; }
-
-        public static bool Log(string message, int id, LogLevel level = LogLevel.Debug) => Instance?.LogStr(message, id, level) ?? false;
-
-
-        public LogLevel Level;
-        public abstract bool LogStr(string message, int id, LogLevel level = LogLevel.Debug);
+        Debug,
+        Info,
+        Warning,
+        Error
     }
+
+
+    public LogLevel Level;
+
+    public static Logger? Instance { get; set; }
+
+    public static bool Log(string message, int id, LogLevel level = LogLevel.Debug)
+    {
+        return Instance?.LogStr(message, id, level) ?? false;
+    }
+
+    public abstract bool LogStr(string message, int id, LogLevel level = LogLevel.Debug);
 }

@@ -18,130 +18,130 @@ jobs:
       release_needed: ${{ steps.release-check.outputs.release_needed }}
     
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
 
-    - name: Restore dependencies
-      run: dotnet restore
+      - name: Restore dependencies
+        run: dotnet restore
 
-    - name: Detect VersionPrefix change on main push
-      id: versionprefix
-      shell: bash
-      run: |
-        version=v$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' GEffectsLogic/GEffectsLogic.csproj)
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-        
-        before="${{ github.event.before }}"
-        if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-          echo "changed=false" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-        
-        if git diff "$before" "${{ github.sha }}" -- GEffectsLogic/GEffectsLogic.csproj | grep -q 'VersionPrefix'; then
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "changed=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Check if current version needs release
-      id: release-check
-      shell: bash
-      run: |
-        if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
-          echo "release_needed=false" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        new_version="${{ steps.versionprefix.outputs.version }}"
-        release_response=$(curl -sS -L \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-          -H "X-GitHub-Api-Version: 2026-03-10" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/latest")
-
-        current_version=$(echo "$release_response" | jq -r '.tag_name // empty')
-
-        if [ -z "$current_version" ]; then
-          echo "release_needed=true" >> "$GITHUB_OUTPUT"
-        elif [ "$new_version" != "$current_version" ]; then
-          echo "release_needed=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "release_needed=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Build all configurations
-      run: |
-        dotnet build GEffectsLogic/GEffectsLogic.csproj -c Release --no-restore
-        dotnet build GEffectsLogic/GEffectsLogic.csproj -c Debug --no-restore
-
-    - name: Collect artifacts
-      run: |
-        mkdir -p artifacts/net10.0/release
-        mkdir -p artifacts/net10.0/debug
-        mkdir -p artifacts/net481/release
-        mkdir -p artifacts/net481/debug
-
-        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.dll  artifacts/net10.0/release/
-        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/release/
-        cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.pdb  artifacts/net10.0/release/
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.dll    artifacts/net10.0/debug/
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/debug/
-        cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.pdb    artifacts/net10.0/debug/
-
-        cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.dll   artifacts/net481/release/
-        cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.pdb   artifacts/net481/release/
-        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.dll     artifacts/net481/debug/
-        cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.pdb     artifacts/net481/debug/
-
-    - name: Compute artifact name
-      id: artifact-name
-      shell: bash
-      run: |
-        version="${{ steps.versionprefix.outputs.version }}"
-        short_hash="${GITHUB_SHA::7}"
-
-        if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
-          if [ "${{ steps.release-check.outputs.release_needed }}" = "true" ]; then
-            artifact_name="GEffectsLogic-${version}"
-          else
-            artifact_name="GEffectsLogic-${version}-${short_hash}"
+      - name: Detect VersionPrefix change on main push
+        id: versionprefix
+        shell: bash
+        run: |
+          version=v$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' GEffectsLogic/GEffectsLogic.csproj)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          
+          before="${{ github.event.before }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-        else
-          artifact_name="GEffectsLogic-${version}-${short_hash}-debug"
-        fi
+          
+          if git diff "$before" "${{ github.sha }}" -- GEffectsLogic/GEffectsLogic.csproj | grep -q 'VersionPrefix'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
 
-        echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
+      - name: Check if current version needs release
+        id: release-check
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          new_version="${{ steps.versionprefix.outputs.version }}"
+          release_response=$(curl -sS -L \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest")
+          
+          current_version=$(echo "$release_response" | jq -r '.tag_name // empty')
+          
+          if [ -z "$current_version" ]; then
+            echo "release_needed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$new_version" != "$current_version" ]; then
+            echo "release_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+          fi
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ steps.artifact-name.outputs.name }}
-        path: artifacts/
+      - name: Build all configurations
+        run: |
+          dotnet build GEffectsLogic/GEffectsLogic.csproj -c Release --no-restore
+          dotnet build GEffectsLogic/GEffectsLogic.csproj -c Debug --no-restore
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/net10.0/release
+          mkdir -p artifacts/net10.0/debug
+          mkdir -p artifacts/net481/release
+          mkdir -p artifacts/net481/debug
+          
+          cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.dll  artifacts/net10.0/release/
+          cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/release/
+          cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.pdb  artifacts/net10.0/release/
+          cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.dll    artifacts/net10.0/debug/
+          cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/debug/
+          cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.pdb    artifacts/net10.0/debug/
+          
+          cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.dll   artifacts/net481/release/
+          cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.pdb   artifacts/net481/release/
+          cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.dll     artifacts/net481/debug/
+          cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.pdb     artifacts/net481/debug/
+
+      - name: Compute artifact name
+        id: artifact-name
+        shell: bash
+        run: |
+          version="${{ steps.versionprefix.outputs.version }}"
+          short_hash="${GITHUB_SHA::7}"
+          
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            if [ "${{ steps.release-check.outputs.release_needed }}" = "true" ]; then
+              artifact_name="GEffectsLogic-${version}"
+            else
+              artifact_name="GEffectsLogic-${version}-${short_hash}"
+            fi
+          else
+            artifact_name="GEffectsLogic-${version}-${short_hash}-debug"
+          fi
+          
+          echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: artifacts/
 
   test:
     runs-on: ubuntu-latest
     needs: build-artifacts
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
 
-    - name: Restore dependencies
-      run: dotnet restore
+      - name: Restore dependencies
+        run: dotnet restore
 
-    - name: Build Debug (tests)
-      run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-restore
+      - name: Build Debug (tests)
+        run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-restore
 
-    - name: Test (Debug)
-      run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal
+      - name: Test (Debug)
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal
 
   release-artifacts:
     runs-on: ubuntu-slim
