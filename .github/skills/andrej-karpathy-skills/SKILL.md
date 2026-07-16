@@ -1,5 +1,3 @@
-# Copilot Instructions
-
 ---
 name: karpathy-guidelines
 description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.
@@ -67,13 +65,3 @@ For multi-step tasks, state a brief plan:
 ```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-
-## Project Guidelines
-- For this G-effects model, the desired behavior is that a 1→5 Gz+ ramp over 5 seconds should reach loss-of-consciousness between 25 and 35 seconds.
-
-## Visibility Semantics
-- TunnelVisionLevel semantics: 1 means no visibility left, and 0.5 means half of the field of view is still free. TunnelVisionLevel should reach 1 when ConsciousnessLevel is close to 0, and tunnel vision should not be driven too directly by short perfusion recovery dips.
-
-## CI/CD Workflow
-- In GitHub Actions for this repo, tests should run after DLL artifact build, and workflow ordering should reflect that.

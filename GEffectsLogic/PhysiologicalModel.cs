@@ -61,7 +61,7 @@ public class PhysiologicalModel
     //protected double confusionLevel = 0.0;
     protected double greyScaleLevel;
     protected double tunnelVisionLevel;
-    protected double blurLevel; // Higher than tunnelvision, matches at 0.85
+    protected double blurLevel; // Rises early, then slowly approaches greyscale
     protected double filmgrainLevel; // 25% influence on filmgrain, 75% from vignette alpha
     protected bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
 
@@ -421,12 +421,12 @@ public class PhysiologicalModel
         var visualReserve = 0.7 * visualPerf + 0.3 * visualO2;
         var visualDeficit = 1.0 - visualReserve;
 
-        #region Tunnelvision
         // Early/mid-visual impairment path.
         // Keeps onset before LOC, but avoids saturating too early.
         var physiologicalVisualTarget = Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
         physiologicalVisualTarget = Math.Pow(physiologicalVisualTarget, 2.2);
 
+        #region Tunnelvision
         // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
         // This also reduces sensitivity to short perfusion recoveries.
         var blackoutTunnelTarget = Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
@@ -450,18 +450,6 @@ public class PhysiologicalModel
         tunnelVisionLevel = Clamp(tunnelVisionLevel, 0.0, 1.0);
         #endregion
 
-        #region Blur
-
-        blurLevel = Clamp(Math.Pow(TunnelVisionLevel, 0.5), 0.0, 1.0);
-
-        #endregion
-
-        #region Filmgrain
-
-        filmgrainLevel = Clamp(Math.Pow(TunnelVisionLevel, 1.5), 0.0, 1.0);
-
-        #endregion
-        
         #region Greyscale
         // physiologicalVisualTarget produces good enough curve, no extra target needed
         var greyTau = physiologicalVisualTarget > greyScaleLevel
@@ -469,6 +457,21 @@ public class PhysiologicalModel
             : LogicSettings.GreyscaleVisualOutTau;
         greyScaleLevel = StepTowardsLinear(greyScaleLevel, physiologicalVisualTarget, greyTau, dt);
         greyScaleLevel = Clamp(greyScaleLevel, 0.0, 1.0);
+        #endregion
+
+        #region Blur
+
+        var earlyBlurTarget = 0.23 * (1.0 - Math.Exp(-8.0 * physiologicalVisualTarget));
+        var earlyBlurInfluence = 1.0 - SmoothStep(Clamp((greyScaleLevel - 0.2) / 0.3, 0.0, 1.0));
+        var earlyBlurBoost = Math.Max(earlyBlurTarget - greyScaleLevel * 0.5, 0.0) * earlyBlurInfluence;
+        blurLevel = Clamp(greyScaleLevel + earlyBlurBoost, 0.0, 1.0);
+
+        #endregion
+
+        #region Filmgrain
+
+        filmgrainLevel = Clamp(Math.Pow(TunnelVisionLevel, 1.5), 0.0, 1.0);
+
         #endregion
 
         // Hard guarantee: only enforce near total visual loss when consciousness is very close to zero.
