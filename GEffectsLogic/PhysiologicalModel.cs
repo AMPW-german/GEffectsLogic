@@ -190,7 +190,7 @@ public class PhysiologicalModel
         // Positive Gz pushes blood from head → lower body
         // Negative Gz pushes blood from lower body → head
         // The shift rate is proportional to Gz magnitude beyond the 1G baseline
-        var gzNet = gz - 1.0;
+        var gzNet = gz;
 
         // Autoregulation dead-zone: moderate G is buffered more than extreme G
         var gzBeyondTolerance = Math.Sign(gzNet) *

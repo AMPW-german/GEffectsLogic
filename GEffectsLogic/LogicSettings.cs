@@ -29,13 +29,13 @@ public static class LogicSettings
 
     // Hydrostatic shift: make mid-G less aggressive, keep high-G strong
     public static double HydrostaticShiftRate { get; set; } = 0.0053;
-    public static double HydrostaticShiftExponent { get; set; } = 2.2;
+    public static double HydrostaticShiftExponent { get; set; } = 2.0;
 
     // Keep these summing to ~1.0
     public static double CoreLowerShiftFraction { get; set; } = 0.55;
 
     // Passive return / compensation
-    public static double PassiveReturnRate { get; set; } = 0.27;
+    public static double PassiveReturnRate { get; set; } = 0.47;
     public static double BaroreceptorTimeConstant { get; set; } = 3.8;
 
     // G-suit effectiveness (0 = none, 1 = perfect). Scales with straining level.
@@ -64,7 +64,7 @@ public static class LogicSettings
     public static bool SuppresInfoLogs { get; set; } = false;
 
     // --- Hydrostatic/autoregulation ---
-    public static double CerebralAutoregulationGzTolerance { get; set; } = 0.65; // G beyond 1G baseline
+    public static double CerebralAutoregulationGzTolerance { get; set; } = 0.0; // G beyond 1G baseline
 
     // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
     public static double MinHeadBloodFraction { get; set; } = 0.02; // 2% of total blood
