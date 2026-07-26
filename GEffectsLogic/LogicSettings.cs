@@ -63,9 +63,6 @@ public static class LogicSettings
     public static bool DebugMode { get; set; } = false;
     public static bool SuppresInfoLogs { get; set; } = false;
 
-    // --- Hydrostatic/autoregulation ---
-    public static double CerebralAutoregulationGzTolerance { get; set; } = 0.0; // G beyond 1G baseline
-
     // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
     public static double MinHeadBloodFraction { get; set; } = 0.02; // 2% of total blood
 

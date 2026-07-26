@@ -190,14 +190,7 @@ public class PhysiologicalModel
         // Positive Gz pushes blood from head → lower body
         // Negative Gz pushes blood from lower body → head
         // The shift rate is proportional to Gz magnitude beyond the 1G baseline
-        var gzNet = gz;
-
-        // Autoregulation dead-zone: moderate G is buffered more than extreme G
-        var gzBeyondTolerance = Math.Sign(gzNet) *
-                                Math.Max(0.0, Math.Abs(gzNet) - LogicSettings.CerebralAutoregulationGzTolerance);
-
-        var gzNetScaled = Math.Sign(gzBeyondTolerance) *
-                          Math.Pow(Math.Abs(gzBeyondTolerance), LogicSettings.HydrostaticShiftExponent);
+        var gzNetScaled = Math.Sign(gz) * Math.Pow(Math.Abs(gz), LogicSettings.HydrostaticShiftExponent);
 
         // Drive straining level from +Gz with first-order lag
         var targetStraining = 0.0;
@@ -233,7 +226,7 @@ public class PhysiologicalModel
 
         // Suit effect only for +Gz loading, coupled to effective straining
         var suitActivation = Clamp(effectiveGSuit * effectiveStraining, 0.0, 1.0);
-        var suit = gzNet > 0.0 ? suitActivation : 0.0;
+        var suit = gz > 0.0 ? suitActivation : 0.0;
 
         // Mild global scaling + targeted redistribution
         var effectiveGzShift = gzNetScaled * (1.0 - LogicSettings.GSuitGlobalShiftReductionMax * suit);

@@ -8,9 +8,9 @@ Der Projektinhaber tritt unter einem Pseudonym auf; seine bürgerliche Identitä
 
 ## Agreement (Vereinbarung)
 
-To contribute to this project, you must read and explicitly accept this Contributor License Agreement. Contributions will only be merged after the CLA acceptance checkbox in the merge request template is checked and your GitHub username or real name is provided. By explicitly accepting this CLA and submitting a contribution, you agree to the following terms. A contribution submitted without prior explicit acceptance does not constitute agreement to these terms; the Project Owner reserves the right to reject or remove such contributions.
+To contribute to this project, you must read and explicitly accept this Contributor License Agreement. Acceptance is recorded when submitting a pull request by checking the CLA acceptance checkbox in the pull request template and providing your GitHub username or real name. Contributions will not be reviewed or merged unless this acceptance is complete. By explicitly accepting this CLA and submitting a contribution, you agree to the following terms. A contribution submitted without prior explicit acceptance does not constitute agreement to these terms; the Project Owner reserves the right to reject or remove such contributions.
 
-Um zu diesem Projekt beizutragen, müssen Sie diese Beitragslizenzvereinbarung lesen und ausdrücklich akzeptieren. Beiträge werden nur zusammengeführt, wenn das Kontrollkästchen zur Annahme der Beitragslizenzvereinbarung im Merge-Request-Template aktiviert und Ihr GitHub-Benutzername oder Ihr richtiger Name angegeben ist. Durch die ausdrückliche Annahme dieser Beitragslizenzvereinbarung und das Einreichen eines Beitrags stimmen Sie den folgenden Bedingungen zu. Ein Beitrag, der ohne vorherige ausdrückliche Annahme eingereicht wird, stellt keine Zustimmung zu diesen Bedingungen dar; der Projektinhaber behält sich das Recht vor, solche Beiträge abzulehnen oder zu entfernen.
+Um zu diesem Projekt beizutragen, müssen Sie diese Beitragslizenzvereinbarung lesen und ausdrücklich akzeptieren. Die Annahme wird beim Einreichen eines Pull Requests erfasst, indem das Kontrollkästchen zur Annahme der Beitragslizenzvereinbarung im Pull-Request-Template aktiviert und Ihr GitHub-Benutzername oder Ihr richtiger Name angegeben wird. Beiträge werden nicht geprüft oder zusammengeführt, solange diese Annahme nicht vollständig erfolgt ist. Durch die ausdrückliche Annahme dieser Beitragslizenzvereinbarung und das Einreichen eines Beitrags stimmen Sie den folgenden Bedingungen zu. Ein Beitrag, der ohne vorherige ausdrückliche Annahme eingereicht wird, stellt keine Zustimmung zu diesen Bedingungen dar; der Projektinhaber behält sich das Recht vor, solche Beiträge abzulehnen oder zu entfernen.
 
 ### 1. Grant of Usage Rights (Einräumung von Nutzungsrechten)
 
@@ -19,7 +19,7 @@ In accordance with §§ 31 ff. of the German Copyright Act (Urheberrechtsgesetz,
 Gemäß §§ 31 ff. des Urheberrechtsgesetzes (UrhG) räumen Sie **AMPW** (dem Projektinhaber) ausschließlich die folgenden Rechte ein:
 
 - An exclusive, perpetual, worldwide, irrevocable, royalty-free, and transferable right of use (ausschließliches, zeitlich und räumlich unbeschränktes, unwiderrufliches, unentgeltliches und übertragbares Nutzungsrecht) to your contributions, with the right to grant simple usage rights to third parties (mit dem Recht, einfache Nutzungsrechte an Dritte einzuräumen), including:
-  - The right to reproduce, distribute, make publicly available, and modify the contributions (Vervielfältigungs-, Verbreitungs-, Recht der öffentlichen Zugänglichmachung und Bearbeitungsrecht);
+  - The right to reproduce, distribute, make publicly available, and modify the contributions (Vervielfältigungsrecht, Verbreitungsrecht, Recht der öffentlichen Zugänglichmachung und Bearbeitungsrecht);
   - The right to sublicense the contributions under any terms, including proprietary licenses (das Recht zur Unterlizenzierung unter beliebigen Bedingungen, einschließlich proprietärer Lizenzen);
   - The right to use the contributions in commercial products and services (das Recht zur kommerziellen Nutzung);
   - The right to combine contributions with other works and to exploit them as part of a combined or collective work (das Recht, Beiträge mit anderen Werken zu verbinden und als Teil eines Gesamtwerks zu verwerten);
@@ -35,21 +35,21 @@ Die Unwiderruflichkeit dieser Rechteeinräumung steht unter dem Vorbehalt zwinge
 
 ### 2. Contributor License-Back (Rücklizenz an Mitwirkende)
 
-The Project Owner grants you a non-exclusive, perpetual, worldwide, irrevocable, royalty-free, non-transferable, and non-sublicensable license to use, reproduce, modify, and make publicly available your own contributions solely for your personal, non-commercial purposes. This license-back does not include the right to grant sublicenses, to relicense, to sell, or to otherwise commercially exploit your contributions, and it does not extend to the project as a whole, other contributors' contributions, or any combined or collective work.
+The Project Owner grants you a non-exclusive, perpetual, worldwide, irrevocable, and royalty-free license to use, reproduce, modify, distribute, make publicly available, and sublicense your own contributions under any terms. This license-back applies solely to your individual contributions and does not extend to the project as a whole, other contributors' contributions, or any combined or collective work. This license-back is independent of, and does not limit, any rights you may receive under the project's public open-source license, including GPLv3 rights granted to the public by the Project Owner.
 
-Der Projektinhaber räumt Ihnen ein einfaches, zeitlich und räumlich unbeschränktes, unwiderrufliches, unentgeltliches, nicht übertragbares und nicht unterlizenzierbares Nutzungsrecht ein, Ihre eigenen Beiträge ausschließlich für Ihre persönlichen, nicht kommerziellen Zwecke zu verwenden, zu vervielfältigen, zu bearbeiten und öffentlich zugänglich zu machen. Diese Rücklizenz beinhaltet nicht das Recht, Unterlizenzen zu erteilen, die Beiträge neu zu lizenzieren, zu verkaufen oder anderweitig kommerziell zu verwerten, und erstreckt sich nicht auf das Projekt als Ganzes, Beiträge anderer Mitwirkender oder ein Gesamtwerk.
+Der Projektinhaber räumt Ihnen ein einfaches, zeitlich und räumlich unbeschränktes, unwiderrufliches und unentgeltliches Nutzungsrecht ein, Ihre eigenen Beiträge unter beliebigen Bedingungen zu verwenden, zu vervielfältigen, zu bearbeiten, zu verbreiten, öffentlich zugänglich zu machen und unterzulizenzieren. Diese Rücklizenz gilt ausschließlich für Ihre einzelnen Beiträge und erstreckt sich nicht auf das Projekt als Ganzes, Beiträge anderer Mitwirkender oder ein Gesamtwerk. Diese Rücklizenz ist unabhängig von Rechten, die Ihnen unter der öffentlichen Open-Source-Lizenz des Projekts, einschließlich der vom Projektinhaber der Öffentlichkeit eingeräumten GPLv3-Rechte, zustehen können, und schränkt diese Rechte nicht ein.
 
 ### 3. Outbound License (Lizenz an die Öffentlichkeit)
 
-All contributions are also licensed to the public under the project's open-source license, currently the GNU General Public License v3.0 (GPLv3). The exclusive usage rights granted to the Project Owner under Section 1 exist in addition to, and independently of, the GPLv3 license. The Project Owner exercises the rights granted under Section 1 to license the project to the public under the GPLv3.
+Accepted contributions are licensed by the Project Owner to the public as part of the project under the GNU General Public License version 3.0 (GPLv3). The public GPLv3 license is granted by the Project Owner using the rights granted under Section 1. Public GPLv3 rights already granted remain governed by GPLv3 and are not revoked by any later separate licensing by the Project Owner. The exclusive usage rights granted to the Project Owner under Section 1 exist in addition to, and independently of, the GPLv3 license.
 
-Alle Beiträge werden gleichzeitig unter der Open-Source-Lizenz des Projekts, derzeit der GNU General Public License v3.0 (GPLv3), an die Öffentlichkeit lizenziert. Die dem Projektinhaber in Abschnitt 1 eingeräumten ausschließlichen Nutzungsrechte bestehen zusätzlich zu und unabhängig von der GPLv3-Lizenz. Der Projektinhaber übt die ihm in Abschnitt 1 eingeräumten Rechte aus, das Projekt unter der GPLv3 öffentlich zu lizenzieren.
+Angenommene Beiträge werden vom Projektinhaber als Teil des Projekts unter der GNU General Public License Version 3.0 (GPLv3) an die Öffentlichkeit lizenziert. Die öffentliche GPLv3-Lizenz wird vom Projektinhaber unter Ausübung der in Abschnitt 1 eingeräumten Rechte gewährt. Bereits gewährte öffentliche GPLv3-Rechte unterliegen weiterhin der GPLv3 und werden durch eine spätere gesonderte Lizenzierung durch den Projektinhaber nicht widerrufen. Die dem Projektinhaber in Abschnitt 1 eingeräumten ausschließlichen Nutzungsrechte bestehen zusätzlich zu und unabhängig von der GPLv3-Lizenz.
 
 ### 4. Patent License (Patentlizenz)
 
-You grant to the Project Owner a non-exclusive, worldwide, perpetual, irrevocable, royalty-free patent license to make, have made, use, sell, offer for sale, import, and otherwise transfer or exploit the contributions, where such license applies only to patent claims licensable by you that are necessarily infringed by your contribution alone or by the combination of your contribution with the project.
+You grant to the Project Owner a non-exclusive, worldwide, perpetual, irrevocable, royalty-free, transferable, and sublicensable patent license to make, have made, use, sell, offer for sale, import, and otherwise transfer or exploit the contributions, where such license applies only to patent claims licensable by you that are necessarily infringed by your contribution alone or by the combination of your contribution with the project.
 
-Sie räumen dem Projektinhaber ein nicht ausschließliches, weltweites, zeitlich unbeschränktes, unwiderrufliches und unentgeltliches Nutzungsrecht an Patenten ein, um die Beiträge herzustellen, herstellen zu lassen, zu verwenden, zu verkaufen, zum Verkauf anzubieten, zu importieren und anderweitig zu übertragen oder zu verwerten, wobei sich diese Lizenz nur auf Patentansprüche erstreckt, die von Ihnen lizenzierbar sind und die zwangsläufig durch Ihren Beitrag allein oder durch die Kombination Ihres Beitrags mit dem Projekt verletzt werden.
+Sie räumen dem Projektinhaber ein nicht ausschließliches, weltweites, zeitlich unbeschränktes, unwiderrufliches, unentgeltliches, übertragbares und unterlizenzierbares Nutzungsrecht an Patenten ein, um die Beiträge herzustellen, herstellen zu lassen, zu verwenden, zu verkaufen, zum Verkauf anzubieten, zu importieren und anderweitig zu übertragen oder zu verwerten, wobei sich diese Lizenz nur auf Patentansprüche erstreckt, die von Ihnen lizenzierbar sind und die zwangsläufig durch Ihren Beitrag allein oder durch die Kombination Ihres Beitrags mit dem Projekt verletzt werden.
 
 ### 5. Moral Rights and Authorship (Urheberpersönlichkeitsrechte und Urheberschaft)
 
@@ -79,7 +79,7 @@ By contributing, you represent that:
 Durch Ihren Beitrag sichern Sie zu, dass:
 
 - You are the original author of the contribution, or you have the right to submit it and to grant the usage and patent rights described herein (Sie der ursprüngliche Urheber des Beitrags sind oder das Recht haben, diesen einzureichen und die hier beschriebenen Nutzungs- und Patentrechte einzuräumen);
-- Your contribution does not violate any third party's intellectual property rights, including patents (Ihr Beitrag keine Rechte des geistigen Eigentums Dritter verletzt, einschließlich Patenten);
+- To the best of your knowledge, your contribution does not violate any third party's intellectual property rights, including patents (Ihr Beitrag nach bestem Wissen keine Rechte des geistigen Eigentums Dritter verletzt, einschließlich Patenten);
 - If your contribution was created in the course of employment or under a contractual obligation, you have obtained all necessary permissions or releases from your employer or contracting party to grant the rights described in this agreement (Falls Ihr Beitrag im Rahmen eines Beschäftigungsverhältnisses oder einer vertraglichen Verpflichtung erstellt wurde, haben Sie alle erforderlichen Genehmigungen oder Freigaben Ihres Arbeitgebers oder Auftraggebers eingeholt, um die in dieser Vereinbarung beschriebenen Rechte einzuräumen);
 - You have the legal capacity and authority to enter into this agreement (Sie die Geschäftsfähigkeit und Befugnis haben, diese Vereinbarung einzugehen);
 - You understand that your contribution is public and that a record of it is maintained indefinitely (Sie verstehen, dass Ihr Beitrag öffentlich ist und dauerhaft aufgezeichnet wird).
@@ -96,9 +96,9 @@ Der Projektinhaber ist nicht verpflichtet:
 
 ### 9. Agreement and Acceptance (Zustimmung und Annahme)
 
-This CLA must be explicitly accepted before any contribution is submitted or merged. Acceptance is recorded through the merge request template by checking the CLA acceptance checkbox and providing your GitHub username or real name. Submitting or merging a contribution without prior explicit acceptance does not constitute agreement to these terms; the Project Owner reserves the right to reject or remove such contributions.
+This CLA must be explicitly accepted before any contribution is submitted or merged. Acceptance is recorded when submitting a pull request by checking the CLA acceptance checkbox in the pull request template and providing your GitHub username or real name. Contributions will not be reviewed or merged unless this acceptance is complete. Submitting or merging a contribution without prior explicit acceptance does not constitute agreement to these terms; the Project Owner reserves the right to reject or remove such contributions.
 
-Diese Beitragslizenzvereinbarung muss ausdrücklich akzeptiert werden, bevor ein Beitrag eingereicht oder zusammengeführt wird. Die Annahme wird im Merge-Request-Template erfasst, indem das Kontrollkästchen zur Annahme der Beitragslizenzvereinbarung aktiviert und der GitHub-Benutzername oder der richtige Name angegeben wird. Das Einreichen oder Zusammenführen eines Beitrags ohne vorherige ausdrückliche Annahme stellt keine Zustimmung zu diesen Bedingungen dar; der Projektinhaber behält sich das Recht vor, solche Beiträge abzulehnen oder zu entfernen.
+Diese Beitragslizenzvereinbarung muss ausdrücklich akzeptiert werden, bevor ein Beitrag eingereicht oder zusammengeführt wird. Die Annahme wird beim Einreichen eines Pull Requests erfasst, indem das Kontrollkästchen zur Annahme der Beitragslizenzvereinbarung im Pull-Request-Template aktiviert und der GitHub-Benutzername oder der richtige Name angegeben wird. Beiträge werden nicht geprüft oder zusammengeführt, solange diese Annahme nicht vollständig erfolgt ist. Das Einreichen oder Zusammenführen eines Beitrags ohne vorherige ausdrückliche Annahme stellt keine Zustimmung zu diesen Bedingungen dar; der Projektinhaber behält sich das Recht vor, solche Beiträge abzulehnen oder zu entfernen.
 
 This CLA is referenced in the project's README and/or CONTRIBUTING guidelines, if available. Contributors are expected to have reviewed it prior to acceptance.
 
@@ -127,15 +127,15 @@ Beiträge werden ohne jegliche Gewährleistung bereitgestellt, weder ausdrückli
 
 ### 13. Severability (Salvatorische Klausel)
 
-If any provision of this agreement is or becomes invalid, unenforceable, or void, the remaining provisions shall remain in full force and effect. The invalid provision shall be replaced by a valid provision that most closely reflects the economic and legal intent of the original provision.
+If any provision of this agreement is or becomes invalid, unenforceable, or void, the remaining provisions shall remain in full force and effect. The parties shall replace the invalid provision with a valid provision that most closely reflects the economic and legal intent of the original provision.
 
-Sollte eine Bestimmung dieser Vereinbarung unwirksam, undurchsetzbar oder nichtig sein oder werden, bleiben die übrigen Bestimmungen hiervon unberührt und in vollem Umfang wirksam. Die unwirksame Bestimmung ist durch eine wirksame Bestimmung zu ersetzen, die dem wirtschaftlichen und rechtlichen Zweck der ursprünglichen Bestimmung am nächsten kommt.
+Sollte eine Bestimmung dieser Vereinbarung unwirksam, undurchsetzbar oder nichtig sein oder werden, bleiben die übrigen Bestimmungen hiervon unberührt und in vollem Umfang wirksam. Die Parteien werden die unwirksame Bestimmung durch eine wirksame Bestimmung ersetzen, die dem wirtschaftlichen und rechtlichen Zweck der ursprünglichen Bestimmung am nächsten kommt.
 
 ### 14. Governing Law and Jurisdiction (Anwendbares Recht und Gerichtsstand)
 
-This agreement is governed by the laws of the Federal Republic of Germany. The courts of Germany shall have jurisdiction over any disputes arising from this agreement.
+This agreement is governed by the laws of the Federal Republic of Germany. To the extent legally permissible, the courts of Germany shall have jurisdiction over any disputes arising from this agreement.
 
-Diese Vereinbarung unterliegt dem Recht der Bundesrepublik Deutschland. Für Streitigkeiten aus dieser Vereinbarung sind die deutschen Gerichte zuständig.
+Diese Vereinbarung unterliegt dem Recht der Bundesrepublik Deutschland. Soweit gesetzlich zulässig, sind für Streitigkeiten aus dieser Vereinbarung die deutschen Gerichte zuständig.
 
 ### 15. Controlling Language (Maßgebliche Sprache)
 
