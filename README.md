@@ -30,9 +30,8 @@ Key mechanisms:
 
 ## Implementation Status
 
-Gz+ forces are fully modeled with realistic response curves. Consciousness mapping is based on brain oxygen saturation
-and head blood. Vision effects (grey-scale and tunnel vision) are implemented. Gx/Gy forces are stubbed for expansion.
-Fatigue modeling is planned for future implementation.
+Gz+ forces are fully modeled with realistic response curves. Consciousness mapping is based on brain oxygen saturation and head blood.\
+Vision effects (grey-scale, tunnel vision, gaussian blur and filmgrain) are implemented. Gx/Gy forces are stubbed for expansion.
 
 ## Interface
 
@@ -65,21 +64,19 @@ All physiological parameters are configurable through LogicSettings static prope
 
 ## Sequence Notation
 
-The sequence notation is as follows:
-[Axis (Gz default) startG endG duration]
+The sequence notation is as follows:\
+[Axis (Gz default) startG endG duration]\
 The axis can be ommited if it is Gz. So [0 5 2] is the same as [Gz 0 5 2].\
 Multiple sequences can be chained together by separating them with a comma. For example: [1 5 5],[5 1 5]\
-For chained sequences the startG value can be ommited for all but the first sequence. This then uses the endG value of
-the previous sequence as startG value, e.g. [1 5 5], [1 5]\
+For chained sequences the startG value can be ommited for all but the first sequence. This then uses the endG value of the previous sequence as startG value, e.g. [1 5 5], [1 5]\
 It's also possible to ommit the startG and endG values. This then adds a plateau phase, e.g. [1 5 5],[5]\
-A hyphen can be used as infinite duration for plateau phases, e.g. [1 5 5],[-]
+A hyphen can be used as infinite duration for plateau phases, e.g. [1 5 5],[-]\
 Multi axial sequences are seperated by a semicolon, e.g. [Gz 1 5 5];[Gx 0 5 5]
 
 ## Testing
 
-Unit tests in GEffectLogicTests validate G-force response and GLoC timing. GLoCDurationTests verifies loss of
-consciousness timing across various profiles. Target behavior: 1→5 Gz+ ramp over 5 seconds reaches loss of consciousness
-in 20–30 seconds.
+Unit tests in GEffectLogicTests validate G-force response and GLoC timing. GLoCDurationTests verifies loss of consciousness timing across various profiles.\
+Target behavior: 1→5 Gz+ ramp over 5 seconds reaches loss of consciousness in 20–30 seconds.
 
 ## Coordinate System
 
@@ -93,9 +90,9 @@ Pilot-body-centric frame of reference:
 
 ## Stability Optimization
 
-The system includes stabilization to reduce computation during steady-state conditions. When G-forces and physiological
-values remain within thresholds for 30+ seconds, physics updates are cached and skipped. Stabilization is automatically
-re-entered when conditions deviate beyond tolerance.
+The system includes stabilization to reduce computation during steady-state conditions.
+When G-forces and physiological values remain within thresholds for 30+ seconds, physics updates are cached and skipped.
+Stabilization is automatically re-entered when conditions deviate beyond tolerance.
 
 ## Architecture
 
@@ -108,9 +105,8 @@ Main classes:
 
 ## Performance
 
-Real-time performance characteristics: ~0.1–0.5ms per instance per frame. Per-instance memory: ~1KB. Supports high
-time-warp scenarios with stability detection. Scales linearly with number of instances. Optional performance profiling
-via PERFDEBUG conditional.
+Real-time performance characteristics: ~0.1–0.5ms per instance per frame. Per-instance memory: ~1KB.\
+Supports high time-warp scenarios with stability detection. Scales linearly with number of instances. Optional performance profiling via PERFDEBUG conditional.
 
 ## License
 
@@ -118,5 +114,4 @@ This project is licensed under the [GNU General Public License v3.0](LICENSE).
 
 ## Contributing
 
-By contributing to this project, you agree to the [Contributor License Agreement](CLA.md). Please read it before
-submitting any contributions.
+By contributing to this project, you agree to the [Contributor License Agreement](CLA.md). Please read it before submitting any contributions.
