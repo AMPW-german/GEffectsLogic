@@ -290,16 +290,32 @@ public class PhysiologicalModel
                 bloodLower = remaining * 0.55;
             }
         }
+        else if (bloodHead > LogicSettings.MaxHeadBloodFraction)
+        {
+            bloodHead = LogicSettings.MaxHeadBloodFraction;
+            var remaining = 1.0 - bloodHead;
+            var coreLower = bloodCore + bloodLower;
+            if (coreLower > 1e-9)
+            {
+                bloodCore = remaining * (bloodCore / coreLower);
+                bloodLower = remaining * (bloodLower / coreLower);
+            }
+            else
+            {
+                bloodCore = remaining * 0.45;
+                bloodLower = remaining * 0.55;
+            }
+        }
 
         // O2 delivery depends on head blood volume relative to resting
         var perfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
-        perfusionRatio = Clamp(perfusionRatio, 0.0, 1.0);
+        var perfusionRatioClamped = Clamp(perfusionRatio, 0.0, 1.0);
 
         // Perfusion shaping
         var s = LogicSettings.O2PerfusionCurveStrength;
         var pivot = LogicSettings.O2PerfusionCurvePivot;
         var shapedPerfusion =
-            perfusionRatio - s * perfusionRatio * (1.0 - perfusionRatio) * (perfusionRatio - pivot);
+            perfusionRatioClamped - s * perfusionRatioClamped * (1.0 - perfusionRatioClamped) * (perfusionRatioClamped - pivot);
         shapedPerfusion = Clamp(shapedPerfusion, 0.0, 1.0);
 
         // convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
@@ -309,7 +325,7 @@ public class PhysiologicalModel
         var hypoperfusion = Math.Max(0.0, threshold - shapedPerfusion) / threshold;
         var hypoperfusionPenalty = LogicSettings.BrainO2HypoperfusionPenaltyStrength * hypoperfusion * hypoperfusion;
 
-        effectiveDelivery = Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0);
+        effectiveDelivery = Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0) * heartRateMultiplier;
 
         // Target O2 is bounded by floor, then approached with time constants
         var targetBrainO2 = LogicSettings.BrainO2Floor + (1.0 - LogicSettings.BrainO2Floor) * effectiveDelivery;
@@ -339,8 +355,15 @@ public class PhysiologicalModel
         // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
         // system is stuck at once fully fatigued (independent of feedback).
         // Baroreceptor target from current perfusion deficit.
-        var baroTarget = 1.0 + LogicSettings.BaroreceptorGain * Math.Max(0, 1.0 - perfusionRatio);
-        baroTarget = Math.Min(baroTarget, LogicSettings.MaxHeartRateMultiplier);
+        //
+        // TODO: Check for harmonic feedback loop for Gz-: bloodhead increases -> hr decreases -> bloodhead increases -> ...
+        double baroTarget;
+
+        //if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - bloodHead / LogicSettings.MaxHeadBloodFraction;
+        if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - LogicSettings.BaroreceptorGain * (bloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead);
+        else baroTarget = 1.0 + LogicSettings.BaroreceptorGain * (1.0 - perfusionRatioClamped);
+
+        baroTarget = Clamp(baroTarget, 0.0, LogicSettings.MaxHeartRateMultiplier);
 
         // hrFatigue suppresses baroreceptor response: at hrFatigue=1 the target is pinned to the floor.
         var targetHR = baroTarget + hrFatigue * (fatigueHeartRateFloor - baroTarget);
