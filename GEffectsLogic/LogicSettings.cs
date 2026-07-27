@@ -31,7 +31,6 @@ public static class LogicSettings
     public static double HydrostaticShiftRate { get; set; } = 0.0053;
     public static double HydrostaticShiftExponent { get; set; } = 2.0;
 
-    // Keep these summing to ~1.0
     public static double CoreLowerShiftFraction { get; set; } = 0.55;
 
     // Passive return / compensation
@@ -64,7 +63,8 @@ public static class LogicSettings
     public static bool SuppresInfoLogs { get; set; } = false;
 
     // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
-    public static double MinHeadBloodFraction { get; set; } = 0.02; // 2% of total blood
+    public static double MinHeadBloodFraction { get; set; } = 0.02; // TODO: needs to be tuned
+    public static double MaxHeadBloodFraction { get; set; } = 0.25; // TODO: needs to be tuned
 
     // --- Brain O2 dynamics ---
     public static double BrainO2Floor { get; set; } = 0.18;
