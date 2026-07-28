@@ -194,26 +194,20 @@ public class PhysiologicalModel
 
         // Drive straining level from +Gz with first-order lag
         var targetStraining = 0.0;
-        if (gz > LogicSettings.StrainingStartGz)
-            targetStraining = (gz - LogicSettings.StrainingStartGz) /
-                              (LogicSettings.StrainingFullGz - LogicSettings.StrainingStartGz);
+        if (gz > LogicSettings.StrainingStartGz) targetStraining = (gz - LogicSettings.StrainingStartGz) / (LogicSettings.StrainingFullGz - LogicSettings.StrainingStartGz);
         targetStraining = Clamp(targetStraining, 0.0, 1.0);
         strainingLevel = StepTowardsLinear(strainingLevel, targetStraining, LogicSettings.StrainingTau, dt);
 
         // Fatigue: straining fatigue fills while strainingLevel is high, drains slowly at rest
         var strainingFatigueBuildRate = LogicSettings.StrainingFatigueBuildRate * strainingLevel * strainingLevel;
         var strainingFatigueDecayRate = 1.0 / LogicSettings.StrainingFatigueRecoveryTau;
-        strainingFatigue += strainingLevel > 0.01
-            ? strainingFatigueBuildRate * dt
-            : -strainingFatigueDecayRate * strainingFatigue * dt;
+        strainingFatigue += strainingLevel > 0.01 ? strainingFatigueBuildRate * dt : -strainingFatigueDecayRate * strainingFatigue * dt;
         strainingFatigue = Clamp(strainingFatigue, 0.0, 1.0);
 
         // G-suit fatigue builds more slowly (mechanical, outlasts the pilot's AGSM), also drains slowly
         var gSuitFatigueBuildRate = LogicSettings.GSuitFatigueBuildRate * strainingLevel;
         var gSuitFatigueDecayRate = 1.0 / LogicSettings.GSuitFatigueRecoveryTau;
-        gSuitFatigue += strainingLevel > 0.01
-            ? gSuitFatigueBuildRate * dt
-            : -gSuitFatigueDecayRate * gSuitFatigue * dt;
+        gSuitFatigue += strainingLevel > 0.01 ? gSuitFatigueBuildRate * dt : -gSuitFatigueDecayRate * gSuitFatigue * dt;
         gSuitFatigue = Clamp(gSuitFatigue, 0.0, 1.0);
 
         // Effective straining: human AGSM component fully degrades with strainingFatigue
@@ -221,8 +215,7 @@ public class PhysiologicalModel
 
         // Effective g-suit: mechanical suit retains a passive fraction, only the active compression degrades
         var gSuitActiveFraction = 1.0 - LogicSettings.GSuitPassiveFraction;
-        var effectiveGSuit = LogicSettings.GSuitEffectiveness *
-                             (LogicSettings.GSuitPassiveFraction + gSuitActiveFraction * (1.0 - gSuitFatigue));
+        var effectiveGSuit = LogicSettings.GSuitEffectiveness * (LogicSettings.GSuitPassiveFraction + gSuitActiveFraction * (1.0 - gSuitFatigue));
 
         // Suit effect only for +Gz loading, coupled to effective straining
         var suitActivation = Clamp(effectiveGSuit * effectiveStraining, 0.0, 1.0);
@@ -231,12 +224,9 @@ public class PhysiologicalModel
         // Mild global scaling + targeted redistribution
         var effectiveGzShift = gzNetScaled * (1.0 - LogicSettings.GSuitGlobalShiftReductionMax * suit);
 
-        var coreLowerFractionEffective = Clamp(
-            LogicSettings.CoreLowerShiftFraction * (1.0 - LogicSettings.GSuitCoreLowerReductionMax * suit),
-            0.05, 0.95);
+        var coreLowerFractionEffective = Clamp(LogicSettings.CoreLowerShiftFraction * (1.0 - LogicSettings.GSuitCoreLowerReductionMax * suit), 0.05, 0.95);
 
-        Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}",
-            UniqueID);
+        Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", UniqueID);
 
         // Blood flow rate between compartments
         var shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
@@ -248,12 +238,9 @@ public class PhysiologicalModel
         var returnRate = LogicSettings.PassiveReturnRate * heartRateMultiplier;
         var lowerReturnRate = returnRate * (1.0 + LogicSettings.GSuitLowerReturnBoostMax * suit);
 
-        bloodHead = (bloodHead + (shiftHeadRate + returnRate * LogicSettings.RestingBloodHead) * dt) /
-                    (1.0 + returnRate * dt);
-        bloodCore = (bloodCore + (shiftCoreRate + returnRate * LogicSettings.RestingBloodCore) * dt) /
-                    (1.0 + returnRate * dt);
-        bloodLower = (bloodLower + (shiftLowerRate + lowerReturnRate * LogicSettings.RestingBloodLower) * dt) /
-                     (1.0 + lowerReturnRate * dt);
+        bloodHead = (bloodHead + (shiftHeadRate + returnRate * LogicSettings.RestingBloodHead) * dt) / (1.0 + returnRate * dt);
+        bloodCore = (bloodCore + (shiftCoreRate + returnRate * LogicSettings.RestingBloodCore) * dt) / (1.0 + returnRate * dt);
+        bloodLower = (bloodLower + (shiftLowerRate + lowerReturnRate * LogicSettings.RestingBloodLower) * dt) / (1.0 + lowerReturnRate * dt);
 
         // Enforce conservation (redistribute any numerical drift)
         var total = bloodHead + bloodCore + bloodLower;
@@ -357,10 +344,18 @@ public class PhysiologicalModel
         // Baroreceptor target from current perfusion deficit.
         //
         // TODO: Check for harmonic feedback loop for Gz-: bloodhead increases -> hr decreases -> bloodhead increases -> ...
+        // harmony feedback loop is real. Proposed solutions:
+        // 1. Pressure resistance:
+        //    Reduced effective Gz- for the head as it fills preventing max fill level at low Gz-
+        // 1.1 Asymmetric scaling — only apply resistance in the "filling" direction for each compartment (head resists overfill from Gz-, lower body resists overfill from Gz+). No resistance to draining.
+        // 1.2 Direction-gated — tie it to the sign of Gz. Under Gz-, head gets pressure resistance. Under Gz+, lower body gets pressure resistance. Simple, but discontinuous at Gz=0.
+        // 1.3 Only on the head overfill side — since the harmonic loop is specifically a Gz- problem (HR drops → return weakens → head stays full), you could limit it to bloodHead > RestingBloodHead. The Gz+ side
+        //     already has straining/suit as counterweights and the HR feedback helps there (HR rises → return strengthens → partial compensation).
+        // 2. Return force based on head fill state
         double baroTarget;
 
         //if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - bloodHead / LogicSettings.MaxHeadBloodFraction;
-        if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - LogicSettings.BaroreceptorGain * (bloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead);
+        if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - (bloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead);
         else baroTarget = 1.0 + LogicSettings.BaroreceptorGain * (1.0 - perfusionRatioClamped);
 
         baroTarget = Clamp(baroTarget, 0.0, LogicSettings.MaxHeartRateMultiplier);
