@@ -35,6 +35,8 @@ public static class LogicSettings
 
     // Passive return / compensation
     public static double PassiveReturnRate { get; set; } = 0.47;
+    public static double PressureResistanceRate { get; set; } = 2.0;
+    public static double HeadPressureReturnRate { get; set; } = 0.25;
     public static double BaroreceptorTimeConstant { get; set; } = 3.8;
 
     // G-suit effectiveness (0 = none, 1 = perfect). Scales with straining level.

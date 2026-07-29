@@ -176,6 +176,53 @@ public class PhysiologicalModel
         return current + (target - current) * alpha;
     }
 
+    private static double StepHeadBloodImplicit(
+    double current,
+    double hydrostaticRate,
+    double returnRate,
+    double dt)
+    {
+        var resting = LogicSettings.RestingBloodHead;
+        var capacity = LogicSettings.MaxHeadBloodFraction - resting;
+
+        // Normalized head overfill before this step.
+        var currentOverfill = (current - resting) / capacity;
+
+        // Backward Euler terms:
+        // dx/dt = hydrostaticRate / capacity
+        //         - returnRate * x
+        //         - HeadPressureReturnRate / capacity * x / (a - x)
+        var drivenOverfill = currentOverfill + dt * hydrostaticRate / capacity;
+        var passiveFactor = 1.0 + dt * returnRate;
+
+        // Pressure only applies on the overfill side.
+        if (drivenOverfill <= 0.0)
+        {
+            return resting + capacity * drivenOverfill / passiveFactor;
+        }
+
+        var pressureLimit = 1.0 + LogicSettings.PressureResistanceRate;
+        var pressureFactor = dt * LogicSettings.HeadPressureReturnRate / capacity;
+
+        var coefficient =
+            passiveFactor * pressureLimit +
+            pressureFactor +
+            drivenOverfill;
+
+        var discriminant =
+            coefficient * coefficient -
+            4.0 * passiveFactor * pressureLimit * drivenOverfill;
+
+        discriminant = Math.Max(discriminant, 0.0);
+
+        // Stable form of the smaller quadratic root.
+        var nextOverfill =
+            2.0 * pressureLimit * drivenOverfill /
+            (coefficient + Math.Sqrt(discriminant));
+
+        return resting + capacity * nextOverfill;
+    }
+
     /// <summary>
     ///     Advance the model by deltaTime seconds under the given G-force vector.
     /// </summary>
@@ -223,10 +270,23 @@ public class PhysiologicalModel
 
         // Mild global scaling + targeted redistribution
         var effectiveGzShift = gzNetScaled * (1.0 - LogicSettings.GSuitGlobalShiftReductionMax * suit);
-
         var coreLowerFractionEffective = Clamp(LogicSettings.CoreLowerShiftFraction * (1.0 - LogicSettings.GSuitCoreLowerReductionMax * suit), 0.05, 0.95);
 
         Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", UniqueID);
+
+        // TODO: Fix harmonic feedback loop for Gz-: bloodhead increases -> hr decreases -> bloodhead increases -> ...
+        // Proposed solutions:
+        // 1. Pressure resistance:
+        //    Reduced effective Gz- for the head as it fills preventing max fill level at low Gz-
+        // 1.1 Asymmetric scaling — only apply resistance in the "filling" direction for each compartment (head resists overfill from Gz-, lower body resists overfill from Gz+). No resistance to draining.
+        // 1.2 Direction-gated — tie it to the sign of Gz. Under Gz-, head gets pressure resistance. Under Gz+, lower body gets pressure resistance. Simple, but discontinuous at Gz=0.
+        // 1.3 Only on the head overfill side — since the harmonic loop is specifically a Gz- problem (HR drops → return weakens → head stays full), you could limit it to bloodHead > RestingBloodHead. The Gz+ side
+        //     already has straining/suit as counterweights and the HR feedback helps there (HR rises → return strengthens → partial compensation).
+        // 2. Return force based on head fill state
+
+        // Scrap that above, not the inflow needs to be reduced, but additional outflow from the pressure needs to be added
+        // Only reducing the inflow will lead to a complete fill eventually as the inflow is often just reduced to a very low non-zero value
+        // There's also no outflow when the Gz is reduced so the head will stay full until Gz >= 0
 
         // Blood flow rate between compartments
         var shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
@@ -238,7 +298,12 @@ public class PhysiologicalModel
         var returnRate = LogicSettings.PassiveReturnRate * heartRateMultiplier;
         var lowerReturnRate = returnRate * (1.0 + LogicSettings.GSuitLowerReturnBoostMax * suit);
 
-        bloodHead = (bloodHead + (shiftHeadRate + returnRate * LogicSettings.RestingBloodHead) * dt) / (1.0 + returnRate * dt);
+        bloodHead = StepHeadBloodImplicit(
+            bloodHead,
+            shiftHeadRate,
+            returnRate,
+            dt);
+
         bloodCore = (bloodCore + (shiftCoreRate + returnRate * LogicSettings.RestingBloodCore) * dt) / (1.0 + returnRate * dt);
         bloodLower = (bloodLower + (shiftLowerRate + lowerReturnRate * LogicSettings.RestingBloodLower) * dt) / (1.0 + lowerReturnRate * dt);
 
@@ -301,8 +366,7 @@ public class PhysiologicalModel
         // Perfusion shaping
         var s = LogicSettings.O2PerfusionCurveStrength;
         var pivot = LogicSettings.O2PerfusionCurvePivot;
-        var shapedPerfusion =
-            perfusionRatioClamped - s * perfusionRatioClamped * (1.0 - perfusionRatioClamped) * (perfusionRatioClamped - pivot);
+        var shapedPerfusion = perfusionRatioClamped - s * perfusionRatioClamped * (1.0 - perfusionRatioClamped) * (perfusionRatioClamped - pivot);
         shapedPerfusion = Clamp(shapedPerfusion, 0.0, 1.0);
 
         // convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
@@ -319,13 +383,9 @@ public class PhysiologicalModel
 
         // Severity-based depletion tau: high perfusion loss => faster depletion
         var severity = 1.0 - effectiveDelivery;
-        var depletionTau =
-            LogicSettings.BrainO2DepletionTauMild +
-            (LogicSettings.BrainO2DepletionTauSevere - LogicSettings.BrainO2DepletionTauMild) * severity;
+        var depletionTau = LogicSettings.BrainO2DepletionTauMild + (LogicSettings.BrainO2DepletionTauSevere - LogicSettings.BrainO2DepletionTauMild) * severity;
 
-        var o2Tau = targetBrainO2 < brainO2
-            ? depletionTau
-            : LogicSettings.BrainO2RecoveryTau;
+        var o2Tau = targetBrainO2 < brainO2 ? depletionTau : LogicSettings.BrainO2RecoveryTau;
 
         brainO2 = StepTowardsLinear(brainO2, targetBrainO2, o2Tau, dt);
         brainO2 = Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
@@ -334,24 +394,12 @@ public class PhysiologicalModel
         // decays slowly at rest. It is independent of current HR so it always wins eventually.
         var hrElevation = Math.Max(0.0, heartRateMultiplier - 1.0);
         var hrFatigueBuildRate = LogicSettings.CardioFatigueBuildRate * hrElevation;
-        hrFatigue += hrElevation > 0.05
-            ? hrFatigueBuildRate * dt
-            : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
+        hrFatigue += hrElevation > 0.05 ? hrFatigueBuildRate * dt : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
         hrFatigue = Clamp(hrFatigue, 0.0, 1.0);
 
         // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
         // system is stuck at once fully fatigued (independent of feedback).
         // Baroreceptor target from current perfusion deficit.
-        //
-        // TODO: Check for harmonic feedback loop for Gz-: bloodhead increases -> hr decreases -> bloodhead increases -> ...
-        // harmony feedback loop is real. Proposed solutions:
-        // 1. Pressure resistance:
-        //    Reduced effective Gz- for the head as it fills preventing max fill level at low Gz-
-        // 1.1 Asymmetric scaling — only apply resistance in the "filling" direction for each compartment (head resists overfill from Gz-, lower body resists overfill from Gz+). No resistance to draining.
-        // 1.2 Direction-gated — tie it to the sign of Gz. Under Gz-, head gets pressure resistance. Under Gz+, lower body gets pressure resistance. Simple, but discontinuous at Gz=0.
-        // 1.3 Only on the head overfill side — since the harmonic loop is specifically a Gz- problem (HR drops → return weakens → head stays full), you could limit it to bloodHead > RestingBloodHead. The Gz+ side
-        //     already has straining/suit as counterweights and the HR feedback helps there (HR rises → return strengthens → partial compensation).
-        // 2. Return force based on head fill state
         double baroTarget;
 
         //if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - bloodHead / LogicSettings.MaxHeadBloodFraction;
