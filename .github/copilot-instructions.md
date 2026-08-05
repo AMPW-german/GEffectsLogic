@@ -71,7 +71,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Project Guidelines
 - For this G-effects model, the desired behavior is that a 1→5 Gz+ ramp over 5 seconds should reach loss-of-consciousness between 25 and 35 seconds.
-- For the G-effects physiological model, negative-G stabilization should handle about -1 Gz without runaway feedback, while negative-G loss of consciousness should occur closer to -2.5 Gz; hot-path implementation cost matters.
+- Negative-G impairment should emerge from head overfill pressure and baroreceptor-induced bradycardia. Approximately −1 Gz should remain stable without runaway feedback, while sustained −4 to −5 Gz should cause loss of consciousness within approximately 4–6 seconds.
+- Cerebral perfusion remains normalized to a maximum of 1; excess head blood contributes pressure impairment rather than additional oxygen delivery.
 - All newly added physiological-model methods must be designed for minimal time-step dependence and stability at large dt; older methods may be reworked later, so unrelated existing compartment methods can be ignored for now.
 - The physiological model must avoid fixed G-force deadzones and hand-authored effect ranges. Negative-G impairment should primarily emerge from baroreceptor-induced bradycardia, including extreme near-stop or irregular-heart behavior, and this response must be preserved for push-pull effects; push-pull may require a somewhat reduced positive-G heart-rate increase rate.
 - Physiological model state integration should be as time-step independent as practical and remain stable without overshoot at large dt values.

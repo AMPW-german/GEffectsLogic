@@ -35,9 +35,8 @@ public static class LogicSettings
 
     // Passive return / compensation
     public static double PassiveReturnRate { get; set; } = 0.47;
-    public static double PressureResistanceRate { get; set; } = 2.0;
+    public static double PressureResistanceRate { get; set; } = 4.0;
     public static double HeadPressureReturnRate { get; set; } = 0.25;
-    public static double BaroreceptorTimeConstant { get; set; } = 3.8;
 
     // G-suit effectiveness (0 = none, 1 = perfect). Scales with straining level.
     public static double GSuitEffectiveness { get; set; } = 0.3;
@@ -55,6 +54,9 @@ public static class LogicSettings
 
     // Baroreceptor reflex
     public static double BaroreceptorGain { get; set; } = 3.0; // HR increase per unit perfusion deficit
+    public static double BaroreceptorTimeConstantPositive { get; set; } = 3.8; // Baroreceptor reflex time for Gz+
+    public static double BaroreceptorTimeConstantNegativeMin { get; set; } = 0.75;
+    public static double BaroreceptorTimeConstantNegativeMax { get; set; } = 10.0;
     public static double MaxHeartRateMultiplier { get; set; } = 3.0; // max HR multiplier
 
     // Brain O2 thresholds for consciousness mapping
