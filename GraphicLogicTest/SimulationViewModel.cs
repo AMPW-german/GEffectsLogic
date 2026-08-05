@@ -159,11 +159,7 @@ public sealed class SimulationViewModel : INotifyPropertyChanged
 
     internal void ToggleMetricSeries_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button b || b.DataContext is not SimulationInstanceViewModel vm) return;
-        if (b.Tag is null) return;
-        if (!int.TryParse(b.Tag.ToString(), out var index)) return;
-
-        vm.ToggleMetricSeries(index);
+        if (sender is Button { DataContext: LegendItemViewModel item }) item.Toggle();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

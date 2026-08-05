@@ -72,6 +72,8 @@ public class PhysiologicalModel
     /// <summary>Fraction of total blood in the head compartment.</summary>
     public double BloodHead => bloodHead;
 
+    public double BloodHeadOverfill => Math.Max((BloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead), 0);
+
     /// <summary>Fraction of total blood in the core compartment.</summary>
     public double BloodCore => bloodCore;
 
@@ -112,10 +114,10 @@ public class PhysiologicalModel
 
     /// <summary>Current level of tunnel vision (0 = none, 1 = blackout).</summary>
     public double TunnelVisionLevel => tunnelVisionLevel;
-    
+
     /// <summary>Current level of filmgrain, based on TunnelVisionLevel (intended: 25% filmGrainLevel, 75% tunnelvision alpha)</summary>
     public double FilmGrainLevel => filmgrainLevel;
-    
+
     /// <summary>Current blur percentage (currently recommended: 0.0 - 5.0 pixels gaussian blur)</summary>
     public double BlurLevel => blurLevel;
 
@@ -146,13 +148,11 @@ public class PhysiologicalModel
         perfusionLevel = 0.0;
     }
 
+    public static double Clamp(double value, double min, double max) =>
 #if NET481
-    public static double Clamp(double value, double min, double max)
-    {
-        return Math.Max(Math.Min(value, max), min);
-    }
+    Math.Max(Math.Min(value, max), min);
 #else
-    public static double Clamp(double value, double min, double max) => Math.Clamp(value, min, max);
+        Math.Clamp(value, min, max);
 #endif
 
 
@@ -220,6 +220,10 @@ public class PhysiologicalModel
             2.0 * pressureLimit * drivenOverfill /
             (coefficient + Math.Sqrt(discriminant));
 
+        //var overfillChange = nextOverfill - currentOverfill;
+        //overfillChange *= 0.25;
+
+        //return resting + capacity * (currentOverfill + overfillChange);
         return resting + capacity * nextOverfill;
     }
 
@@ -232,6 +236,11 @@ public class PhysiologicalModel
     /// <param name="gy">Current Gy (unused in v1, reserved).</param>
     public virtual void Update(double dt, double gz, double gx = 0.0, double gy = 0.0)
     {
+        // TODO:
+        // reduce consciousnessLevel based on head overfill for faster high Gz- GLoC (overpressure driven)
+        // ---faster heartrate response to Gz- (overpressure driven)--- mostly done
+        // Heartrate response requires better overfill curves
+
         // Keep dt untouched here (guarded by LogicInstance).
 
         // Positive Gz pushes blood from head → lower body
@@ -369,6 +378,40 @@ public class PhysiologicalModel
         var shapedPerfusion = perfusionRatioClamped - s * perfusionRatioClamped * (1.0 - perfusionRatioClamped) * (perfusionRatioClamped - pivot);
         shapedPerfusion = Clamp(shapedPerfusion, 0.0, 1.0);
 
+        // Cardiovascular fatigue: hrFatigue (0..1) accumulates with time × HR elevation,
+        // decays slowly at rest. It is independent of current HR so it always wins eventually.
+        var hrElevation = Math.Max(0.0, heartRateMultiplier - 1.0);
+        var hrFatigueBuildRate = LogicSettings.CardioFatigueBuildRate * hrElevation;
+        hrFatigue += hrElevation > 0.05 ? hrFatigueBuildRate * dt : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
+        hrFatigue = Clamp(hrFatigue, 0.0, 1.0);
+
+        // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
+        // system is stuck at once fully fatigued (independent of feedback).
+        // Baroreceptor target from current perfusion deficit.
+        double baroTarget;
+
+        //if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - bloodHead / LogicSettings.MaxHeadBloodFraction;
+        double hrTau;
+        if (bloodHead > LogicSettings.RestingBloodHead)
+        {
+            baroTarget = 1.0 - (bloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead);
+            hrTau = LogicSettings.BaroreceptorTimeConstantNegativeMin +
+                    (LogicSettings.BaroreceptorTimeConstantNegativeMax -
+                     LogicSettings.BaroreceptorTimeConstantNegativeMin) *
+                    baroTarget;
+        }
+        else
+        {
+            baroTarget = 1.0 + LogicSettings.BaroreceptorGain * (1.0 - perfusionRatioClamped);
+            hrTau = LogicSettings.BaroreceptorTimeConstantPositive;
+        }
+
+        baroTarget = Clamp(baroTarget, 0.0, LogicSettings.MaxHeartRateMultiplier);
+
+        // hrFatigue suppresses baroreceptor response: at hrFatigue=1 the target is pinned to the floor.
+        var targetHR = baroTarget + hrFatigue * (fatigueHeartRateFloor - baroTarget);
+        heartRateMultiplier = StepTowardsLinear(heartRateMultiplier, targetHR, hrTau, dt);
+
         // convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
         var effectiveDelivery = Math.Pow(shapedPerfusion, LogicSettings.BrainO2PerfusionExponent);
 
@@ -390,34 +433,10 @@ public class PhysiologicalModel
         brainO2 = StepTowardsLinear(brainO2, targetBrainO2, o2Tau, dt);
         brainO2 = Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
 
-        // Cardiovascular fatigue: hrFatigue (0..1) accumulates with time × HR elevation,
-        // decays slowly at rest. It is independent of current HR so it always wins eventually.
-        var hrElevation = Math.Max(0.0, heartRateMultiplier - 1.0);
-        var hrFatigueBuildRate = LogicSettings.CardioFatigueBuildRate * hrElevation;
-        hrFatigue += hrElevation > 0.05 ? hrFatigueBuildRate * dt : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
-        hrFatigue = Clamp(hrFatigue, 0.0, 1.0);
-
-        // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
-        // system is stuck at once fully fatigued (independent of feedback).
-        // Baroreceptor target from current perfusion deficit.
-        double baroTarget;
-
-        //if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - bloodHead / LogicSettings.MaxHeadBloodFraction;
-        if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - (bloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead);
-        else baroTarget = 1.0 + LogicSettings.BaroreceptorGain * (1.0 - perfusionRatioClamped);
-
-        baroTarget = Clamp(baroTarget, 0.0, LogicSettings.MaxHeartRateMultiplier);
-
-        // hrFatigue suppresses baroreceptor response: at hrFatigue=1 the target is pinned to the floor.
-        var targetHR = baroTarget + hrFatigue * (fatigueHeartRateFloor - baroTarget);
-
-        var hrTau = LogicSettings.BaroreceptorTimeConstant;
-        heartRateMultiplier = StepTowardsLinear(heartRateMultiplier, targetHR, hrTau, dt);
-
         // Determine blackout vs redout from head blood volume
         primaryColor = bloodHead <= LogicSettings.RestingBloodHead;
 
-        // Map brain O2 to consciousness via smooth step
+        // Map brain O2 to consciousness
         var o2Normalized = Clamp(
             (BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
             0.0, 1.0);
