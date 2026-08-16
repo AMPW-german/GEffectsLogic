@@ -24,16 +24,20 @@ Blood volume is conserved across updates: bloodHead + bloodCore + bloodLower = 1
 
 ### Hydrostatic Blood Shift (Gz Primary)
 
-When positive Gz is applied, hydrostatic pressure pushes blood toward the lower body. Modeled as a power function:
+When positive Gz is applied, hydrostatic pressure pushes blood toward the lower body. Modeled as a power function
+rebased so that upright 1G is the neutral point (head blood stays near resting):
 
-shift = hydrostaticShiftRate × Gz^hydrostaticShiftExponent
+shift = hydrostaticShiftRate × (sign(Gz) × |Gz|^hydrostaticShiftExponent − 1)
 
-Higher exponent means early G-levels have less effect, but high-G effects are severe (non-linear tolerance).
+Higher exponent means early G-levels have less effect, but high-G effects are severe (non-linear tolerance). Because the
+1G equivalent is subtracted, steady level flight settles at near-full consciousness while high +Gz still pools strongly
+and negative Gz overfills the head. At 0G (weightless, similar blood distribution to lying down) the drive is a small
+constant head-overfill; this settles to a negligible overfill that also keeps consciousness near-full.
 
 Parameters:
 
-- HydrostaticShiftRate: Base rate (approximately 0.0053)
-- HydrostaticShiftExponent: Non-linearity (approximately 2.2)
+- HydrostaticShiftRate: Base rate (approximately 0.0063)
+- HydrostaticShiftExponent: Non-linearity (approximately 2.0)
 
 ### Autoregulation and Passive Return
 
@@ -100,6 +104,36 @@ Key thresholds:
 - ConsciousnessLossTauMin: approximately 5s (fastest loss at critical conditions)
 - ConsciousnessLossTauMax: approximately 24s (slowest loss at mild conditions)
 - ConsciousnessCriticalO2Norm: approximately 0.28 (critical O2 threshold)
+
+### Cerebral Pressure Impairment (Negative Gz)
+
+Negative Gz overfills the head with blood. Rather than mapping head overfill directly to consciousness, a temporary,
+reversible impairment state accumulates while the head is overfilled and recovers once the load is released. This is a
+transient pressure/baroreceptor effect, not lasting damage.
+
+- The build rate is a logistic function of resting-relative head overfill: negligible near resting, rising steeply
+  through a mid-overfill point, and saturating at high overfill so extreme negative-G G-LOC times flatten out instead of
+  collapsing toward zero.
+- The resting-overfill build rate is subtracted so no impairment accrues at rest and recovery is complete after
+  unloading.
+- A small deadband ignores negligible impairment (rescaled above it) so the tiny residual head overfill at 0G does not
+  reduce consciousness, while sustained negative-G impairment still reaches full effect. The deadband sits just below the
+  0G residual so a sustained -1Gz still incurs a small (~5%) consciousness decrease, simulating head-pressure
+  headache/discomfort without incapacitation.
+- Impairment is applied as an independent weakest-link reserve on consciousness (a shaped cap), separate from the O2/
+  perfusion loss path.
+
+Together with baroreceptor-induced bradycardia this yields: stable at approximately −1 to −2 Gz, loss of consciousness
+around 20–25s at −3 Gz, and 4–6s at −4 to −5 Gz with little further reduction at more extreme negative G.
+
+Parameters:
+
+- CerebralPressureImpairmentMaxBuildRate: saturated build rate at high overfill (approximately 0.178)
+- CerebralPressureImpairmentExponent: logistic steepness in overfill space (approximately 150)
+- CerebralPressureImpairmentMidOverfill: logistic midpoint overfill (approximately 0.045)
+- CerebralPressureImpairmentRecoveryTau: recovery time constant (approximately 25s)
+- CerebralPressureConsciousnessExponent: shaping of the consciousness reserve (approximately 7.7)
+- CerebralPressureImpairmentDeadband: impairment ignored below this level (approximately 0.003)
 
 ### Vision Effects
 

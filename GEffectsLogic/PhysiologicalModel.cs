@@ -57,6 +57,7 @@ public class PhysiologicalModel
     protected double perfusionLevel;
 
     protected double consciousnessLevel = 1.0;
+    protected double cerebralPressureImpairment;
 
     //protected double confusionLevel = 0.0;
     protected double greyScaleLevel;
@@ -72,7 +73,7 @@ public class PhysiologicalModel
     /// <summary>Fraction of total blood in the head compartment.</summary>
     public double BloodHead => bloodHead;
 
-    public double BloodHeadOverfill => Math.Max((BloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead), 0);
+    public double BloodHeadOverfill => GetHeadBloodOverfill(BloodHead);
 
     /// <summary>Fraction of total blood in the core compartment.</summary>
     public double BloodCore => bloodCore;
@@ -106,6 +107,9 @@ public class PhysiologicalModel
 
     /// <summary>Current level of consciousness (0 = unconscious, 1 = fully conscious).</summary>
     public double ConsciousnessLevel => consciousnessLevel;
+
+    /// <summary>Temporary functional impairment caused by sustained excess head pressure.</summary>
+    public double CerebralPressureImpairment => cerebralPressureImpairment;
 
     //public double ConfusionLevel { get { return confusionLevel; } set { confusionLevel = value; } }
 
@@ -145,6 +149,7 @@ public class PhysiologicalModel
         blurLevel = 0.0;
         primaryColor = true;
         consciousnessLevel = 1.0;
+        cerebralPressureImpairment = 0.0;
         perfusionLevel = 0.0;
     }
 
@@ -176,6 +181,14 @@ public class PhysiologicalModel
         return current + (target - current) * alpha;
     }
 
+    private static double GetHeadBloodOverfill(double headBlood) =>
+        Math.Max((headBlood - LogicSettings.RestingBloodHead) / LogicSettings.RestingBloodHead, 0.0);
+
+    private static double PressureImpairmentBuildRate(double overfill) =>
+        LogicSettings.CerebralPressureImpairmentMaxBuildRate /
+        (1.0 + Math.Exp(-LogicSettings.CerebralPressureImpairmentExponent *
+                        (overfill - LogicSettings.CerebralPressureImpairmentMidOverfill)));
+
     private static double StepHeadBloodImplicit(
     double current,
     double hydrostaticRate,
@@ -183,48 +196,30 @@ public class PhysiologicalModel
     double dt)
     {
         var resting = LogicSettings.RestingBloodHead;
-        var capacity = LogicSettings.MaxHeadBloodFraction - resting;
-
-        // Normalized head overfill before this step.
-        var currentOverfill = (current - resting) / capacity;
-
-        // Backward Euler terms:
-        // dx/dt = hydrostaticRate / capacity
-        //         - returnRate * x
-        //         - HeadPressureReturnRate / capacity * x / (a - x)
-        var drivenOverfill = currentOverfill + dt * hydrostaticRate / capacity;
         var passiveFactor = 1.0 + dt * returnRate;
+        var drivenHeadBlood = current + dt * (hydrostaticRate + returnRate * resting);
+        var noPressureHeadBlood = drivenHeadBlood / passiveFactor;
 
-        // Pressure only applies on the overfill side.
-        if (drivenOverfill <= 0.0)
+        if (noPressureHeadBlood <= resting) return noPressureHeadBlood;
+
+        var lower = resting;
+        var upper = noPressureHeadBlood;
+
+        for (var i = 0; i < 48; i++)
         {
-            return resting + capacity * drivenOverfill / passiveFactor;
+            var candidate = 0.5 * (lower + upper);
+            var overfill = GetHeadBloodOverfill(candidate);
+            var pressureReturnRate = LogicSettings.HeadPressureReturnRate *
+                                     (Math.Exp(LogicSettings.HeadPressureReturnExponent * overfill) - 1.0);
+            var residual = passiveFactor * candidate + dt * pressureReturnRate - drivenHeadBlood;
+
+            if (residual > 0.0)
+                upper = candidate;
+            else
+                lower = candidate;
         }
 
-        var pressureLimit = 1.0 + LogicSettings.PressureResistanceRate;
-        var pressureFactor = dt * LogicSettings.HeadPressureReturnRate / capacity;
-
-        var coefficient =
-            passiveFactor * pressureLimit +
-            pressureFactor +
-            drivenOverfill;
-
-        var discriminant =
-            coefficient * coefficient -
-            4.0 * passiveFactor * pressureLimit * drivenOverfill;
-
-        discriminant = Math.Max(discriminant, 0.0);
-
-        // Stable form of the smaller quadratic root.
-        var nextOverfill =
-            2.0 * pressureLimit * drivenOverfill /
-            (coefficient + Math.Sqrt(discriminant));
-
-        //var overfillChange = nextOverfill - currentOverfill;
-        //overfillChange *= 0.25;
-
-        //return resting + capacity * (currentOverfill + overfillChange);
-        return resting + capacity * nextOverfill;
+        return 0.5 * (lower + upper);
     }
 
     /// <summary>
@@ -237,16 +232,16 @@ public class PhysiologicalModel
     public virtual void Update(double dt, double gz, double gx = 0.0, double gy = 0.0)
     {
         // TODO:
-        // reduce consciousnessLevel based on head overfill for faster high Gz- GLoC (overpressure driven)
-        // ---faster heartrate response to Gz- (overpressure driven)--- mostly done
-        // Heartrate response requires better overfill curves
+        // Shorter GLoC time at high Gz-, longer GLoC time at moderate (3) Gz-, less consciousness loss at low Gz- (0.5-2 Gz-)
 
         // Keep dt untouched here (guarded by LogicInstance).
 
         // Positive Gz pushes blood from head → lower body
         // Negative Gz pushes blood from lower body → head
-        // The shift rate is proportional to Gz magnitude beyond the 1G baseline
-        var gzNetScaled = Math.Sign(gz) * Math.Pow(Math.Abs(gz), LogicSettings.HydrostaticShiftExponent);
+        // The shift rate is proportional to Gz magnitude beyond the 1G baseline. Subtracting the
+        // 1G-equivalent makes normal upright 1G the neutral point (head blood ~ resting), so level
+        // flight settles at near-full consciousness while high +Gz still pools strongly.
+        var gzNetScaled = Math.Sign(gz) * Math.Pow(Math.Abs(gz), LogicSettings.HydrostaticShiftExponent) - 1.0;
 
         // Drive straining level from +Gz with first-order lag
         var targetStraining = 0.0;
@@ -282,20 +277,6 @@ public class PhysiologicalModel
         var coreLowerFractionEffective = Clamp(LogicSettings.CoreLowerShiftFraction * (1.0 - LogicSettings.GSuitCoreLowerReductionMax * suit), 0.05, 0.95);
 
         Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", UniqueID);
-
-        // TODO: Fix harmonic feedback loop for Gz-: bloodhead increases -> hr decreases -> bloodhead increases -> ...
-        // Proposed solutions:
-        // 1. Pressure resistance:
-        //    Reduced effective Gz- for the head as it fills preventing max fill level at low Gz-
-        // 1.1 Asymmetric scaling — only apply resistance in the "filling" direction for each compartment (head resists overfill from Gz-, lower body resists overfill from Gz+). No resistance to draining.
-        // 1.2 Direction-gated — tie it to the sign of Gz. Under Gz-, head gets pressure resistance. Under Gz+, lower body gets pressure resistance. Simple, but discontinuous at Gz=0.
-        // 1.3 Only on the head overfill side — since the harmonic loop is specifically a Gz- problem (HR drops → return weakens → head stays full), you could limit it to bloodHead > RestingBloodHead. The Gz+ side
-        //     already has straining/suit as counterweights and the HR feedback helps there (HR rises → return strengthens → partial compensation).
-        // 2. Return force based on head fill state
-
-        // Scrap that above, not the inflow needs to be reduced, but additional outflow from the pressure needs to be added
-        // Only reducing the inflow will lead to a complete fill eventually as the inflow is often just reduced to a very low non-zero value
-        // There's also no outflow when the Gz is reduced so the head will stay full until Gz >= 0
 
         // Blood flow rate between compartments
         var shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
@@ -351,22 +332,23 @@ public class PhysiologicalModel
                 bloodLower = remaining * 0.55;
             }
         }
-        else if (bloodHead > LogicSettings.MaxHeadBloodFraction)
-        {
-            bloodHead = LogicSettings.MaxHeadBloodFraction;
-            var remaining = 1.0 - bloodHead;
-            var coreLower = bloodCore + bloodLower;
-            if (coreLower > 1e-9)
-            {
-                bloodCore = remaining * (bloodCore / coreLower);
-                bloodLower = remaining * (bloodLower / coreLower);
-            }
-            else
-            {
-                bloodCore = remaining * 0.45;
-                bloodLower = remaining * 0.55;
-            }
-        }
+
+        var headOverfill = GetHeadBloodOverfill(bloodHead);
+
+        // Impairment accrues faster the more the head is overfilled. The build rate follows a
+        // smooth logistic in overfill: it is negligible near resting, rises steeply through the
+        // physiological mid-overfill, and saturates at high overfill so extreme negative-G G-LOC
+        // times flatten out instead of collapsing toward zero. The resting-overfill baseline is
+        // subtracted so no impairment accrues (and recovery is complete) at rest.
+        var pressureImpairmentBuildRate =
+            Math.Max(PressureImpairmentBuildRate(headOverfill) - PressureImpairmentBuildRate(0.0), 0.0);
+        var pressureImpairmentRecoveryRate = 1.0 / Math.Max(LogicSettings.CerebralPressureImpairmentRecoveryTau, 1e-9);
+        var pressureImpairmentRate = pressureImpairmentBuildRate + pressureImpairmentRecoveryRate;
+        var pressureImpairmentTarget = pressureImpairmentBuildRate / pressureImpairmentRate;
+        var pressureImpairmentAlpha = 1.0 - Math.Exp(-pressureImpairmentRate * dt);
+
+        cerebralPressureImpairment += (pressureImpairmentBuildRate - cerebralPressureImpairment * pressureImpairmentRecoveryRate) * dt;
+        cerebralPressureImpairment = Clamp(cerebralPressureImpairment, 0.0, 1.0);
 
         // O2 delivery depends on head blood volume relative to resting
         var perfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
@@ -390,15 +372,12 @@ public class PhysiologicalModel
         // Baroreceptor target from current perfusion deficit.
         double baroTarget;
 
-        //if (bloodHead > LogicSettings.RestingBloodHead) baroTarget = 1.0 - bloodHead / LogicSettings.MaxHeadBloodFraction;
         double hrTau;
         if (bloodHead > LogicSettings.RestingBloodHead)
         {
-            baroTarget = 1.0 - (bloodHead - LogicSettings.RestingBloodHead) / (LogicSettings.MaxHeadBloodFraction - LogicSettings.RestingBloodHead);
-            hrTau = LogicSettings.BaroreceptorTimeConstantNegativeMin +
-                    (LogicSettings.BaroreceptorTimeConstantNegativeMax -
-                     LogicSettings.BaroreceptorTimeConstantNegativeMin) *
-                    baroTarget;
+            var bradycardia = Clamp(GetHeadBloodOverfill(bloodHead) / LogicSettings.NegativeGHeartStopOverfill, 0.0, 1.0);
+            baroTarget = 1.0 - bradycardia;
+            hrTau = LogicSettings.BaroreceptorTimeConstantNegativeMin + (LogicSettings.BaroreceptorTimeConstantNegativeMax - LogicSettings.BaroreceptorTimeConstantNegativeMin) * baroTarget;
         }
         else
         {
@@ -457,32 +436,40 @@ public class PhysiologicalModel
         // Geometric blend: both channels matter strongly, avoids high flat plateau
         var targetConsciousness = o2Term * perfTerm;
 
+        // Temporary cerebral pressure impairment acts as an independent weakest-link reserve.
+        // A small deadband ignores negligible impairment (e.g. the tiny residual overfill at 0G),
+        // then rescales so sustained negative-G impairment still reaches full effect.
+        var effectivePressureImpairment = Clamp(
+            (cerebralPressureImpairment - LogicSettings.CerebralPressureImpairmentDeadband) /
+            Math.Max(1.0 - LogicSettings.CerebralPressureImpairmentDeadband, 1e-9),
+            0.0, 1.0);
+        var pressureConsciousnessReserve = Math.Pow(Clamp(1.0 - effectivePressureImpairment, 0.0, 1.0), LogicSettings.CerebralPressureConsciousnessExponent);
+
         // sustained hypoxia/hypoperfusion bias (prevents 5G plateau like 0.09)
         var combinedDeficit = 1.0 - (0.5 * o2Normalized + 0.5 * perfNorm);
-        targetConsciousness = Math.Max(
-            0.0,
-            targetConsciousness - LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
+        targetConsciousness = Math.Max(0.0, targetConsciousness - LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
 
         // hard cap when perfusion is critically low
         if (perfNorm < 0.25) targetConsciousness = Math.Min(targetConsciousness, perfNorm * 0.75);
 
+        targetConsciousness = Math.Min(targetConsciousness, pressureConsciousnessReserve);
+
         // Dynamic loss tau (non-linear so mid-G loses slower)
         var lossSeverity = Math.Pow(1.0 - targetConsciousness, LogicSettings.ConsciousnessLossSeverityExponent);
 
-        var baseLossTau = LogicSettings.ConsciousnessLossTauMax +
-                          (LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) *
-                          lossSeverity;
+        var baseLossTau = LogicSettings.ConsciousnessLossTauMax + (LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity;
 
         // Critical collapse accelerator (mostly affects extreme +G)
-        var criticalPerf = 1.0 - Clamp(
-            perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
+        var criticalPerf = 1.0 - Clamp(perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
 
-        var criticalO2 = 1.0 - Clamp(
-            o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
+        var criticalO2 = 1.0 - Clamp(o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
 
-        var critical = Math.Max(criticalPerf, criticalO2);
-        var criticalTauMultiplier = 1.0 -
-                                    (1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical);
+        var criticalPressure = Clamp(
+            (effectivePressureImpairment - LogicSettings.ConsciousnessCriticalPressureNorm) /
+            Math.Max(1.0 - LogicSettings.ConsciousnessCriticalPressureNorm, 1e-9),
+            0.0, 1.0);
+        var critical = Math.Max(Math.Max(criticalPerf, criticalO2), criticalPressure);
+        var criticalTauMultiplier = 1.0 - (1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical);
 
         var lossTau = baseLossTau * criticalTauMultiplier;
         var tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
