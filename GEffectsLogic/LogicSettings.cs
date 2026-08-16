@@ -28,15 +28,15 @@ public static class LogicSettings
     public static double RestingBloodLower { get; set; } = 0.45;
 
     // Hydrostatic shift: make mid-G less aggressive, keep high-G strong
-    public static double HydrostaticShiftRate { get; set; } = 0.0053;
+    public static double HydrostaticShiftRate { get; set; } = 0.0063;
     public static double HydrostaticShiftExponent { get; set; } = 2.0;
 
     public static double CoreLowerShiftFraction { get; set; } = 0.55;
 
     // Passive return / compensation
     public static double PassiveReturnRate { get; set; } = 0.47;
-    public static double PressureResistanceRate { get; set; } = 4.0;
     public static double HeadPressureReturnRate { get; set; } = 0.25;
+    public static double HeadPressureReturnExponent { get; set; } = 11.0;
 
     // G-suit effectiveness (0 = none, 1 = perfect). Scales with straining level.
     public static double GSuitEffectiveness { get; set; } = 0.3;
@@ -57,6 +57,7 @@ public static class LogicSettings
     public static double BaroreceptorTimeConstantPositive { get; set; } = 3.8; // Baroreceptor reflex time for Gz+
     public static double BaroreceptorTimeConstantNegativeMin { get; set; } = 0.75;
     public static double BaroreceptorTimeConstantNegativeMax { get; set; } = 10.0;
+    public static double NegativeGHeartStopOverfill { get; set; } = 0.25;
     public static double MaxHeartRateMultiplier { get; set; } = 3.0; // max HR multiplier
 
     // Brain O2 thresholds for consciousness mapping
@@ -67,8 +68,7 @@ public static class LogicSettings
     public static bool SuppresInfoLogs { get; set; } = false;
 
     // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
-    public static double MinHeadBloodFraction { get; set; } = 0.02; // TODO: needs to be tuned
-    public static double MaxHeadBloodFraction { get; set; } = 0.25; // TODO: needs to be tuned
+    public static double MinHeadBloodFraction { get; set; } = 0.02;
 
     // --- Brain O2 dynamics ---
     public static double BrainO2Floor { get; set; } = 0.18;
@@ -87,6 +87,7 @@ public static class LogicSettings
     public static double ConsciousnessRecoveryTau { get; set; } = 12.0;
     public static double ConsciousnessPerfusionExponent { get; set; } = 1.4;
     public static double ConsciousnessO2Exponent { get; set; } = 1.0;
+    public static double ConsciousnessCriticalPressureNorm { get; set; } = 0.6;
 
     // subtractive bias so mid-G sustained deficit does not plateau above zero
     public static double ConsciousnessDeficitBias { get; set; } = 0.14; // was 0.16
@@ -99,6 +100,17 @@ public static class LogicSettings
     public static double ConsciousnessCriticalPerfusionNorm { get; set; } = 0.16;
     public static double ConsciousnessCriticalO2Norm { get; set; } = 0.28;
     public static double ConsciousnessCriticalTauMultiplierMin { get; set; } = 0.15;
+
+    public static double CerebralPressureImpairmentMaxBuildRate { get; set; } = 0.65;
+    public static double CerebralPressureImpairmentExponent { get; set; } = 150.0;
+    public static double CerebralPressureImpairmentMidOverfill { get; set; } = 0.07;
+    public static double CerebralPressureImpairmentRecoveryTau { get; set; } = 25.0;
+    public static double CerebralPressureConsciousnessExponent { get; set; } = 7.7;
+
+    // Small impairment tolerance: below this the temporary pressure impairment causes no consciousness
+    // loss. Set just under the 0G residual overfill so weightless/lying-down stays near-full, while a
+    // sustained -1Gz still incurs a small (~5%) decrease simulating head-pressure headache/discomfort.
+    public static double CerebralPressureImpairmentDeadband { get; set; } = 0.003;
 
     // Vision effects
     // Faster buildup than recovery so short rebounds do not immediately reopen vision.
