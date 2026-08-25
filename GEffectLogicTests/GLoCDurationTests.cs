@@ -55,9 +55,9 @@ public class GLoCDurationTests
         double expectedGLoCTimeEnd, ITestOutputHelper output)
     {
         TestLogging loggerInstance = new(output);
-        new LogicLogging(output);
+        LogicLogging logicLogger = new(output);
         LogicSettings.DebugMode = false;
-        GEffectsLogicInstance logicInstance = new();
+        GEffectsLogicInstance logicInstance = new(logicLogger);
         List<string> infoStrings = [];
 
         for (double t = 0; t < duration; t += 0.1)
@@ -68,9 +68,9 @@ public class GLoCDurationTests
             if (logicInstance.ConsciousnessLevel <= 0.01) break;
         }
 
-        while (logicInstance.ConsciousnessLevel > 0.01)
+        while (logicInstance.ConsciousnessLevel > 0.01 && logicInstance.Time < expectedGLoCTimeEnd)
         {
-            logicInstance.Update(0.1, 0, 0, endG);
+            logicInstance.Update(0.25, 0, 0, endG);
             infoStrings.Add(
                 $"Time: {logicInstance.Time:F1}, consciousness: {logicInstance.ConsciousnessLevel:F4}, lastGz: {logicInstance.LastGz:F2}");
         }
@@ -79,23 +79,16 @@ public class GLoCDurationTests
             expectedGLoCTimeEnd, infoStrings, loggerInstance);
     }
 
-    /// <summary>
-    ///     [1 5 5],[-]
-    /// </summary>
-    [Fact]
-    public void GLoC5G()
+    [Theory]
+    [InlineData(5.0, 25.0, 35.0)]
+    [InlineData(9.0, 5.0, 14.0)]
+    [InlineData(-3.0, 20.0, 250.0)]
+    [InlineData(-4.0, 6.0, 11.0)]
+    [InlineData(-5.0, 6.0, 11.0)]
+    [InlineData(-6.0, 7.0, 11.0)]
+    public void GLoCDuration(double endG, double expectedGLoCTimeStart, double expectedGLoCTimeEnd)
     {
-        PlataueSequenceGLoC(1.0, 5.0, 5.0, 25.0, 35.0, _output);
-    }
-
-
-    /// <summary>
-    ///     [1 9 5],[-]
-    /// </summary>
-    [Fact]
-    public void GLoC9G()
-    {
-        PlataueSequenceGLoC(1.0, 9.0, 5.0, 5.0, 14.0, _output);
+        PlataueSequenceGLoC(1.0, endG, Math.Abs(endG - 1.0), expectedGLoCTimeStart, expectedGLoCTimeEnd, _output);
     }
 
 
@@ -107,9 +100,9 @@ public class GLoCDurationTests
     public void GLoC9GRecovery()
     {
         TestLogging loggerInstance = new(_output);
-        new LogicLogging(_output);
+        LogicLogging logicLogger = new(_output);
         LogicSettings.DebugMode = false;
-        GEffectsLogicInstance logicInstance = new();
+        GEffectsLogicInstance logicInstance = new(logicLogger);
         List<string> infoStrings = [];
         var consciousnessRecoveryStartTime = 0.0;
         // First phase: 1 to 9 Gz over 9 seconds

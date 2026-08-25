@@ -1,5 +1,14 @@
 # Copilot Instructions
 
+If there are ambiguities, ASK. Don't assume, and don't hide confusion. Surface tradeoffs. If multiple interpretations exist, present them - don't pick silently. If a simpler approach exists, say so. Push back when warranted. If something is unclear, stop. Name what's confusing. Ask.
+
+If changes break legacy compatibility and it's not explicitly stated how it should be handled, ASK. Don't assume.
+
+Never use emojis, slang, or informal language in code comments or documentation. Use clear, professional language.
+Never add youself to the list of authors in code comments or documentation.
+
+Think about the asked changes and determine, if they are a good solution/change or if there's a better approach. If you think there is a better approach, ASK. Don't assume.
+
 ---
 name: karpathy-guidelines
 description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.

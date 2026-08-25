@@ -280,7 +280,7 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     private readonly ObservableCollection<ObservablePoint> _gzPoints = [];
 
     private readonly ObservableCollection<ObservablePoint> _heartRateMultiplierPoints = [];
-    private readonly GEffectsLogicInstance _logic = new();
+    private readonly GEffectsLogicInstance _logic;
     private readonly ObservableCollection<ObservablePoint> _perfusionPoints = [];
 
     private readonly List<SequenceSegment> _segments = [];
@@ -300,6 +300,7 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     public SimulationInstanceViewModel(string title, string defaultSequence, double recordedTime)
     {
         Title = title;
+        _logic = new NamedGEffectsLogicInstance(title);
         _sequenceText = defaultSequence;
 
         GSeries =

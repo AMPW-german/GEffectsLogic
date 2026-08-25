@@ -68,7 +68,7 @@ public class PhysiologicalModel
 
     #region Public read-only state
 
-    public readonly int UniqueID;
+    private readonly GEffectsLogicInstance logicInstance;
 
     /// <summary>Fraction of total blood in the head compartment.</summary>
     public double BloodHead => bloodHead;
@@ -276,7 +276,7 @@ public class PhysiologicalModel
         var effectiveGzShift = gzNetScaled * (1.0 - LogicSettings.GSuitGlobalShiftReductionMax * suit);
         var coreLowerFractionEffective = Clamp(LogicSettings.CoreLowerShiftFraction * (1.0 - LogicSettings.GSuitCoreLowerReductionMax * suit), 0.05, 0.95);
 
-        Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", UniqueID);
+        Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", logicInstance);
 
         // Blood flow rate between compartments
         var shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
@@ -500,12 +500,12 @@ public class PhysiologicalModel
         // Use whichever impairment is worse.
         if (physiologicalVisualTarget > blackoutTunnelTarget)
         {
-            Logger.Log("physiologicalTunnelTarget used", UniqueID);
+            Logger.Log("physiologicalTunnelTarget used", logicInstance);
             blackoutTunnelTarget = physiologicalVisualTarget;
         }
         else
         {
-            Logger.Log("blackoutTunnelTarget used", UniqueID);
+            Logger.Log("blackoutTunnelTarget used", logicInstance);
         }
 
         var tunnelTau = blackoutTunnelTarget > tunnelVisionLevel
@@ -547,9 +547,9 @@ public class PhysiologicalModel
         greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
     }
 
-    public PhysiologicalModel(int uniqueID)
+    public PhysiologicalModel(GEffectsLogicInstance logicInstance)
     {
-        UniqueID = uniqueID;
+        this.logicInstance = logicInstance;
         Reset();
     }
 }
