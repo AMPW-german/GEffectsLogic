@@ -108,6 +108,12 @@ Main classes:
 Real-time performance characteristics: ~0.1–0.5ms per instance per frame. Per-instance memory: ~1KB.\
 Supports high time-warp scenarios with stability detection. Scales linearly with number of instances. Optional performance profiling via PERFDEBUG conditional.
 
+## Logging
+
+This library includes an abstract class that needs to be implemented by the host application for logging. It supports multiple log levels and can be configured to output to console, file, or other logging systems.\
+An instance of the logger must either be set to the static Logger.Instance property or passed as local override at the GEffectsLogicInstance constructor.\
+**There are no internal identifiers set. Use an inherited class to add identifiers for log messages.**
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).

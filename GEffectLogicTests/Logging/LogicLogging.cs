@@ -32,7 +32,7 @@ public class LogicLogging : Logger
         Instance = this;
     }
 
-    public override bool LogStr(string message, int id, LogLevel level = LogLevel.Debug)
+    public override bool LogStr(string message, GEffectsLogicInstance logicInstance, LogLevel level = LogLevel.Debug)
     {
         if (_output == null) return false;
 
@@ -40,20 +40,20 @@ public class LogicLogging : Logger
         {
             case LogLevel.Debug:
                 if (LogicSettings.DebugMode)
-                    _output.WriteLine($"{LogPrefix}Debug ({id}): {message}");
+                    _output.WriteLine($"{LogPrefix}Debug: {message}");
                 break;
             case LogLevel.Info:
                 if (!LogicSettings.SuppresInfoLogs)
-                    _output.WriteLine($"{LogPrefix}Info ({id}): {message}");
+                    _output.WriteLine($"{LogPrefix}Info: {message}");
                 break;
             case LogLevel.Warning:
-                _output.WriteLine($"{LogPrefix}Warning ({id}): {message}");
+                _output.WriteLine($"{LogPrefix}Warning: {message}");
                 break;
             case LogLevel.Error:
-                _output.WriteLine($"{LogPrefix}Error ({id}): {message}");
+                _output.WriteLine($"{LogPrefix}Error: {message}");
                 break;
             default:
-                _output.WriteLine($"{LogPrefix}Unknown LogLevel ({id}): {message}");
+                _output.WriteLine($"{LogPrefix}Unknown LogLevel: {message}");
                 break;
         }
 

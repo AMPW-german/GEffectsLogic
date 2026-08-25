@@ -26,15 +26,14 @@ public abstract class Logger
         Error
     }
 
-
     public LogLevel Level;
 
     public static Logger? Instance { get; set; }
 
-    public static bool Log(string message, int id, LogLevel level = LogLevel.Debug)
+    public static bool Log(string message, GEffectsLogicInstance logicInstance, LogLevel level = LogLevel.Debug)
     {
-        return Instance?.LogStr(message, id, level) ?? false;
+        return (logicInstance.Logger ?? Instance)?.LogStr(message, logicInstance, level) ?? false;
     }
 
-    public abstract bool LogStr(string message, int id, LogLevel level = LogLevel.Debug);
+    public abstract bool LogStr(string message, GEffectsLogicInstance logicInstance, LogLevel level = LogLevel.Debug);
 }

@@ -28,32 +28,34 @@ public class LogicLogging : Logger
         Instance = this;
     }
 
-    public override bool LogStr(string message, int id, LogLevel level = LogLevel.Debug)
+    public override bool LogStr(string message, GEffectsLogicInstance logicInstance, LogLevel level = LogLevel.Debug)
     {
+        var instanceName = logicInstance is NamedGEffectsLogicInstance namedInstance ? namedInstance.Name : "Default";
+
         switch (level)
         {
             case LogLevel.Debug:
                 if (LogicSettings.DebugMode)
                 {
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"{LogPrefix}Debug ({id}): {message}");
+                    Console.WriteLine($"{LogPrefix}Debug ({instanceName}): {message}");
                 }
 
                 break;
             case LogLevel.Info:
                 if (!LogicSettings.SuppresInfoLogs)
-                    Console.WriteLine($"{LogPrefix}Info ({id}): {message}");
+                    Console.WriteLine($"{LogPrefix}Info ({instanceName}): {message}");
                 break;
             case LogLevel.Warning:
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"{LogPrefix}Warning ({id}): {message}");
+                Console.WriteLine($"{LogPrefix}Warning ({instanceName}): {message}");
                 break;
             case LogLevel.Error:
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"{LogPrefix}Error ({id}): {message}");
+                Console.WriteLine($"{LogPrefix}Error ({instanceName}): {message}");
                 break;
             default:
-                Console.WriteLine($"{LogPrefix}Unknown LogLevel ({id}): {message}");
+                Console.WriteLine($"{LogPrefix}Unknown LogLevel ({instanceName}): {message}");
                 break;
         }
 

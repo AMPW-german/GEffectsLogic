@@ -24,9 +24,6 @@ namespace GEffectsLogic;
 // Main logic class for each vessel/kitten
 public class GEffectsLogicInstance
 {
-    protected static Dictionary<int, GEffectsLogicInstance> instances = [];
-
-
     protected double stabilizationTime;
     protected double stabilizedBloodCore;
     protected double stabilizedBloodHead;
@@ -49,36 +46,17 @@ public class GEffectsLogicInstance
     protected bool stable;
     protected bool stableRecorded;
 
-    protected int? uniqueID;
+    private readonly Logger? logger;
+    public Logger? Logger => logger;
 
     // physModel will always be set by the SetPhysiologicalModel method which is called in the constructor but the compiler doesn't recognize this
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    public GEffectsLogicInstance()
+    public GEffectsLogicInstance(Logger? logger = null)
     {
-        if (Logger.Instance == null)
-            throw new NullReferenceException(
-                "Logger instance is not set. Please initialize a Logger before creating GEffectsLogicInstance instances.");
-
+        this.logger = logger;
         SetPhysiologicalModel();
-        instances.Add(UniqueID, this);
     }
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    public static IReadOnlyDictionary<int, GEffectsLogicInstance> Instances => instances;
-
-    public int UniqueID
-    {
-        get
-        {
-            if (uniqueID == null)
-            {
-                var id = 0;
-                while (instances.ContainsKey(id)) id++;
-                uniqueID = id;
-            }
-
-            return uniqueID.Value;
-        }
-    }
 
     /// <summary>Do not change during runtime!</summary>
     public PhysiologicalModel PhysModel { get; private set; }
@@ -106,11 +84,11 @@ public class GEffectsLogicInstance
             if (!stable)
                 Logger.Log(
                     $"High deltaTime detected: {deltaTime}s - splitting it into {stepCount} steps of {deltaTime / stepCount}s each",
-                    UniqueID, Logger.LogLevel.Warning);
+                    this, Logger.LogLevel.Warning);
         }
         else if (deltaTime <= 0)
         {
-            Logger.Log($"Negative deltaTime detected: {deltaTime}s", UniqueID, Logger.LogLevel.Error);
+            Logger.Log($"Negative deltaTime detected: {deltaTime}s", this, Logger.LogLevel.Error);
         }
         else
         {
@@ -153,8 +131,8 @@ public class GEffectsLogicInstance
                 // Separate check for Gn deviation to reduce deviation checks for the physmodel
                 if (stable)
                     Logger.Log(
-                        $"Instance {UniqueID} has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
-                        UniqueID, Logger.LogLevel.Info);
+                        $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
+                        this, Logger.LogLevel.Info);
 
                 stabilizationTime = 0.0;
                 stable = false;
@@ -174,8 +152,8 @@ public class GEffectsLogicInstance
             {
                 if (stable)
                     Logger.Log(
-                        $"Instance {UniqueID} has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
-                        UniqueID, Logger.LogLevel.Info);
+                        $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
+                        this, Logger.LogLevel.Info);
 
                 stabilizationTime = 0.0;
                 stable = false;
@@ -188,8 +166,8 @@ public class GEffectsLogicInstance
                 {
                     stable = true; // Consider stabilized if conditions are met for the threshold duration
                     Logger.Log(
-                        $"Instance {UniqueID} has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
-                        UniqueID, Logger.LogLevel.Info);
+                        $"Instance has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
+                        this, Logger.LogLevel.Info);
                 }
             }
 
@@ -200,35 +178,29 @@ public class GEffectsLogicInstance
             if (IsUnconsciouss && ConsciousnessLevel > 0.5)
             {
                 IsUnconsciouss = false;
-                Logger.Log($"Instance {UniqueID} has regained consciousness.", UniqueID, Logger.LogLevel.Info);
+                Logger.Log("Instance has regained consciousness.", this, Logger.LogLevel.Info);
             }
             else if (!IsUnconsciouss && ConsciousnessLevel <= 0.1)
             {
                 IsUnconsciouss = true;
-                Logger.Log($"Instance {UniqueID} has lost consciousness.", UniqueID, Logger.LogLevel.Info);
+                Logger.Log("Instance has lost consciousness.", this, Logger.LogLevel.Info);
             }
 
 
             Logger.Log(
                 $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BrainO2:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}",
-                UniqueID);
+                this);
         }
 
 #if PERFDEBUG
         sw.Stop();
-        Logger.Log($"[PERF] Instance {UniqueID} update: {sw.Elapsed.TotalMicroseconds:f1} µs", UniqueID, Logging.Logger.LogLevel.Debug);
+        Logger.Log($"[PERF] Instance update: {sw.Elapsed.TotalMicroseconds:f1} µs", this, Logging.Logger.LogLevel.Debug);
 #endif
-    }
-
-
-    public override int GetHashCode()
-    {
-        return UniqueID;
     }
 
     protected virtual void SetPhysiologicalModel()
     {
-        PhysModel = new PhysiologicalModel(UniqueID);
+        PhysModel = new PhysiologicalModel(this);
     }
 
     #region inputValues
