@@ -141,7 +141,17 @@ jobs:
         run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-restore
 
       - name: Test (Debug)
-        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category!=Experimental&Category!=Performance"
+
+      - name: Test experimental dt stability (non-blocking)
+        continue-on-error: true
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category=Experimental"
+
+      - name: Build Release (performance tests)
+        run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-restore
+
+      - name: Test performance (Release)
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-build --verbosity normal --filter "Category=Performance"
 
   release-artifacts:
     runs-on: ubuntu-slim

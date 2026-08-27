@@ -105,8 +105,13 @@ Main classes:
 
 ## Performance
 
-Real-time performance characteristics: ~0.1–0.5ms per instance per frame. Per-instance memory: ~1KB.\
-Supports high time-warp scenarios with stability detection. Scales linearly with number of instances. Optional performance profiling via PERFDEBUG conditional.
+The `GEffectsLogicInstance.Update` execution-time budget is at most 0.1 ms per frame on average, with no measured frame above 0.5 ms. The representative 1,000-frame workload uses smooth mathematical curves for Gz and delta time: 2.5–5% of frames are below 100 ms, at least 50% are between 150 and 300 ms, and 2.5–5% exceed 1 second. The measurement covers the complete non-`PERFDEBUG` update with logging output disabled. This is only the absolute maximum the tests allow per instance update, the actual execution time is typically much lower.
+
+The per-instance memory budget is 1 KB of managed construction allocation for a parameterless `GEffectsLogicInstance` and its owned `PhysiologicalModel`; an externally supplied logger is excluded. This deterministic allocation check runs with the normal tests. Since individual execution times are sensitive to host scheduling, run the timing check explicitly in a Release build:
+
+`dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --filter "Category=Performance"`
+
+Supports high time-warp scenarios with stability detection and scales linearly with the number of instances. Optional performance profiling is available through the `PERFDEBUG` conditional.
 
 ## Logging
 

@@ -1,13 +1,26 @@
 # Copilot Instructions
 
-If there are ambiguities, ASK. Don't assume, and don't hide confusion. Surface tradeoffs. If multiple interpretations exist, present them - don't pick silently. If a simpler approach exists, say so. Push back when warranted. If something is unclear, stop. Name what's confusing. Ask.
+## General Guidelines
+- If there are ambiguities, ASK. Don't assume, and don't hide confusion. Surface tradeoffs. If multiple interpretations exist, present them - don't pick silently. If a simpler approach exists, say so. Push back when warranted. If something is unclear, stop. Name what's confusing. Ask.
+- If changes break legacy compatibility and it's not explicitly stated how it should be handled, ASK. Don't assume.
+- Never use emojis, slang, or informal language in code comments or documentation. Use clear, professional language.
+- Never add yourself to the list of authors in code comments or documentation.
+- Think critically about the requested changes and determine if they are a good solution/change or if there's a better approach. If you think there is a better approach, explain and ASK. Don't assume.
 
-If changes break legacy compatibility and it's not explicitly stated how it should be handled, ASK. Don't assume.
+## Writing Plans
+- When writing a plan:
+  - Never use emojis, slang, or informal language.
+  - Write a checkmark list with narrowly defined steps.
+  - Use markdown checkboxes for each step. DO NOT ADD EMOJIS TO SHOW THEM AS DONE, e.g. "- [x] Step 1"
+  - Don't add a progress bar or percentage completion to the plan. Use the checkboxes to indicate completed steps.
 
-Never use emojis, slang, or informal language in code comments or documentation. Use clear, professional language.
-Never add youself to the list of authors in code comments or documentation.
+## Code Changes
+- Avoid duplicating existing code. If you think a new function or class is needed, check if it already exists. If it does, use it instead of creating a new one.
+- Custom agent profiles should avoid duplicating repository Copilot instructions, reference the instruction file instead, and explicitly treat those instructions as overriding the agent profile.
 
-Think about the asked changes and determine, if they are a good solution/change or if there's a better approach. If you think there is a better approach, ASK. Don't assume.
+## CI/CD Workflow
+- In GitHub Actions for this repo, tests should run after DLL artifact build, and workflow ordering should reflect that.
+- Performance tests must run in the CI pipeline as blocking checks.
 
 ---
 name: karpathy-guidelines
@@ -77,7 +90,6 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-
 ## Project Guidelines
 - For this G-effects model, the desired behavior is that a 1→5 Gz+ ramp over 5 seconds should reach loss-of-consciousness between 25 and 35 seconds.
 - Negative-G impairment should emerge from head overfill pressure and baroreceptor-induced bradycardia. Approximately −1 Gz should remain stable without runaway feedback, while sustained −4 to −5 Gz should cause loss of consciousness within approximately 4–6 seconds.
@@ -88,6 +100,3 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Visibility Semantics
 - TunnelVisionLevel semantics: 1 means no visibility left, and 0.5 means half of the field of view is still free. TunnelVisionLevel should reach 1 when ConsciousnessLevel is close to 0, and tunnel vision should not be driven too directly by short perfusion recovery dips.
-
-## CI/CD Workflow
-- In GitHub Actions for this repo, tests should run after DLL artifact build, and workflow ordering should reflect that.
