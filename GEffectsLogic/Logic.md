@@ -291,6 +291,9 @@ LogicSettings: Centralized configuration
 
 ## Performance Characteristics
 
-- Per-frame cost: approximately 0.05-0.1ms per instance on modern hardware
+- Update-time budget: at most 0.1 ms per frame on average, with no measured frame above 0.5 ms
+- Timing workload: 1,000 smoothly generated Gz/delta-time frames; 2.5–5% below 100 ms, at least 50% between 150 and 300 ms, and 2.5–5% above 1 second
+- Measurement scope: complete non-`PERFDEBUG` `GEffectsLogicInstance.Update` call with logging output disabled; timing test is opt-in and runs in Release
+- Per-instance memory budget: at most 1 KB of managed construction allocation for a parameterless `GEffectsLogicInstance` and its owned `PhysiologicalModel`, excluding an external logger
 - Stability: Robust to time-steps 0.01–1s (auto-subdivides if larger)
 - Scaling: Linear with number of instances (100+ characters feasible)

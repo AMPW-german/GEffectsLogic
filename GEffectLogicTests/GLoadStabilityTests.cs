@@ -23,6 +23,12 @@ namespace GEffectLogicTests;
 
 public class GLoadStabilityTests
 {
+    internal static readonly double[] NoGLoCZones = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0];
+    internal static readonly double[] GLoCZones = [-6.0, -5.0, -4.0, -3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+
+    public static IEnumerable<object[]> NoGLoCZoneData => NoGLoCZones.Select(targetGz => new object[] { targetGz });
+    public static IEnumerable<object[]> GLoCZoneData => GLoCZones.Select(targetGz => new object[] { targetGz });
+
     private const double TimeStep = 0.25;
     private const double MaximumStabilizationTime = 3600.0;
 
@@ -61,12 +67,7 @@ public class GLoadStabilityTests
     }
 
     [Theory]
-    [InlineData(-2.0)]
-    [InlineData(-1.0)]
-    [InlineData(0.0)]
-    [InlineData(1.0)]
-    [InlineData(2.0)]
-    [InlineData(3.0)]
+    [MemberData(nameof(NoGLoCZoneData))]
     public void NoGLoCStable(double targetGz)
     {
         var logicInstance = RunUntilStable(targetGz);
@@ -76,16 +77,7 @@ public class GLoadStabilityTests
     }
 
     [Theory]
-    [InlineData(-6.0)]
-    [InlineData(-5.0)]
-    [InlineData(-4.0)]
-    [InlineData(-3.0)]
-    [InlineData(4.0)]
-    [InlineData(5.0)]
-    [InlineData(6.0)]
-    [InlineData(7.0)]
-    [InlineData(8.0)]
-    [InlineData(9.0)]
+    [MemberData(nameof(GLoCZoneData))]
     public void GLoCStable(double targetGz)
     {
         var logicInstance = RunUntilStable(targetGz);
