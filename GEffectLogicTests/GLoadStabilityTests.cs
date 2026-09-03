@@ -72,7 +72,7 @@ public class GLoadStabilityTests
     {
         var logicInstance = RunUntilStable(targetGz);
 
-        Assert.False(logicInstance.IsUnconsciouss,
+        Assert.False(logicInstance.IsUnconscious,
             $"The model lost consciousness before stabilizing at {targetGz:F1} Gz.");
     }
 
@@ -82,7 +82,101 @@ public class GLoadStabilityTests
     {
         var logicInstance = RunUntilStable(targetGz);
 
-        Assert.True(logicInstance.IsUnconsciouss,
+        Assert.True(logicInstance.IsUnconscious,
             $"The model did not lose consciousness before stabilizing at {targetGz:F1} Gz.");
+    }
+
+    [Fact]
+    public void VisualEffectsAreDirectionalAndGraded()
+    {
+        var mildRedout = RunFor(-1.0, 5.0);
+        var moderateRedout = RunFor(-3.0, 5.0);
+        var strongRedout = RunFor(-5.0, 5.0);
+        var tunnelVision = RunFor(6.0, 12.0);
+
+        Assert.True(mildRedout.VisualRedoutLevel > 0.0);
+        Assert.True(moderateRedout.VisualRedoutLevel > mildRedout.VisualRedoutLevel);
+        Assert.True(strongRedout.VisualRedoutLevel > moderateRedout.VisualRedoutLevel);
+        Assert.True(tunnelVision.VisualTunnelVisionLevel > 0.1);
+        Assert.InRange(tunnelVision.VisualRedoutLevel, 0.0, 1e-6);
+        Assert.InRange(strongRedout.VisualTunnelVisionLevel, 0.0, 1e-6);
+    }
+
+    [Fact]
+    public void TunnelVisionAndRedoutCanOverlap()
+    {
+        var logicInstance = RunFor(6.0, 12.0);
+
+        Advance(logicInstance, -5.0, 1.0);
+
+        Assert.True(logicInstance.VisualTunnelVisionLevel > 0.0);
+        Assert.True(logicInstance.VisualRedoutLevel > 0.0);
+    }
+
+    [Fact]
+    public void VisualLoCUsesConsciousnessHysteresis()
+    {
+        var logicInstance = CreateLogicInstance();
+
+        while (logicInstance.ConsciousnessLevel > 0.3 && logicInstance.Time < 30.0)
+            logicInstance.Update(0.1, 0.0, 0.0, 9.0);
+
+        Assert.True(logicInstance.ConsciousnessLevel <= 0.3);
+        Assert.False(logicInstance.IsUnconscious);
+        Assert.InRange(logicInstance.VisualLoCLevel, 0.0, 1.0);
+        Assert.NotEqual(0.0, logicInstance.VisualLoCLevel);
+        Assert.NotEqual(1.0, logicInstance.VisualLoCLevel);
+
+        while (!logicInstance.IsUnconscious && logicInstance.Time < 60.0)
+            logicInstance.Update(0.1, 0.0, 0.0, 9.0);
+
+        Assert.True(logicInstance.IsUnconscious);
+        Assert.Equal(1.0, logicInstance.VisualLoCLevel);
+
+        var recoveryStartTime = logicInstance.Time;
+        while (logicInstance.ConsciousnessLevel <= 0.3 && logicInstance.Time - recoveryStartTime < 120.0)
+            logicInstance.Update(0.1, 0.0, 0.0, 1.0);
+
+        Assert.True(logicInstance.ConsciousnessLevel > 0.3);
+        Assert.True(logicInstance.IsUnconscious);
+        Assert.Equal(1.0, logicInstance.VisualLoCLevel);
+
+        while (logicInstance.IsUnconscious && logicInstance.Time - recoveryStartTime < 120.0)
+            logicInstance.Update(0.1, 0.0, 0.0, 1.0);
+
+        Assert.False(logicInstance.IsUnconscious);
+        Assert.True(logicInstance.ConsciousnessLevel > LogicSettings.ConsciousnessRecoveryThreshold);
+        Assert.Equal(0.0, logicInstance.VisualLoCLevel);
+    }
+
+    [Fact]
+    public void ResetClearsVisualEffectsAndUnconsciousState()
+    {
+        var logicInstance = RunFor(9.0, 20.0);
+
+        logicInstance.Reset();
+
+        Assert.Equal(0.0, logicInstance.VisualTunnelVisionLevel);
+        Assert.Equal(0.0, logicInstance.VisualRedoutLevel);
+        Assert.Equal(0.0, logicInstance.VisualLoCLevel);
+        Assert.Equal(0.0, logicInstance.VisualGrayscaleLevel);
+        Assert.Equal(0.0, logicInstance.VisualFilmGrainLevel);
+        Assert.Equal(0.0, logicInstance.VisualBlurLevel);
+        Assert.False(logicInstance.IsUnconscious);
+    }
+
+    private GEffectsLogicInstance RunFor(double gz, double duration)
+    {
+        var logicInstance = CreateLogicInstance();
+        Advance(logicInstance, gz, duration);
+        return logicInstance;
+    }
+
+    private GEffectsLogicInstance CreateLogicInstance() => new(new LogicLogging(_output));
+
+    private static void Advance(GEffectsLogicInstance logicInstance, double gz, double duration)
+    {
+        for (var elapsed = 0.0; elapsed < duration; elapsed += 0.1)
+            logicInstance.Update(0.1, 0.0, 0.0, gz);
     }
 }

@@ -15,11 +15,13 @@ dotnet test             # Run all xUnit tests
 ```
 
 To run a single test by name:
+
 ```bash
 dotnet test --filter "FullyQualifiedName~Test1"
 ```
 
 To run the WPF GUI test app (interactive visualization, Windows only):
+
 ```bash
 dotnet run --project GraphicLogicTest
 ```
@@ -39,9 +41,10 @@ The solution (`GEffectsLogic.slnx`) contains three projects:
 `GEffectsLogic` is a per-entity state object (one instance per "vessel/pilot"). Instances are tracked in a static `Dictionary<int, GEffectsLogic>` with auto-generated integer IDs.
 
 The main entry point is `Update(double deltaTime, double gx, double gy, double gz)`. Currently only `gz` is used. The algorithm:
+
 1. Accumulates `gz²× deltaTime` into `cummulatedGz`
 2. Applies exponential decay: `cummulatedGz -= e^(tolerance × cummulatedGz) × deltaTime`
-3. Maps `cummulatedGz` to output fields: `ConsiousnessLevel`, `ConfusionLevel`, `TunnelVisionLevel`, `GreyScaleLevel`, `PrimaryColor`
+3. Maps physiological state to `ConsciousnessLevel`, `VisualTunnelVisionLevel`, `VisualRedoutLevel`, `VisualLoCLevel`, `VisualGrayscaleLevel`, `VisualFilmGrainLevel`, and `VisualBlurLevel`
 
 Tolerance constants (`GzPTolerance`, `GzMTolerance`, etc.) live in the static `LogicSettings` class and control how quickly effects build up and decay.
 

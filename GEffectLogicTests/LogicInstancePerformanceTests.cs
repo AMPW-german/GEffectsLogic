@@ -122,10 +122,12 @@ public class LogicInstancePerformanceTests
                         logicInstance.Time,
                         logicInstance.LastGz,
                         logicInstance.ConsciousnessLevel,
-                        logicInstance.TunnelVisionLevel,
-                        logicInstance.GreyScaleLevel,
-                        logicInstance.FilmGrainLevel,
-                        logicInstance.BlurLevel);
+                        logicInstance.VisualTunnelVisionLevel,
+                        logicInstance.VisualRedoutLevel,
+                        logicInstance.VisualLoCLevel,
+                        logicInstance.VisualGrayscaleLevel,
+                        logicInstance.VisualFilmGrainLevel,
+                        logicInstance.VisualBlurLevel);
                 }
             }
             finally
@@ -200,11 +202,12 @@ public class LogicInstancePerformanceTests
             Assert.InRange(Math.Abs(result.Time - expectedTime), 0.0, Math.Max(1.0, expectedTime) * 1e-12);
             Assert.Equal(workload[index].Gz, result.LastGz);
             Assert.InRange(result.ConsciousnessLevel, 0.0, 1.0);
-            Assert.InRange(result.TunnelVisionLevel, 0.0, 1.0);
-            Assert.InRange(result.GreyScaleLevel, 0.0, 1.0);
-            Assert.InRange(result.FilmGrainLevel, 0.0, 1.0);
-            Assert.True(double.IsFinite(result.BlurLevel) && result.BlurLevel >= 0.0,
-                $"Frame {index} produced invalid blur level {result.BlurLevel}.");
+            Assert.InRange(result.VisualTunnelVisionLevel, 0.0, 1.0);
+            Assert.InRange(result.VisualRedoutLevel, 0.0, 1.0);
+            Assert.InRange(result.VisualLoCLevel, 0.0, 1.0);
+            Assert.InRange(result.VisualGrayscaleLevel, 0.0, 1.0);
+            Assert.InRange(result.VisualFilmGrainLevel, 0.0, 1.0);
+            Assert.InRange(result.VisualBlurLevel, 0.0, 1.0);
         }
     }
 
@@ -220,8 +223,10 @@ public class LogicInstancePerformanceTests
         double Time,
         double LastGz,
         double ConsciousnessLevel,
-        double TunnelVisionLevel,
-        double GreyScaleLevel,
-        double FilmGrainLevel,
-        double BlurLevel);
+        double VisualTunnelVisionLevel,
+        double VisualRedoutLevel,
+        double VisualLoCLevel,
+        double VisualGrayscaleLevel,
+        double VisualFilmGrainLevel,
+        double VisualBlurLevel);
 }

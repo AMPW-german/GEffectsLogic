@@ -99,4 +99,5 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Physiological model state integration should be as time-step independent as practical and remain stable without overshoot at large dt values.
 
 ## Visibility Semantics
-- TunnelVisionLevel semantics: 1 means no visibility left, and 0.5 means half of the field of view is still free. TunnelVisionLevel should reach 1 when ConsciousnessLevel is close to 0, and tunnel vision should not be driven too directly by short perfusion recovery dips.
+- `VisualTunnelVisionLevel` is the physiological hypoperfusion channel: 1 means no visibility remains and 0.5 means half of the field is still free. It must not be driven by consciousness or short perfusion recovery dips.
+- `VisualRedoutLevel` independently represents the head-overfill symptom, and `VisualLoCLevel` is the final full-screen blackout override while unconscious.

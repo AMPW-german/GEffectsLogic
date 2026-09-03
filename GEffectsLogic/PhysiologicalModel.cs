@@ -60,11 +60,13 @@ public class PhysiologicalModel
     protected double cerebralPressureImpairment;
 
     //protected double confusionLevel = 0.0;
-    protected double greyScaleLevel;
-    protected double tunnelVisionLevel;
-    protected double blurLevel; // Rises early, then slowly approaches greyscale
-    protected double filmgrainLevel; // 25% influence on filmgrain, 75% from vignette alpha
-    protected bool primaryColor = true; // true = normal (blackout), false = inverted (redout)
+    protected double visualGrayscaleLevel;
+    protected double visualTunnelVisionLevel;
+    protected double visualRedoutLevel;
+    protected double visualLoCLevel;
+    protected double visualBlurLevel; // Rises early, then slowly approaches grayscale
+    protected double visualFilmGrainLevel; // 25% influence on film grain, 75% from vignette alpha
+    protected bool isUnconscious;
 
     #region Public read-only state
 
@@ -113,20 +115,25 @@ public class PhysiologicalModel
 
     //public double ConfusionLevel { get { return confusionLevel; } set { confusionLevel = value; } }
 
-    /// <summary>Current level of grey scale vision (0 = normal, 1 = fully grey).</summary>
-    public double GreyScaleLevel => greyScaleLevel;
+    /// <summary>Current level of grayscale vision (0 = normal, 1 = fully gray).</summary>
+    public double VisualGrayscaleLevel => visualGrayscaleLevel;
 
     /// <summary>Current level of tunnel vision (0 = none, 1 = blackout).</summary>
-    public double TunnelVisionLevel => tunnelVisionLevel;
+    public double VisualTunnelVisionLevel => visualTunnelVisionLevel;
 
-    /// <summary>Current level of filmgrain, based on TunnelVisionLevel (intended: 25% filmGrainLevel, 75% tunnelvision alpha)</summary>
-    public double FilmGrainLevel => filmgrainLevel;
+    /// <summary>Current level of redout (0 = none, 1 = full redout).</summary>
+    public double VisualRedoutLevel => visualRedoutLevel;
+
+    /// <summary>Current visual loss-of-consciousness override (0 = none, 1 = full blackout).</summary>
+    public double VisualLoCLevel => visualLoCLevel;
+
+    /// <summary>Current level of film grain, based on VisualTunnelVisionLevel (intended: 25% film grain level, 75% tunnel vision alpha)</summary>
+    public double VisualFilmGrainLevel => visualFilmGrainLevel;
 
     /// <summary>Current blur percentage (currently recommended: 0.0 - 5.0 pixels gaussian blur)</summary>
-    public double BlurLevel => blurLevel;
+    public double VisualBlurLevel => visualBlurLevel;
 
-    /// <summary>True if primary color is normal (blackout), false if inverted (redout).</summary>
-    public bool PrimaryColor => primaryColor;
+    public bool IsUnconscious => isUnconscious;
 
     #endregion
 
@@ -143,11 +150,13 @@ public class PhysiologicalModel
         gSuitFatigue = 0.0;
         hrFatigue = 0.0;
         fatigueHeartRateFloor = LogicSettings.CardioFatigueMaxHrFloor;
-        tunnelVisionLevel = 0.0;
-        greyScaleLevel = 0.0;
-        filmgrainLevel = 0.0;
-        blurLevel = 0.0;
-        primaryColor = true;
+        visualTunnelVisionLevel = 0.0;
+        visualRedoutLevel = 0.0;
+        visualLoCLevel = 0.0;
+        visualGrayscaleLevel = 0.0;
+        visualFilmGrainLevel = 0.0;
+        visualBlurLevel = 0.0;
+        isUnconscious = false;
         consciousnessLevel = 1.0;
         cerebralPressureImpairment = 0.0;
         perfusionLevel = 0.0;
@@ -412,9 +421,6 @@ public class PhysiologicalModel
         brainO2 = StepTowardsLinear(brainO2, targetBrainO2, o2Tau, dt);
         brainO2 = Clamp(brainO2, LogicSettings.BrainO2Floor, 1.0);
 
-        // Determine blackout vs redout from head blood volume
-        primaryColor = bloodHead <= LogicSettings.RestingBloodHead;
-
         // Map brain O2 to consciousness
         var o2Normalized = Clamp(
             (BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
@@ -477,74 +483,85 @@ public class PhysiologicalModel
         consciousnessLevel = StepTowardsLinear(consciousnessLevel, targetConsciousness, tau, dt);
         consciousnessLevel = Clamp(consciousnessLevel, 0.0, 1.0);
 
-        // Visual symptoms should start from physiology, but once consciousness is collapsing
-        // they should continue toward full obscuration even if perfusion briefly rebounds.
+        if (isUnconscious)
+        {
+            if (consciousnessLevel > LogicSettings.ConsciousnessRecoveryThreshold) isUnconscious = false;
+        }
+        else if (consciousnessLevel <= LogicSettings.ConsciousnessLossThreshold)
+        {
+            isUnconscious = true;
+        }
+
+        var consciousnessVisualRange = Math.Max(
+            LogicSettings.ConsciousnessRecoveryThreshold - LogicSettings.ConsciousnessLossThreshold,
+            1e-9);
+        var visualLoCTarget = SmoothStep(Clamp(
+            (LogicSettings.ConsciousnessRecoveryThreshold - consciousnessLevel) / consciousnessVisualRange,
+            0.0,
+            1.0));
+        visualLoCLevel = isUnconscious ? 1.0 : visualLoCTarget;
+
         var visualPerf = Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
         var visualO2 = Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
-
-        // Fast visual reserve from physiology.
         var visualReserve = 0.7 * visualPerf + 0.3 * visualO2;
         var visualDeficit = 1.0 - visualReserve;
+        var physiologicalVisualTarget = bloodHead < LogicSettings.RestingBloodHead
+            ? Math.Pow(Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0), 2.2)
+            : 0.0;
 
-        // Early/mid-visual impairment path.
-        // Keeps onset before LOC, but avoids saturating too early.
-        var physiologicalVisualTarget = Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0);
-        physiologicalVisualTarget = Math.Pow(physiologicalVisualTarget, 2.2);
-
-        #region Tunnelvision
-        // Blackout path: if consciousness gets close to zero, tunnel vision must approach 1.
-        // This also reduces sensitivity to short perfusion recoveries.
-        var blackoutTunnelTarget = Clamp(1.0 - consciousnessLevel, 0.0, 1.0);
-        blackoutTunnelTarget = Math.Pow(blackoutTunnelTarget, 2);
-
-        // Use whichever impairment is worse.
-        if (physiologicalVisualTarget > blackoutTunnelTarget)
-        {
-            Logger.Log("physiologicalTunnelTarget used", logicInstance);
-            blackoutTunnelTarget = physiologicalVisualTarget;
-        }
-        else
-        {
-            Logger.Log("blackoutTunnelTarget used", logicInstance);
-        }
-
-        var tunnelTau = blackoutTunnelTarget > tunnelVisionLevel
-            ? LogicSettings.TunnelVisualInTau
-            : LogicSettings.TunnelVisualOutTau;
-        tunnelVisionLevel = StepTowardsLinear(tunnelVisionLevel, blackoutTunnelTarget, tunnelTau, dt);
-        tunnelVisionLevel = Clamp(tunnelVisionLevel, 0.0, 1.0);
+        #region Tunnel Vision
+        var tunnelTau = physiologicalVisualTarget > visualTunnelVisionLevel
+            ? LogicSettings.VisualTunnelVisionInTau
+            : LogicSettings.VisualTunnelVisionOutTau;
+        visualTunnelVisionLevel = StepTowardsLinear(
+            visualTunnelVisionLevel,
+            physiologicalVisualTarget,
+            tunnelTau,
+            dt);
+        visualTunnelVisionLevel = Clamp(visualTunnelVisionLevel, 0.0, 1.0);
         #endregion
 
-        #region Greyscale
-        // physiologicalVisualTarget produces good enough curve, no extra target needed
-        var greyTau = physiologicalVisualTarget > greyScaleLevel
-            ? LogicSettings.GreyscaleVisualInTau
-            : LogicSettings.GreyscaleVisualOutTau;
-        greyScaleLevel = StepTowardsLinear(greyScaleLevel, physiologicalVisualTarget, greyTau, dt);
-        greyScaleLevel = Clamp(greyScaleLevel, 0.0, 1.0);
+        #region Redout
+        var redoutRange = Math.Max(
+            LogicSettings.VisualRedoutFullHeadBloodOverfill - LogicSettings.VisualRedoutOnsetHeadBloodOverfill,
+            1e-9);
+        var redoutTarget = SmoothStep(Clamp(
+            (headOverfill - LogicSettings.VisualRedoutOnsetHeadBloodOverfill) / redoutRange,
+            0.0,
+            1.0));
+        var redoutTau = redoutTarget > visualRedoutLevel
+            ? LogicSettings.VisualRedoutInTau
+            : LogicSettings.VisualRedoutOutTau;
+        visualRedoutLevel = StepTowardsLinear(visualRedoutLevel, redoutTarget, redoutTau, dt);
+        visualRedoutLevel = Clamp(visualRedoutLevel, 0.0, 1.0);
+        #endregion
+
+        #region Grayscale
+        var grayscaleTau = physiologicalVisualTarget > visualGrayscaleLevel
+            ? LogicSettings.VisualGrayscaleInTau
+            : LogicSettings.VisualGrayscaleOutTau;
+        visualGrayscaleLevel = StepTowardsLinear(
+            visualGrayscaleLevel,
+            physiologicalVisualTarget,
+            grayscaleTau,
+            dt);
+        visualGrayscaleLevel = Clamp(visualGrayscaleLevel, 0.0, 1.0);
         #endregion
 
         #region Blur
 
         var earlyBlurTarget = 0.23 * (1.0 - Math.Exp(-8.0 * physiologicalVisualTarget));
-        var earlyBlurInfluence = 1.0 - SmoothStep(Clamp((greyScaleLevel - 0.2) / 0.3, 0.0, 1.0));
-        var earlyBlurBoost = Math.Max(earlyBlurTarget - greyScaleLevel * 0.5, 0.0) * earlyBlurInfluence;
-        blurLevel = Clamp(greyScaleLevel + earlyBlurBoost, 0.0, 1.0);
+        var earlyBlurInfluence = 1.0 - SmoothStep(Clamp((visualGrayscaleLevel - 0.2) / 0.3, 0.0, 1.0));
+        var earlyBlurBoost = Math.Max(earlyBlurTarget - visualGrayscaleLevel * 0.5, 0.0) * earlyBlurInfluence;
+        visualBlurLevel = Clamp(visualGrayscaleLevel + earlyBlurBoost, 0.0, 1.0);
 
         #endregion
 
-        #region Filmgrain
+        #region Film Grain
 
-        filmgrainLevel = Clamp(Math.Pow(TunnelVisionLevel, 1.5), 0.0, 1.0);
+        visualFilmGrainLevel = Clamp(Math.Pow(VisualTunnelVisionLevel, 1.5), 0.0, 1.0);
 
         #endregion
-
-        // Hard guarantee: only enforce near total visual loss when consciousness is very close to zero.
-        var nearLoc = Clamp((0.12 - consciousnessLevel) / 0.12, 0.0, 1.0);
-        var tunnelFloorFromConsciousness = SmoothStep(nearLoc);
-
-        tunnelVisionLevel = Math.Max(tunnelVisionLevel, tunnelFloorFromConsciousness);
-        greyScaleLevel = Math.Max(greyScaleLevel, tunnelFloorFromConsciousness);
     }
 
     public PhysiologicalModel(GEffectsLogicInstance logicInstance)

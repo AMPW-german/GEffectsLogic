@@ -261,19 +261,21 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         new("Consciousness", "Consciousness", "#FFD93A3A", "#66402020"),
         new("BloodHead", "BloodHead", "#FF2FAF5A", "#66203A2A"),
         new("BrainO2", "BrainO2", "#FF9C5CFF", "#66332655"),
-        new("GreyScale", "GreyScale", "#FF3D79FF", "#66202E55"),
-        new("TunnelVision", "TunnelVision", "#FF2CC8D6", "#66203E44"),
+        new("VisualGrayscale", "VisualGrayscale", "#FF3D79FF", "#66202E55"),
+        new("VisualTunnelVision", "VisualTunnelVision", "#FF2CC8D6", "#66203E44"),
+        new("VisualRedout", "VisualRedout", "#FFFF6347", "#66552820"),
+        new("VisualLoC", "VisualLoC", "#FFFFFFFF", "#66505050"),
         new("Perfusion", "Perfusion", "#FFE6942E", "#66553C1F"),
         new("HeartRateMultiplier", "HeartRateMultiplier", "#FFF2C14E", "#66543F1A"),
-        new("FilmGrain", "FilmGrain", "#FFFF69B4", "#66552040"),
-        new("Blur", "Blur", "#FF90EE90", "#66304830")
+        new("VisualFilmGrain", "VisualFilmGrain", "#FFFF69B4", "#66552040"),
+        new("VisualBlur", "VisualBlur", "#FF90EE90", "#66304830")
     ];
 
     private readonly ObservableCollection<ObservablePoint> _bloodHeadPoints = [];
     private readonly ObservableCollection<ObservablePoint> _brainO2Points = [];
 
     private readonly ObservableCollection<ObservablePoint> _consciousnessPoints = [];
-    private readonly ObservableCollection<ObservablePoint> _greyScalePoints = [];
+    private readonly ObservableCollection<ObservablePoint> _grayscalePoints = [];
 
     private readonly ObservableCollection<ObservablePoint> _gxPoints = [];
     private readonly ObservableCollection<ObservablePoint> _gyPoints = [];
@@ -286,6 +288,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     private readonly List<SequenceSegment> _segments = [];
     private readonly ObservableCollection<ObservablePoint> _stabilityPoints = [];
     private readonly ObservableCollection<ObservablePoint> _tunnelVisionPoints = [];
+    private readonly ObservableCollection<ObservablePoint> _redoutPoints = [];
+    private readonly ObservableCollection<ObservablePoint> _visualLoCPoints = [];
     private readonly ObservableCollection<ObservablePoint> _filmGrainPoints = [];
     private readonly ObservableCollection<ObservablePoint> _blurPoints = [];
     private double _currentGz = 1.0;
@@ -318,12 +322,14 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
             CreateSeries("Consciousness", SKColors.Red, _consciousnessPoints),
             CreateSeries("BloodHead", SKColors.Green, _bloodHeadPoints),
             CreateSeries("BrainO2", SKColors.Violet, _brainO2Points),
-            CreateSeries("GreyScale", SKColors.Blue, _greyScalePoints),
-            CreateSeries("TunnelVision", SKColors.Cyan, _tunnelVisionPoints),
+            CreateSeries("VisualGrayscale", SKColors.Blue, _grayscalePoints),
+            CreateSeries("VisualTunnelVision", SKColors.Cyan, _tunnelVisionPoints),
+            CreateSeries("VisualRedout", SKColors.Tomato, _redoutPoints),
+            CreateSeries("VisualLoC", SKColors.White, _visualLoCPoints),
             CreateSeries("Perfusion", SKColors.Orange, _perfusionPoints),
             CreateSeries("HeartRateMultiplier", SKColors.Gold, _heartRateMultiplierPoints),
-            CreateSeries("FilmGrain", SKColors.HotPink, _filmGrainPoints),
-            CreateSeries("Blur", SKColors.LightGreen, _blurPoints)
+            CreateSeries("VisualFilmGrain", SKColors.HotPink, _filmGrainPoints),
+            CreateSeries("VisualBlur", SKColors.LightGreen, _blurPoints)
         ];
         LegendItems = LegendLayout
             .Select(item => new LegendItemViewModel(
@@ -416,8 +422,10 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         _consciousnessPoints.Clear();
         _bloodHeadPoints.Clear();
         _brainO2Points.Clear();
-        _greyScalePoints.Clear();
+        _grayscalePoints.Clear();
         _tunnelVisionPoints.Clear();
+        _redoutPoints.Clear();
+        _visualLoCPoints.Clear();
         _perfusionPoints.Clear();
         _heartRateMultiplierPoints.Clear();
         _filmGrainPoints.Clear();
@@ -438,12 +446,14 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         UpdateSeriesPoints(_consciousnessPoints, dt, _logic.ConsciousnessLevel, recordedTime);
         UpdateSeriesPoints(_bloodHeadPoints, dt, _logic.PhysModel.BloodHeadOverfill, recordedTime);
         UpdateSeriesPoints(_brainO2Points, dt, _logic.PhysModel.BrainO2, recordedTime);
-        UpdateSeriesPoints(_greyScalePoints, dt, _logic.GreyScaleLevel, recordedTime);
-        UpdateSeriesPoints(_tunnelVisionPoints, dt, _logic.TunnelVisionLevel, recordedTime);
+        UpdateSeriesPoints(_grayscalePoints, dt, _logic.VisualGrayscaleLevel, recordedTime);
+        UpdateSeriesPoints(_tunnelVisionPoints, dt, _logic.VisualTunnelVisionLevel, recordedTime);
+        UpdateSeriesPoints(_redoutPoints, dt, _logic.VisualRedoutLevel, recordedTime);
+        UpdateSeriesPoints(_visualLoCPoints, dt, _logic.VisualLoCLevel, recordedTime);
         UpdateSeriesPoints(_perfusionPoints, dt, _logic.PhysModel.PerfusionLevel, recordedTime);
         UpdateSeriesPoints(_heartRateMultiplierPoints, dt, _logic.PhysModel.HeartRateMultiplier, recordedTime);
-        UpdateSeriesPoints(_filmGrainPoints, dt, _logic.FilmGrainLevel, recordedTime);
-        UpdateSeriesPoints(_blurPoints, dt, _logic.BlurLevel, recordedTime);
+        UpdateSeriesPoints(_filmGrainPoints, dt, _logic.VisualFilmGrainLevel, recordedTime);
+        UpdateSeriesPoints(_blurPoints, dt, _logic.VisualBlurLevel, recordedTime);
     }
 
     private void AdvanceSequence(double dt)

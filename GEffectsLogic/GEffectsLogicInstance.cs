@@ -30,13 +30,15 @@ public class GEffectsLogicInstance
     protected double stabilizedBloodLower;
     protected double stabilizedBrainO2;
     protected double stabilizedConsciousnessLevel;
-    protected double stabilizedGreyScaleLevel;
+    protected double stabilizedVisualGrayscaleLevel;
+    protected double stabilizedVisualTunnelVisionLevel;
+    protected double stabilizedVisualRedoutLevel;
+    protected double stabilizedVisualLoCLevel;
     protected double stabilizedGx;
     protected double stabilizedGy;
     protected double stabilizedGz;
     protected double stabilizedHeartRateMultiplier;
     protected double stabilizedPerfusionLevel;
-    protected double stabilizedTunnelVisionLevel;
 
     // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
     // Stabilized conditions:
@@ -122,8 +124,10 @@ public class GEffectsLogicInstance
                 stabilizedHeartRateMultiplier = PhysModel.HeartRateMultiplier;
                 stabilizedPerfusionLevel = PhysModel.PerfusionLevel;
                 stabilizedConsciousnessLevel = PhysModel.ConsciousnessLevel;
-                stabilizedGreyScaleLevel = PhysModel.GreyScaleLevel;
-                stabilizedTunnelVisionLevel = PhysModel.TunnelVisionLevel;
+                stabilizedVisualGrayscaleLevel = PhysModel.VisualGrayscaleLevel;
+                stabilizedVisualTunnelVisionLevel = PhysModel.VisualTunnelVisionLevel;
+                stabilizedVisualRedoutLevel = PhysModel.VisualRedoutLevel;
+                stabilizedVisualLoCLevel = PhysModel.VisualLoCLevel;
             }
             else if (Math.Abs(currentGx - stabilizedGx) > 0.025 || Math.Abs(currentGy - stabilizedGy) > 0.025 ||
                      Math.Abs(currentGz - stabilizedGz) > 0.025)
@@ -146,8 +150,10 @@ public class GEffectsLogicInstance
                          Math.Abs(PhysModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 ||
                          Math.Abs(PhysModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
                          || Math.Abs(PhysModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 ||
-                         Math.Abs(PhysModel.GreyScaleLevel - stabilizedGreyScaleLevel) > 0.025 ||
-                         Math.Abs(PhysModel.TunnelVisionLevel - stabilizedTunnelVisionLevel) > 0.025
+                         Math.Abs(PhysModel.VisualGrayscaleLevel - stabilizedVisualGrayscaleLevel) > 0.025 ||
+                         Math.Abs(PhysModel.VisualTunnelVisionLevel - stabilizedVisualTunnelVisionLevel) > 0.025 ||
+                         Math.Abs(PhysModel.VisualRedoutLevel - stabilizedVisualRedoutLevel) > 0.025 ||
+                         Math.Abs(PhysModel.VisualLoCLevel - stabilizedVisualLoCLevel) > 0.025
                      ))
             {
                 if (stable)
@@ -171,21 +177,17 @@ public class GEffectsLogicInstance
                 }
             }
 
-            if (!stable)
+            if (!stable){
+                var wasUnconscious = PhysModel.IsUnconscious;
+
                 // Physiological model update
                 PhysModel.Update(dt, currentGz, currentGx, currentGy);
 
-            if (IsUnconsciouss && ConsciousnessLevel > 0.5)
-            {
-                IsUnconsciouss = false;
-                Logger.Log("Instance has regained consciousness.", this, Logger.LogLevel.Info);
+                if (wasUnconscious && !PhysModel.IsUnconscious)
+                    Logger.Log("Instance has regained consciousness.", this, Logger.LogLevel.Info);
+                else if (!wasUnconscious && PhysModel.IsUnconscious)
+                    Logger.Log("Instance has lost consciousness.", this, Logger.LogLevel.Info);
             }
-            else if (!IsUnconsciouss && ConsciousnessLevel <= 0.1)
-            {
-                IsUnconsciouss = true;
-                Logger.Log("Instance has lost consciousness.", this, Logger.LogLevel.Info);
-            }
-
 
             Logger.Log(
                 $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BrainO2:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}",
@@ -220,15 +222,15 @@ public class GEffectsLogicInstance
     #region outputValues
     
     //public double ConfusionLevel => physModel.ConfusionLevel;
-    public double TunnelVisionLevel => PhysModel.TunnelVisionLevel;
-    public double GreyScaleLevel => PhysModel.GreyScaleLevel;
-    public double FilmGrainLevel => PhysModel.FilmGrainLevel;
-    public double BlurLevel => PhysModel.BlurLevel;
-    public bool PrimaryColor => PhysModel.PrimaryColor;
+    public double VisualTunnelVisionLevel => PhysModel.VisualTunnelVisionLevel;
+    public double VisualRedoutLevel => PhysModel.VisualRedoutLevel;
+    public double VisualLoCLevel => PhysModel.VisualLoCLevel;
+    public double VisualGrayscaleLevel => PhysModel.VisualGrayscaleLevel;
+    public double VisualFilmGrainLevel => PhysModel.VisualFilmGrainLevel;
+    public double VisualBlurLevel => PhysModel.VisualBlurLevel;
     public double ConsciousnessLevel => PhysModel.ConsciousnessLevel;
     public bool IsStable => stable;
-
-    public bool IsUnconsciouss; // Get unconsciousness at 0.1, recover at 0.5. Only used for logging
+    public bool IsUnconscious => PhysModel.IsUnconscious;
 
     #endregion
 }
