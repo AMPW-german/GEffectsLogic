@@ -135,26 +135,33 @@ Parameters:
 - CerebralPressureConsciousnessExponent: shaping of the consciousness reserve (approximately 7.7)
 - CerebralPressureImpairmentDeadband: impairment ignored below this level (approximately 0.003)
 
-### Vision Effects
+### Visual Effects
 
-Vision loss occurs in stages as perfusion degrades.
+Physiological symptoms and loss of consciousness are exposed as independent `[0, 1]` visual channels. Clients compose tunnel vision, redout, grayscale, film grain, and blur, then apply `VisualLoCLevel` last as a full-screen black override.
 
-#### Grey-Scale Vision
+#### Grayscale Vision
 
-Onset when perfusion drops below approximately 0.7. Increases with further perfusion loss.
+`VisualGrayscaleLevel` begins as perfusion degrades and is not overridden by consciousness.
 
 #### Tunnel Vision
 
-- Onset when perfusion drops below approximately 0.5
-- Semantic: Level 1.0 = complete blackout, 0.5 = 50% field still visible
-- Faster buildup than recovery: VisualInTau (approximately 2.0s) vs VisualOutTau (approximately 7.5s)
-    - Short perfusion rebounds do not immediately restore vision
-    - Mimics physiology where vision recovery lags circulation recovery
+- `VisualTunnelVisionLevel` is driven by positive-G hypoperfusion and brain-O2 deficit.
+- Level 1.0 means complete tunnel closure; level 0.5 means half of the field remains visible.
+- Buildup is faster than recovery so short perfusion rebounds do not immediately restore vision.
+- Loss of consciousness does not directly modify this channel.
 
-#### Color Inversion (Blackout vs Redout)
+#### Redout
 
-- Positive Gz (+5G): Blood pools in legs, eyes down, blackout (black vision)
-- Negative Gz (-3G): Blood pools in head, eyes up, redout (red/inverted vision)
+- `VisualRedoutLevel` is driven by normalized head-blood overfill rather than a mutually exclusive color selector.
+- A smooth onset-to-full curve provides slight effects at mild negative Gz and saturation at strong negative Gz.
+- Independent buildup and recovery allow redout and tunnel vision to overlap during transitions.
+- Red is the intended presentation, but clients may render this channel with another color.
+
+#### Loss-of-Consciousness Override
+
+- `VisualLoCLevel` follows a smooth inverse-consciousness curve between the 0.5 recovery and 0.1 loss thresholds.
+- It is pinned to 1.0 while `IsUnconscious` is active and returns to the curve only after consciousness recovers above 0.5.
+- Gx and Gy remain unused, so combined-axis overlap is deferred until transverse-axis physiology is implemented.
 
 ### Stability Optimization
 
@@ -207,10 +214,13 @@ All behavior is controlled through LogicSettings static properties.
 - ConsciousnessCriticalPerfusionNorm, ConsciousnessCriticalO2Norm: Critical thresholds
 - ConsciousnessDeficitBias: Bias against mid-G plateau
 
-### Vision Effects
+### Visual Effects
 
-- VisualInTau: Greying/tunnel buildup speed (approximately 2.0s, fast)
-- VisualOutTau: Greying/tunnel recovery speed (approximately 7.5s, slow)
+- VisualTunnelVisionInTau, VisualTunnelVisionOutTau: Tunnel-vision buildup and recovery response
+- VisualRedoutOnsetHeadBloodOverfill, VisualRedoutFullHeadBloodOverfill: Redout curve bounds
+- VisualRedoutInTau, VisualRedoutOutTau: Redout buildup and recovery response
+- VisualGrayscaleInTau, VisualGrayscaleOutTau: Grayscale buildup and recovery response
+- ConsciousnessLossThreshold, ConsciousnessRecoveryThreshold: Hysteretic LoC state and visual-curve bounds
 
 ## Key Behaviors and Tuning Notes
 
@@ -221,16 +231,17 @@ Per project goals:
 - 1→5 Gz+ ramp over 5 seconds should NOT reach full unconsciousness in approximately 10 seconds
 - Target: Loss of consciousness at 20–30 seconds
 - Achieved through:
-    - Brain O2 recovery tau (approximately 9s) prevents instant drop
-    - Consciousness loss tau max (approximately 24s) slows decline at mild perfusion loss
-    - Subtractive bias prevents over-aggressive mid-G response
+  - Brain O2 recovery tau (approximately 9s) prevents instant drop
+  - Consciousness loss tau max (approximately 24s) slows decline at mild perfusion loss
+  - Subtractive bias prevents over-aggressive mid-G response
 
 ### Tunnel Vision Semantics
 
-- TunnelVisionLevel = 1.0 indicates complete blackout (no visibility)
-- TunnelVisionLevel = 0.5 indicates 50% field of view remains visible
-- Should reach 1.0 when ConsciousnessLevel is approximately 0
-- Should not be driven too directly by short perfusion recovery dips (hence VisualOutTau > VisualInTau)
+- `VisualTunnelVisionLevel = 1.0` indicates complete tunnel closure with no visibility.
+- `VisualTunnelVisionLevel = 0.5` indicates half of the field of view remains visible.
+- Tunnel vision follows physiological perfusion loss rather than consciousness.
+- `VisualLoCLevel` provides the separate complete-black override when consciousness is lost.
+- Tunnel vision should not be driven too directly by short perfusion recovery dips, hence `VisualTunnelVisionOutTau > VisualTunnelVisionInTau`.
 
 ### Non-Linear Dynamics
 

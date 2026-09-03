@@ -10,7 +10,7 @@ the [KSP G effects mod](https://forum.kerbalspaceprogram.com/topic/113341-130-12
 - Blackout/Redout (loss of vision due to blood pooling)
 - Push-Pull Effect (frontal/lateral G-force influence on tolerance)
 - GLoC (G-induced Loss of Consciousness)
-- Vision effects (grey-scale, tunnel vision, color inversion)
+- Vision effects (grayscale, tunnel vision, redout, blur, and film grain)
 
 ## Model Structure
 
@@ -31,7 +31,7 @@ Key mechanisms:
 ## Implementation Status
 
 Gz+ forces are fully modeled with realistic response curves. Consciousness mapping is based on brain oxygen saturation and head blood.\
-Vision effects (grey-scale, tunnel vision, gaussian blur and filmgrain) are implemented. Gx/Gy forces are stubbed for expansion.
+Visual effects (grayscale, tunnel vision, redout, Gaussian blur, film grain, and the LoC override) are implemented for Gz. Gx/Gy forces are stubbed for expansion.
 
 ## Interface
 
@@ -46,10 +46,16 @@ Vision effects (grey-scale, tunnel vision, gaussian blur and filmgrain) are impl
 
 Physiological parameters produced by each update:
 
-- `ConsciousnessLevel` (0.0–1.0, ≤0.0 for death)
-- `TunnelVisionLevel` (0.0–1.0): 1.0 indicates complete blackout, 0.5 indicates 50% field still visible
-- `GreyScaleLevel` (0.0–1.0): Greying-out intensity
-- `PrimaryColor` (bool): true for normal (blackout), false for inverted (redout)
+- `ConsciousnessLevel` (0.0–1.0): physiological consciousness reserve
+- `IsUnconscious` (bool): hysteretic state entered at 0.1 consciousness and cleared above 0.5
+- `VisualTunnelVisionLevel` (0.0–1.0): positive-G hypoperfusion effect; 1.0 indicates complete tunnel closure
+- `VisualRedoutLevel` (0.0–1.0): negative-G head-overfill effect
+- `VisualLoCLevel` (0.0–1.0): final client-side black-screen override; 1.0 while unconscious
+- `VisualGrayscaleLevel` (0.0–1.0): grayscale intensity
+- `VisualFilmGrainLevel` (0.0–1.0): film-grain intensity derived from tunnel vision
+- `VisualBlurLevel` (0.0–1.0): blur intensity
+
+Clients should render the physiological visual channels independently, then apply `VisualLoCLevel` last as the full-screen black override. Display colors are client-configurable; black tunnel closure and red redout are the intended defaults.
 
 ## Configuration
 

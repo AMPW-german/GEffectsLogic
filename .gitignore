@@ -364,3 +364,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 .idea/.idea.GEffectsLogic/.idea/workspace.xml
+.DS_Store
+.idea/.idea.GEffectsLogic/.idea/indexLayout.xml
+.idea/.idea.GEffectsLogic/.idea/vcs.xml

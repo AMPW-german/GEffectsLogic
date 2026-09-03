@@ -114,10 +114,16 @@ public static class LogicSettings
 
     // Vision effects
     // Faster buildup than recovery so short rebounds do not immediately reopen vision.
-    public static double TunnelVisualInTau { get; set; } = 2.0;
-    public static double TunnelVisualOutTau { get; set; } = 7.5;
-    public static double GreyscaleVisualInTau { get; set; } = 8.0;
-    public static double GreyscaleVisualOutTau { get; set; } = 2.0;
+    public static double VisualTunnelVisionInTau { get; set; } = 2.0;
+    public static double VisualTunnelVisionOutTau { get; set; } = 7.5;
+    public static double VisualRedoutOnsetHeadBloodOverfill { get; set; } = 0.0035;
+    public static double VisualRedoutFullHeadBloodOverfill { get; set; } = 0.06;
+    public static double VisualRedoutInTau { get; set; } = 0.5;
+    public static double VisualRedoutOutTau { get; set; } = 2.0;
+    public static double VisualGrayscaleInTau { get; set; } = 8.0;
+    public static double VisualGrayscaleOutTau { get; set; } = 2.0;
+    public static double ConsciousnessLossThreshold { get; set; } = 0.1;
+    public static double ConsciousnessRecoveryThreshold { get; set; } = 0.5;
 
     // --- Straining / G-suit activation ---
     public static double StrainingStartGz { get; set; } = 1.5; // starts building
