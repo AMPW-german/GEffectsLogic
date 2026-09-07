@@ -124,7 +124,7 @@ public static class LogicSettings
     public static double VisualGrayscaleOutTau { get; set; } = 2.0;
     public static double ConsciousnessLossThreshold { get; set; } = 0.05;
     public static double ConsciousnessRecoveryThreshold { get; set; } = 0.35;
-    public static double VisualLoCConsciousnessExponent { get; set; } = 4.0;
+    public static double VisualLoCConsciousnessExponent { get; set; } = 3.0;
     public static double VisualLoCIncreaseRate { get; set; } = 0.5;
     public static double VisualLoCDecreaseRate { get; set; } = 1.0;
 
