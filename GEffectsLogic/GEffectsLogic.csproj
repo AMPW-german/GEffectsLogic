@@ -8,9 +8,9 @@
         <Configurations>Debug;Release;PerfDebug</Configurations>
         <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
 
-        <VersionPrefix>1.0.0</VersionPrefix>
+        <VersionPrefix>2.0.0</VersionPrefix>
         <Version>$(VersionPrefix)</Version>
-        <AssemblyVersion>1.0.0.0</AssemblyVersion>
+        <AssemblyVersion>2.0.0.0</AssemblyVersion>
         <FileVersion>$(VersionPrefix).0</FileVersion>
 
         <GitShortHash>nogit</GitShortHash>

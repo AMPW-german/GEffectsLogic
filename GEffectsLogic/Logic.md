@@ -137,13 +137,19 @@ Parameters:
 
 ### Visual Effects
 
+The GEffectsLogic library provides all required values for drawing visual effects. Clients define how to render them.
+
 Physiological symptoms and loss of consciousness are exposed as independent `[0, 1]` visual channels. Clients compose tunnel vision, redout, grayscale, film grain, and blur, then apply `VisualLoCLevel` last as a full-screen black override.
 
 #### Grayscale Vision
 
-`VisualGrayscaleLevel` begins as perfusion degrades and is not overridden by consciousness.
+Intended as a desaturation effect to simulate loss of color perception. It's not very accurate to human physiology because colors get indistinguishable but the effect provides a good approximation of this symptom.
+
+- `VisualGrayscaleLevel` begins as perfusion degrades and is not overridden by consciousness.
 
 #### Tunnel Vision
+
+Intended as a black vignette to narrow the field of view.
 
 - `VisualTunnelVisionLevel` is driven by positive-G hypoperfusion and brain-O2 deficit.
 - Level 1.0 means complete tunnel closure; level 0.5 means half of the field remains visible.
@@ -152,6 +158,8 @@ Physiological symptoms and loss of consciousness are exposed as independent `[0,
 
 #### Redout
 
+Intended as a red vignette to simulate blood overfill in the head.
+
 - `VisualRedoutLevel` is driven by normalized head-blood overfill rather than a mutually exclusive color selector.
 - A smooth onset-to-full curve provides slight effects at mild negative Gz and saturation at strong negative Gz.
 - Independent buildup and recovery allow redout and tunnel vision to overlap during transitions.
@@ -159,12 +167,22 @@ Physiological symptoms and loss of consciousness are exposed as independent `[0,
 
 #### Loss-of-Consciousness Override
 
-- `VisualLoCLevel` is a hard override to visualize loosing consciousness because a redout will stay red so this is used to smoothly fade into unconsciousness
+Intended as a semi-transparent black overlay to indicate unconsciousness.
+
+- `VisualLoCLevel` is a hard override to visualize losing consciousness because a redout will stay red so this is used to smoothly fade into unconsciousness
 - It gets active between 0.35 and 0.05 with the majority of the increase below 0.1
   - Max value is limited so at 0.35 it can't get to 1.0
 - It is pinned to 1.0 while `IsUnconscious` is active and drops quickly after it
 
 The ceiling is the normalized 0.35-to-0.05 consciousness range raised to `VisualLoCConsciousnessExponent`. The displayed level moves toward this ceiling at `VisualLoCIncreaseRate` while fading toward zero at `VisualLoCDecreaseRate`, both in levels per second. This time-based movement prevents immediate clearing when consciousness crosses 0.35 and produces a smooth fade while consciousness falls.
+
+#### Blur
+
+Intended as gaussian blur with a 20px kernel to simulate loss of visual acuity.
+
+#### Film Grain
+
+Intended as a grainy overlay to simulate visual noise, primarily in the tunnel vision periphery with very little effect in the center. This is not a physiological effect but may be added for a better visual experience.
 
 ### Stability Optimization
 
