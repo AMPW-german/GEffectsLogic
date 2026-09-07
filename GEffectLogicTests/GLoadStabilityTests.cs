@@ -126,6 +126,11 @@ public class GLoadStabilityTests
         Assert.InRange(logicInstance.VisualLoCLevel, 0.0, 1.0);
         Assert.NotEqual(0.0, logicInstance.VisualLoCLevel);
         Assert.NotEqual(1.0, logicInstance.VisualLoCLevel);
+        var visualLoCMaximum = Math.Pow(
+            (LogicSettings.ConsciousnessRecoveryThreshold - logicInstance.ConsciousnessLevel) /
+            (LogicSettings.ConsciousnessRecoveryThreshold - LogicSettings.ConsciousnessLossThreshold),
+            LogicSettings.VisualLoCConsciousnessExponent);
+        Assert.True(logicInstance.VisualLoCLevel <= visualLoCMaximum);
 
         while (!logicInstance.IsUnconscious && logicInstance.Time < 60.0)
             logicInstance.Update(0.1, 0.0, 0.0, 9.0);
@@ -141,11 +146,25 @@ public class GLoadStabilityTests
         Assert.True(logicInstance.IsUnconscious);
         Assert.Equal(1.0, logicInstance.VisualLoCLevel);
 
+        var visualLoCBeforeRecovery = logicInstance.VisualLoCLevel;
         while (logicInstance.IsUnconscious && logicInstance.Time - recoveryStartTime < 120.0)
             logicInstance.Update(0.1, 0.0, 0.0, 1.0);
 
         Assert.False(logicInstance.IsUnconscious);
         Assert.True(logicInstance.ConsciousnessLevel > LogicSettings.ConsciousnessRecoveryThreshold);
+        Assert.InRange(logicInstance.VisualLoCLevel, 0.0, visualLoCBeforeRecovery);
+        Assert.NotEqual(0.0, logicInstance.VisualLoCLevel);
+
+        var visualLoCAfterRecovery = logicInstance.VisualLoCLevel;
+        logicInstance.Update(0.1, 0.0, 0.0, 1.0);
+        Assert.InRange(
+            visualLoCAfterRecovery - logicInstance.VisualLoCLevel,
+            0.0,
+            LogicSettings.VisualLoCDecreaseRate * 0.1 + 1e-9);
+
+        while (logicInstance.VisualLoCLevel > 0.0 && logicInstance.Time - recoveryStartTime < 120.0)
+            logicInstance.Update(0.1, 0.0, 0.0, 1.0);
+
         Assert.Equal(0.0, logicInstance.VisualLoCLevel);
     }
 
