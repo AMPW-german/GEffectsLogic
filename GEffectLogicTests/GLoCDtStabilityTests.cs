@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using GEffectsLogic;
 using Xunit.Abstractions;
 
 namespace GEffectLogicTests;
@@ -52,5 +53,48 @@ public class GLoCDtStabilityTests
 
         Assert.True(spreadSeconds <= DtStabilityConfiguration.GLoCSpreadToleranceSeconds,
             $"GLoC time spread at {targetGz:F1} Gz was {spreadSeconds:F3}s, exceeding the {DtStabilityConfiguration.GLoCSpreadToleranceSeconds:F3}s limit.");
+    }
+
+    [Fact]
+    public void VisualLoCRecoveryFadeRemainsBoundedAcrossDt()
+    {
+        foreach (var dt in DtStabilityConfiguration.Definitions)
+        {
+            GEffectsLogicInstance logicInstance = new(new DtStabilityLogger());
+
+            while (!logicInstance.IsUnconscious && logicInstance.Time < 60.0)
+            {
+                logicInstance.Update(dt.Seconds, 0.0, 0.0, 9.0);
+                Assert.InRange(logicInstance.VisualLoCLevel, 0.0, 1.0);
+            }
+
+            Assert.True(logicInstance.IsUnconscious, $"GLoC was not reached for {dt.DisplayName}.");
+            Assert.Equal(1.0, logicInstance.VisualLoCLevel);
+
+            var recovered = false;
+            while (logicInstance.Time < 180.0)
+            {
+                logicInstance.Update(dt.Seconds, 0.0, 0.0, 1.0);
+                Assert.InRange(logicInstance.VisualLoCLevel, 0.0, 1.0);
+
+                if (!logicInstance.IsUnconscious)
+                {
+                    recovered = true;
+                    break;
+                }
+            }
+
+            Assert.True(recovered, $"Consciousness did not recover for {dt.DisplayName}.");
+            Assert.True(logicInstance.VisualLoCLevel < 1.0,
+                $"Visual LoC did not start fading after recovery for {dt.DisplayName}.");
+
+            while (logicInstance.VisualLoCLevel > 0.0 && logicInstance.Time < 180.0)
+            {
+                logicInstance.Update(dt.Seconds, 0.0, 0.0, 1.0);
+                Assert.InRange(logicInstance.VisualLoCLevel, 0.0, 1.0);
+            }
+
+            Assert.Equal(0.0, logicInstance.VisualLoCLevel);
+        }
     }
 }

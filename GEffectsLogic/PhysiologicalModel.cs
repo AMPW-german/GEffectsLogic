@@ -495,11 +495,26 @@ public class PhysiologicalModel
         var consciousnessVisualRange = Math.Max(
             LogicSettings.ConsciousnessRecoveryThreshold - LogicSettings.ConsciousnessLossThreshold,
             1e-9);
-        var visualLoCTarget = SmoothStep(Clamp(
+        var visualLoCMaximum = Math.Pow(Clamp(
             (LogicSettings.ConsciousnessRecoveryThreshold - consciousnessLevel) / consciousnessVisualRange,
             0.0,
-            1.0));
-        visualLoCLevel = isUnconscious ? 1.0 : visualLoCTarget;
+            1.0), LogicSettings.VisualLoCConsciousnessExponent);
+        if (isUnconscious)
+        {
+            visualLoCLevel = 1.0;
+        }
+        else
+        {
+            var visualLoCRate = visualLoCMaximum > visualLoCLevel
+                ? LogicSettings.VisualLoCIncreaseRate
+                : LogicSettings.VisualLoCDecreaseRate;
+            var visualLoCMaximumDelta = Math.Max(visualLoCRate, 0.0) * dt;
+            visualLoCLevel += Clamp(
+                visualLoCMaximum - visualLoCLevel,
+                -visualLoCMaximumDelta,
+                visualLoCMaximumDelta);
+            visualLoCLevel = Clamp(visualLoCLevel, 0.0, 1.0);
+        }
 
         var visualPerf = Clamp((perfRatio - 0.45) / 0.55, 0.0, 1.0);
         var visualO2 = Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);

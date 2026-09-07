@@ -83,14 +83,14 @@ public static class LogicSettings
 
     // --- Consciousness mapping ---
     public static double ConsciousnessLossTauMin { get; set; } = 5.0;
-    public static double ConsciousnessLossTauMax { get; set; } = 24.0; // was 22.0
+    public static double ConsciousnessLossTauMax { get; set; } = 24.0;
     public static double ConsciousnessRecoveryTau { get; set; } = 12.0;
     public static double ConsciousnessPerfusionExponent { get; set; } = 1.4;
     public static double ConsciousnessO2Exponent { get; set; } = 1.0;
     public static double ConsciousnessCriticalPressureNorm { get; set; } = 0.6;
 
     // subtractive bias so mid-G sustained deficit does not plateau above zero
-    public static double ConsciousnessDeficitBias { get; set; } = 0.14; // was 0.16
+    public static double ConsciousnessDeficitBias { get; set; } = 0.14;
 
     // softer perfusion normalization for consciousness target
     public static double ConsciousnessPerfusionSoftMinRatio { get; set; } = 0.18;
@@ -122,8 +122,11 @@ public static class LogicSettings
     public static double VisualRedoutOutTau { get; set; } = 2.0;
     public static double VisualGrayscaleInTau { get; set; } = 8.0;
     public static double VisualGrayscaleOutTau { get; set; } = 2.0;
-    public static double ConsciousnessLossThreshold { get; set; } = 0.1;
-    public static double ConsciousnessRecoveryThreshold { get; set; } = 0.5;
+    public static double ConsciousnessLossThreshold { get; set; } = 0.05;
+    public static double ConsciousnessRecoveryThreshold { get; set; } = 0.35;
+    public static double VisualLoCConsciousnessExponent { get; set; } = 4.0;
+    public static double VisualLoCIncreaseRate { get; set; } = 0.5;
+    public static double VisualLoCDecreaseRate { get; set; } = 1.0;
 
     // --- Straining / G-suit activation ---
     public static double StrainingStartGz { get; set; } = 1.5; // starts building

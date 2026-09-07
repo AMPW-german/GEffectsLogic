@@ -159,9 +159,12 @@ Physiological symptoms and loss of consciousness are exposed as independent `[0,
 
 #### Loss-of-Consciousness Override
 
-- `VisualLoCLevel` follows a smooth inverse-consciousness curve between the 0.5 recovery and 0.1 loss thresholds.
-- It is pinned to 1.0 while `IsUnconscious` is active and returns to the curve only after consciousness recovers above 0.5.
-- Gx and Gy remain unused, so combined-axis overlap is deferred until transverse-axis physiology is implemented.
+- `VisualLoCLevel` is a hard override to visualize loosing consciousness because a redout will stay red so this is used to smoothly fade into unconsciousness
+- It gets active between 0.35 and 0.05 with the majority of the increase below 0.1
+  - Max value is limited so at 0.35 it can't get to 1.0
+- It is pinned to 1.0 while `IsUnconscious` is active and drops quickly after it
+
+The ceiling is the normalized 0.35-to-0.05 consciousness range raised to `VisualLoCConsciousnessExponent`. The displayed level moves toward this ceiling at `VisualLoCIncreaseRate` while fading toward zero at `VisualLoCDecreaseRate`, both in levels per second. This time-based movement prevents immediate clearing when consciousness crosses 0.35 and produces a smooth fade while consciousness falls.
 
 ### Stability Optimization
 
@@ -221,6 +224,8 @@ All behavior is controlled through LogicSettings static properties.
 - VisualRedoutInTau, VisualRedoutOutTau: Redout buildup and recovery response
 - VisualGrayscaleInTau, VisualGrayscaleOutTau: Grayscale buildup and recovery response
 - ConsciousnessLossThreshold, ConsciousnessRecoveryThreshold: Hysteretic LoC state and visual-curve bounds
+- VisualLoCConsciousnessExponent: LoC ceiling curve shape across the consciousness range
+- VisualLoCIncreaseRate, VisualLoCDecreaseRate: Maximum LoC buildup and recovery fade rates in levels per second
 
 ## Key Behaviors and Tuning Notes
 
