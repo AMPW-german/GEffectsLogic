@@ -77,7 +77,7 @@ Multiple sequences can be chained together by separating them with a comma. For 
 For chained sequences the startG value can be ommited for all but the first sequence. This then uses the endG value of the previous sequence as startG value, e.g. [1 5 5], [1 5]\
 It's also possible to ommit the startG and endG values. This then adds a plateau phase, e.g. [1 5 5],[5]\
 A hyphen can be used as infinite duration for plateau phases, e.g. [1 5 5],[-]\
-Multi axial sequences are seperated by a semicolon, e.g. [Gz 1 5 5];[Gx 0 5 5]
+Multi axial sequences are seperated by a semicolon, e.g. [Gz 1 5 5];[Gx 0 5 5]. Only the first sequence needs the axis specified, all others until the semicolon are assumed to be on the same axis.
 
 ## Testing
 

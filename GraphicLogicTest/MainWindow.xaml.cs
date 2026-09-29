@@ -285,18 +285,17 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     private readonly GEffectsLogicInstance _logic;
     private readonly ObservableCollection<ObservablePoint> _perfusionPoints = [];
 
-    private readonly List<SequenceSegment> _segments = [];
+    private readonly AxisSequenceState _gxAxis = new(0.0);
+    private readonly AxisSequenceState _gyAxis = new(0.0);
+    private readonly AxisSequenceState _gzAxis = new(1.0);
     private readonly ObservableCollection<ObservablePoint> _stabilityPoints = [];
     private readonly ObservableCollection<ObservablePoint> _tunnelVisionPoints = [];
     private readonly ObservableCollection<ObservablePoint> _redoutPoints = [];
     private readonly ObservableCollection<ObservablePoint> _visualLoCPoints = [];
     private readonly ObservableCollection<ObservablePoint> _filmGrainPoints = [];
     private readonly ObservableCollection<ObservablePoint> _blurPoints = [];
-    private double _currentGz = 1.0;
 
     private bool _isPaused = true;
-    private double _segmentElapsed;
-    private int _segmentIndex;
     private bool _sequenceFinished;
 
     private string _sequenceText;
@@ -410,10 +409,11 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     {
         _logic.PhysModel.Reset();
 
-        _segmentIndex = 0;
-        _segmentElapsed = 0;
-        _sequenceFinished = _segments.Count == 0;
-        _currentGz = _segments.Count > 0 ? _segments[0].StartGz : 1.0;
+        ResetAxis(_gxAxis);
+        ResetAxis(_gyAxis);
+        ResetAxis(_gzAxis);
+        _sequenceFinished = _gxAxis.Segments.Count == 0 && _gyAxis.Segments.Count == 0 &&
+                            _gzAxis.Segments.Count == 0;
 
         _gxPoints.Clear();
         _gyPoints.Clear();
@@ -436,11 +436,11 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     {
         AdvanceSequence(dt);
 
-        _logic.Update(dt, 0, 0, _currentGz);
+        _logic.Update(dt, _gxAxis.Current, _gyAxis.Current, _gzAxis.Current);
 
-        //UpdateSeriesPoints(_gxPoints, dt, gx, recordedTime);
-        //UpdateSeriesPoints(_gyPoints, dt, gy, recordedTime);
-        UpdateSeriesPoints(_gzPoints, dt, _currentGz, recordedTime);
+        UpdateSeriesPoints(_gxPoints, dt, _gxAxis.Current, recordedTime);
+        UpdateSeriesPoints(_gyPoints, dt, _gyAxis.Current, recordedTime);
+        UpdateSeriesPoints(_gzPoints, dt, _gzAxis.Current, recordedTime);
         UpdateSeriesPoints(_stabilityPoints, dt, _logic.IsStable ? 1.0 : 0.0, recordedTime);
 
         UpdateSeriesPoints(_consciousnessPoints, dt, _logic.ConsciousnessLevel, recordedTime);
@@ -458,94 +458,133 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
 
     private void AdvanceSequence(double dt)
     {
-        if (_segments.Count == 0 || _sequenceFinished) return;
+        if (_sequenceFinished) return;
 
-        var current = _segments[_segmentIndex];
+        AdvanceAxis(_gxAxis, dt);
+        AdvanceAxis(_gyAxis, dt);
+        AdvanceAxis(_gzAxis, dt);
+
+        if (_gxAxis.Finished && _gyAxis.Finished && _gzAxis.Finished)
+        {
+            _sequenceFinished = true;
+            IsPaused = true; // default end behavior == ",[-]"
+        }
+    }
+
+    private static void AdvanceAxis(AxisSequenceState axis, double dt)
+    {
+        if (axis.Finished) return;
+
+        var current = axis.Segments[axis.SegmentIndex];
         if (current.IsInfinite)
         {
-            _currentGz = current.EndGz;
+            axis.Current = current.EndG;
             return;
         }
 
         if (current.Duration <= 0)
         {
-            _currentGz = current.EndGz;
-            MoveToNextSegment();
+            axis.Current = current.EndG;
+            MoveToNextSegment(axis);
             return;
         }
 
-        _segmentElapsed += dt;
-        var progress = Math.Clamp(_segmentElapsed / current.Duration, 0.0, 1.0);
-        _currentGz = current.StartGz + (current.EndGz - current.StartGz) * progress;
+        axis.SegmentElapsed += dt;
+        var progress = Math.Clamp(axis.SegmentElapsed / current.Duration, 0.0, 1.0);
+        axis.Current = current.StartG + (current.EndG - current.StartG) * progress;
 
-        if (progress >= 1.0) MoveToNextSegment();
+        if (progress >= 1.0) MoveToNextSegment(axis);
     }
 
-    private void MoveToNextSegment()
+    private static void MoveToNextSegment(AxisSequenceState axis)
     {
-        _segmentIndex++;
-        _segmentElapsed = 0;
+        axis.SegmentIndex++;
+        axis.SegmentElapsed = 0;
 
-        if (_segmentIndex >= _segments.Count)
-        {
-            _sequenceFinished = true;
-            IsPaused = true; // default end behavior == ",[-]"
-            return;
-        }
+        if (axis.Finished) return;
 
-        var next = _segments[_segmentIndex];
-        _currentGz = next.StartGz;
+        axis.Current = axis.Segments[axis.SegmentIndex].StartG;
     }
 
+    private static void ResetAxis(AxisSequenceState axis)
+    {
+        axis.SegmentIndex = 0;
+        axis.SegmentElapsed = 0;
+        axis.Current = axis.Segments.Count > 0 ? axis.Segments[0].StartG : axis.InitialValue;
+    }
+
+    // Sequence notation: [Axis startG endG duration] tracks separated by ';'.
+    // The axis token may be omitted (defaults to Gz) and applies until the next axis token or ';'.
     private void ParseSequence(string input)
     {
-        _segments.Clear();
+        _gxAxis.Segments.Clear();
+        _gyAxis.Segments.Clear();
+        _gzAxis.Segments.Clear();
 
-        var matches = Regex.Matches(input ?? string.Empty, "\\[(.*?)\\]");
-        if (matches.Count == 0) return;
-
-        var previousEnd = 1.0;
-
-        foreach (Match match in matches)
+        foreach (var track in (input ?? string.Empty).Split(';'))
         {
-            var raw = match.Groups[1].Value.Trim();
-            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var currentAxis = _gzAxis;
 
-            var tokens = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-
-            if (tokens.Count > 0 && tokens[0].Equals("Gz", StringComparison.OrdinalIgnoreCase)) tokens.RemoveAt(0);
-
-            if (tokens.Count == 0) continue;
-
-            if (tokens.Count == 1 && tokens[0] == "-")
+            foreach (Match match in Regex.Matches(track, "\\[(.*?)\\]"))
             {
-                _segments.Add(new SequenceSegment(previousEnd, previousEnd, 0, true));
-                break;
+                var raw = match.Groups[1].Value.Trim();
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+
+                var tokens = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+                if (tokens.Count > 0 && ParseAxis(tokens[0]) is { } axis)
+                {
+                    currentAxis = axis;
+                    tokens.RemoveAt(0);
+                }
+
+                if (tokens.Count == 0) continue;
+
+                var previousEnd = currentAxis.Segments.Count > 0
+                    ? currentAxis.Segments[^1].EndG
+                    : currentAxis.InitialValue;
+
+                if (tokens.Count == 1 && tokens[0] == "-")
+                {
+                    currentAxis.Segments.Add(new SequenceSegment(previousEnd, previousEnd, 0, true));
+                    continue;
+                }
+
+                if (tokens.Count == 1)
+                {
+                    var duration = ParseDouble(tokens[0]);
+                    currentAxis.Segments.Add(new SequenceSegment(previousEnd, previousEnd, duration, false));
+                    continue;
+                }
+
+                double start;
+                double end;
+                double durationValue;
+
+                if (tokens.Count == 2)
+                {
+                    start = previousEnd;
+                    end = ParseDouble(tokens[0]);
+                    durationValue = ParseDouble(tokens[1]);
+                }
+                else
+                {
+                    start = ParseDouble(tokens[0]);
+                    end = ParseDouble(tokens[1]);
+                    durationValue = ParseDouble(tokens[2]);
+                }
+
+                currentAxis.Segments.Add(new SequenceSegment(start, end, durationValue, false));
             }
-
-            if (tokens.Count == 1)
-            {
-                var duration = ParseDouble(tokens[0]);
-                _segments.Add(new SequenceSegment(previousEnd, previousEnd, duration, false));
-                continue;
-            }
-
-            if (tokens.Count == 2)
-            {
-                var end = ParseDouble(tokens[0]);
-                var duration = ParseDouble(tokens[1]);
-                _segments.Add(new SequenceSegment(previousEnd, end, duration, false));
-                previousEnd = end;
-                continue;
-            }
-
-            var start = ParseDouble(tokens[0]);
-            var endValue = ParseDouble(tokens[1]);
-            var durationValue = ParseDouble(tokens[2]);
-
-            _segments.Add(new SequenceSegment(start, endValue, durationValue, false));
-            previousEnd = endValue;
         }
+    }
+
+    private AxisSequenceState? ParseAxis(string token)
+    {
+        if (token.Equals("Gx", StringComparison.OrdinalIgnoreCase)) return _gxAxis;
+        if (token.Equals("Gy", StringComparison.OrdinalIgnoreCase)) return _gyAxis;
+        if (token.Equals("Gz", StringComparison.OrdinalIgnoreCase)) return _gzAxis;
+        return null;
     }
 
     private static double ParseDouble(string text)
@@ -597,5 +636,15 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private readonly record struct SequenceSegment(double StartGz, double EndGz, double Duration, bool IsInfinite);
+    private readonly record struct SequenceSegment(double StartG, double EndG, double Duration, bool IsInfinite);
+
+    private sealed class AxisSequenceState(double initialValue)
+    {
+        public List<SequenceSegment> Segments { get; } = [];
+        public double InitialValue { get; } = initialValue;
+        public double Current { get; set; } = initialValue;
+        public int SegmentIndex { get; set; }
+        public double SegmentElapsed { get; set; }
+        public bool Finished => SegmentIndex >= Segments.Count;
+    }
 }

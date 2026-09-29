@@ -42,7 +42,7 @@ public sealed class SimulationViewModel : INotifyPropertyChanged
         BuildLogicSettingsEntries();
 
         AddInstanceInternal("[1 5 5],[25]");
-        AddInstanceInternal("[1 9 9],[21]");
+        AddInstanceInternal("[Gz 1 9 9],[21];[Gy 0 3 8],[0 20]");
 
         _lastTime = DateTime.Now;
         _timer.Tick += UpdateGraph;
