@@ -79,9 +79,9 @@ public class GEffectsLogicInstance
 #endif
         List<double> dtList = [];
 
-        if (deltaTime > 1)
+        if (deltaTime > 0.5)
         {
-            var stepCount = (int)deltaTime * 2;
+            var stepCount = (int)Math.Ceiling(deltaTime / 0.5);
             dtList.AddRange(Enumerable.Repeat(deltaTime / stepCount, stepCount));
             if (!stable)
                 Logger.Log(
@@ -120,7 +120,7 @@ public class GEffectsLogicInstance
                 stabilizedBloodHead = PhysModel.BloodHead;
                 stabilizedBloodCore = PhysModel.BloodCore;
                 stabilizedBloodLower = PhysModel.BloodLower;
-                stabilizedBrainO2 = PhysModel.BrainO2;
+                stabilizedBrainO2 = PhysModel.BloodO2Head;
                 stabilizedHeartRateMultiplier = PhysModel.HeartRateMultiplier;
                 stabilizedPerfusionLevel = PhysModel.PerfusionLevel;
                 stabilizedConsciousnessLevel = PhysModel.ConsciousnessLevel;
@@ -146,7 +146,7 @@ public class GEffectsLogicInstance
                          Math.Abs(PhysModel.BloodHead - stabilizedBloodHead) > 0.025 ||
                          Math.Abs(PhysModel.BloodCore - stabilizedBloodCore) > 0.025 ||
                          Math.Abs(PhysModel.BloodLower - stabilizedBloodLower) > 0.025
-                         || Math.Abs(PhysModel.BrainO2 - stabilizedBrainO2) > 0.025 ||
+                         || Math.Abs(PhysModel.BloodO2Head - stabilizedBrainO2) > 0.025 ||
                          Math.Abs(PhysModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 ||
                          Math.Abs(PhysModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
                          || Math.Abs(PhysModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 ||
@@ -190,7 +190,7 @@ public class GEffectsLogicInstance
             }
 
             Logger.Log(
-                $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BrainO2:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}",
+                $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BloodO2Head:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}",
                 this);
         }
 
@@ -220,7 +220,7 @@ public class GEffectsLogicInstance
     #endregion
 
     #region outputValues
-    
+
     //public double ConfusionLevel => physModel.ConfusionLevel;
     public double VisualTunnelVisionLevel => PhysModel.VisualTunnelVisionLevel;
     public double VisualRedoutLevel => PhysModel.VisualRedoutLevel;
@@ -231,6 +231,29 @@ public class GEffectsLogicInstance
     public double ConsciousnessLevel => PhysModel.ConsciousnessLevel;
     public bool IsStable => stable;
     public bool IsUnconscious => PhysModel.IsUnconscious;
+
+    // Expanded oxygen model properties
+    public double BloodO2Head => PhysModel.BloodO2Head;
+    public double BloodO2Core => PhysModel.BloodO2Core;
+    public double BloodO2Lower => PhysModel.BloodO2Lower;
+    public double BrainO2 => PhysModel.BrainO2;
+
+    // Respiratory and tolerance properties
+    public double RespiratoryFatigue => PhysModel.RespiratoryFatigue;
+    public double GxEffectiveTolerance => PhysModel.GxEffectiveTolerance;
+    public double GyEffectiveTolerance => PhysModel.GyEffectiveTolerance;
+
+    // Sudden G-LOC properties
+    public double SuddenLoCAccumulator => PhysModel.SuddenLoCAccumulator;
+    public bool InSuddenLoC => PhysModel.InSuddenLoC;
+
+    // Gy neck side fatigue properties
+    public double GyNeckFatigue => PhysModel.GyNeckFatigue;
+    public bool IsDead => PhysModel.IsDead;
+
+    // Gy lung compression and pain properties
+    public double LungCompressionLevel => PhysModel.LungCompressionLevel;
+    public double PainLevel => PhysModel.PainLevel;
 
     #endregion
 }
