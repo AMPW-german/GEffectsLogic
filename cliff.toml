@@ -1,0 +1,32 @@
+[changelog]
+header = "# Changelog\n\n"
+body = """
+{% if version %}## {{ version }}
+{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+
+{% for commit in commits %}- {{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/AMPW-german/GEffectsLogic/commit/{{ commit.id }}))
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+postprocessors = [{ pattern = '\n{3,}', replace = "\n\n" }]
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+tag_pattern = "v[0-9]*"
+commit_parsers = [
+  { message = "^.*!: ", group = "Breaking Changes" },
+  { body = "BREAKING CHANGE:", group = "Breaking Changes" },
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Tests" },
+  { message = "^(ci|build)", group = "CI/Build" },
+  { message = ".*", group = "Miscellaneous" },
+]
