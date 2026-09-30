@@ -1,0 +1,69 @@
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  changelog:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Detect release PR
+        id: release
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous=$(git show "${BASE_SHA}:GEffectsLogic/GEffectsLogic.csproj" | sed -n 's/.*<VersionPrefix>\([^<]*\)<\/VersionPrefix>.*/\1/p')
+          current=$(sed -n 's/.*<VersionPrefix>\([^<]*\)<\/VersionPrefix>.*/\1/p' GEffectsLogic/GEffectsLogic.csproj)
+          if [ -z "$current" ] || [ "$previous" = "$current" ] || grep -Fqx "## v$current" CHANGELOG.md; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid VersionPrefix: $current" >&2
+            exit 1
+          fi
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+          echo "version=$current" >> "$GITHUB_OUTPUT"
+      - name: Generate changelog
+        if: steps.release.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/git-cliff.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz" \
+            --output "$archive"
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/git-cliff-2.13.1/git-cliff" --config cliff.toml --unreleased \
+            --tag "v$VERSION" --strip header --prepend CHANGELOG.md
+      - name: Commit changelog to PR branch
+        if: steps.release.outputs.changed == 'true'
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo 'No changelog changes.'
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "chore(release): update changelog for v$VERSION"
+          git push origin "HEAD:refs/heads/$HEAD_BRANCH"
