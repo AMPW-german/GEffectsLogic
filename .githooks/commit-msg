@@ -1,0 +1,4 @@
+#!/bin/sh
+subject=$(sed -n '1p' "$1")
+hook_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+exec bash "$hook_dir/../scripts/check-commit-subject.sh" "$subject"
