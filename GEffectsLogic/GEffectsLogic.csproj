@@ -5,6 +5,7 @@
         <PackageId>GEffectsLogic</PackageId>
         <LangVersion>latest</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>annotations</Nullable>
         <Configurations>Debug;Release;PerfDebug</Configurations>
         <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
 

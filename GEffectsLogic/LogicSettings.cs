@@ -1,16 +1,16 @@
-﻿// GEffectsLogic
+// GEffectsLogic
 // Copyright (C) 2026 AMPW
-// 
+//
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-// 
+//
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY, without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -64,8 +64,8 @@ public static class LogicSettings
     public static double BrainO2Blackout { get; set; } = 0.3; // below this → unconscious
     public static double BrainO2Full { get; set; } = 0.8; // above this → fully conscious
 
-    public static bool DebugMode { get; set; } = false;
-    public static bool SuppresInfoLogs { get; set; } = false;
+    public static bool DebugMode { get; set; }
+    public static bool SuppresInfoLogs { get; set; }
 
     // keep a small residual head blood fraction (avoids perfusion = 0 at high +G)
     public static double MinHeadBloodFraction { get; set; } = 0.02;

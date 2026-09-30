@@ -1,16 +1,16 @@
 // GEffectsLogic
 // Copyright (C) 2026 AMPW
-// 
+//
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-// 
+//
 // This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// but WITHOUT ANY WARRANTY, without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -33,7 +33,6 @@ public class GLoadStabilityTests
     private const double MaximumStabilizationTime = 3600.0;
 
     private readonly ITestOutputHelper _output;
-    private TestLogging _testLogger;
 
     public GLoadStabilityTests(ITestOutputHelper output)
     {
@@ -42,7 +41,7 @@ public class GLoadStabilityTests
 
     private GEffectsLogicInstance RunUntilStable(double targetGz)
     {
-        _testLogger = new TestLogging(_output);
+        TestLogging testLogger = new(_output);
         LogicLogging logicLogger = new(_output);
         LogicSettings.DebugMode = false;
         GEffectsLogicInstance logicInstance = new(logicLogger);
@@ -55,11 +54,11 @@ public class GLoadStabilityTests
         }
 
         while (!logicInstance.IsStable && logicInstance.Time < MaximumStabilizationTime)
-{
+        {
             logicInstance.Update(TimeStep, 0, 0, targetGz);
-            _testLogger.LogStr($"Time: {logicInstance.Time:F1}s, Gz: {targetGz:F1}, Consciousness Level: {logicInstance.ConsciousnessLevel:F3}, IsStable: {logicInstance.IsStable}", Logger.LogLevel.Info);
+            testLogger.LogStr($"Time: {logicInstance.Time:F1}s, Gz: {targetGz:F1}, Consciousness Level: {logicInstance.ConsciousnessLevel:F3}, IsStable: {logicInstance.IsStable}", Logger.LogLevel.Info);
 
-        }            
+        }
 
         Assert.True(logicInstance.IsStable,
             $"The model did not stabilize at {targetGz:F1} Gz within {MaximumStabilizationTime:F0} seconds.");
