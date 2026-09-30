@@ -1,4 +1,4 @@
-name: GEffectsLogic CI
+name: Build
 
 permissions:
   contents: write
@@ -10,18 +10,18 @@ on:
 
 jobs:
   build-artifacts:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     outputs:
       versionprefix_changed: ${{ steps.versionprefix.outputs.changed }}
       version: ${{ steps.versionprefix.outputs.version }}
       artifact_name: ${{ steps.artifact-name.outputs.name }}
       release_needed: ${{ steps.release-check.outputs.release_needed }}
-    
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.x
 
@@ -34,13 +34,13 @@ jobs:
         run: |
           version=v$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' GEffectsLogic/GEffectsLogic.csproj)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          
+
           before="${{ github.event.before }}"
           if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          
+
           if git diff "$before" "${{ github.sha }}" -- GEffectsLogic/GEffectsLogic.csproj | grep -q 'VersionPrefix'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
@@ -55,16 +55,16 @@ jobs:
             echo "release_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          
+
           new_version="${{ steps.versionprefix.outputs.version }}"
           release_response=$(curl -sS -L \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
             "https://api.github.com/repos/${{ github.repository }}/releases/latest")
-          
+
           current_version=$(echo "$release_response" | jq -r '.tag_name // empty')
-          
+
           if [ -z "$current_version" ]; then
             echo "release_needed=true" >> "$GITHUB_OUTPUT"
           elif [ "$new_version" != "$current_version" ]; then
@@ -84,14 +84,14 @@ jobs:
           mkdir -p artifacts/net10.0/debug
           mkdir -p artifacts/net481/release
           mkdir -p artifacts/net481/debug
-          
+
           cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.dll  artifacts/net10.0/release/
           cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/release/
           cp GEffectsLogic/bin/Release/net10.0/GEffectsLogic-net10.0.pdb  artifacts/net10.0/release/
           cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.dll    artifacts/net10.0/debug/
           cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.deps.json artifacts/net10.0/debug/
           cp GEffectsLogic/bin/Debug/net10.0/GEffectsLogic-net10.0.pdb    artifacts/net10.0/debug/
-          
+
           cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.dll   artifacts/net481/release/
           cp GEffectsLogic/bin/Release/net481/GEffectsLogic-net481.pdb   artifacts/net481/release/
           cp GEffectsLogic/bin/Debug/net481/GEffectsLogic-net481.dll     artifacts/net481/debug/
@@ -103,7 +103,7 @@ jobs:
         run: |
           version="${{ steps.versionprefix.outputs.version }}"
           short_hash="${GITHUB_SHA::7}"
-          
+
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
             if [ "${{ steps.release-check.outputs.release_needed }}" = "true" ]; then
               artifact_name="GEffectsLogic-${version}"
@@ -113,11 +113,11 @@ jobs:
           else
             artifact_name="GEffectsLogic-${version}-${short_hash}-debug"
           fi
-          
+
           echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.artifact-name.outputs.name }}
           path: artifacts/
@@ -127,10 +127,10 @@ jobs:
     needs: build-artifacts
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.x
 
@@ -154,12 +154,12 @@ jobs:
         run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-build --verbosity normal --filter "Category=Performance"
 
   release-artifacts:
-    runs-on: ubuntu-slim
-    needs: build-artifacts
+    runs-on: ubuntu-latest
+    needs: [build-artifacts, test]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-artifacts.outputs.release_needed == 'true' }}
     steps:
       - name: Download build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ${{ needs.build-artifacts.outputs.artifact_name }}
           path: release-assets
@@ -245,7 +245,7 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
-            https://api.github.com/repos/${{ github.repository }}/releases/$release_id \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$release_id" \
             -d "$publish_payload" \
             -o "$publish_response_file" \
             -w "%{http_code}")
