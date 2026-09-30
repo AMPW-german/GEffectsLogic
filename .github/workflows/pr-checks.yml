@@ -1,0 +1,67 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash scripts/check-commit-subject.sh "$PR_TITLE"
+
+  commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Validate every commit subject
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r subject; do
+            bash scripts/check-commit-subject.sh "$subject"
+            count=$((count + 1))
+          done < <(git log --format=%s "$BASE_SHA..$HEAD_SHA")
+          if [ "$count" -eq 0 ]; then
+            echo 'No commits found in PR range.' >&2
+            exit 1
+          fi
+
+  pr-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const type = pr.title.match(/^(feat|fix|perf|refactor|test|docs|style|build|ci|chore|revert)(?:\(|!|:)/)?.[1];
+            const labels = new Set(pr.labels.map(label => label.name));
+            if (!['docs', 'style', 'build', 'ci', 'chore', 'revert'].includes(type) &&
+                !labels.has('no-issue') && !/#\d+\b/.test(pr.body || '')) {
+              core.setFailed('Link a GitHub issue (e.g. Fixes #123), or apply no-issue.');
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+            const changed = files.filter(file => file.filename !== 'CHANGELOG.md')
+              .reduce((sum, file) => sum + file.changes, 0);
+            if (changed > 800 && !labels.has('large-change')) {
+              core.setFailed(`${changed} changed lines exceed the 800-line PR limit; apply large-change if justified.`);
+            }
