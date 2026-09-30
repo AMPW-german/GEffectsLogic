@@ -12,6 +12,8 @@ GEffectsLogic is a C# (.NET 10) backend framework for simulating realistic G-for
 dotnet restore          # Restore NuGet dependencies
 dotnet build            # Build all projects in the solution
 dotnet test             # Run all xUnit tests
+dotnet format GEffectsLogic.slnx --verify-no-changes  # Check C# formatting and analyzers
+bash scripts/enforce-license-headers.sh --check      # Verify C# license headers
 ```
 
 To run a single test by name:
@@ -20,7 +22,7 @@ To run a single test by name:
 dotnet test --filter "FullyQualifiedName~Test1"
 ```
 
-To run the WPF GUI test app (interactive visualization, Windows only):
+To run the Avalonia GUI test app (interactive visualization, Windows and macOS):
 
 ```bash
 dotnet run --project GraphicLogicTest
@@ -34,7 +36,7 @@ The solution (`GEffectsLogic.slnx`) contains three projects:
 
 **GEffectLogicTests** — xUnit tests. Each test constructs a `GEffectsLogic` instance and calls `Update(deltaTime, gx, gy, gz)` in a loop to simulate a G-force scenario.
 
-**GraphicLogicTest** — WPF app (OxyPlot graphs + sliders) for visually tuning the algorithm. Not part of CI.
+**GraphicLogicTest** — Avalonia app (LiveCharts graphs + sliders) for visually tuning the algorithm. Built and linted in CI.
 
 ### Core Logic (`GEffectsLogic/GEffectsLogic.cs`)
 
@@ -50,7 +52,7 @@ Tolerance constants (`GzPTolerance`, `GzMTolerance`, etc.) live in the static `L
 
 ### Logging Pattern
 
-`Logger` (in `GEffectsLogic/Logging/Logger.cs`) is an abstract class with a static `Instance` singleton. Every project that references the core library must supply a concrete subclass and assign it to `Logger.Instance` before calling `Update`. The test project uses an xUnit `ITestOutputHelper`-backed implementation; the WPF app uses a colored console implementation. This is the standard extension point for new consumers of the library.
+`Logger` (in `GEffectsLogic/Logging/Logger.cs`) is an abstract class with a static `Instance` singleton. Every project that references the core library must supply a concrete subclass and assign it to `Logger.Instance` before calling `Update`. The test project uses an xUnit `ITestOutputHelper`-backed implementation; the Avalonia app uses a colored console implementation. This is the standard extension point for new consumers of the library.
 
 ### Algorithm Specification
 
