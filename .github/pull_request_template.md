@@ -1,10 +1,14 @@
+## Related Issues
+
+<!-- Link related issues: Fixes #123, Relates to #456 -->
+
+Link an issue for non-trivial changes. `docs`, `style`, `build`, `ci`, `chore`, and `revert` PRs are exempt; otherwise use the `no-issue` label if there is no issue.
+
 ## Description
 
 <!-- Describe your changes and the motivation behind them. -->
 
-## Related Issues
-
-<!-- Link related issues: Fixes #123, Relates to #456 -->
+Use a Conventional Commit PR title (`type(scope): lowercase subject`). PRs over 800 changed lines (excluding generated `CHANGELOG.md`) need the `large-change` label and an explanation.
 
 ## Type of Change
 
@@ -23,7 +27,8 @@
 
 ## Checklist
 
-- [ ] My code follows the project's coding style
+- [ ] My code follows the project's coding style and passes `dotnet format --verify-no-changes`
+- [ ] New C# files have the GPL header (`scripts/enforce-license-headers.sh --check`)
 - [ ] I have performed a self-review of my code
 - [ ] I have commented my code where necessary (non-obvious logic only)
 - [ ] My changes generate no new warnings

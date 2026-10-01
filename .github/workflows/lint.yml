@@ -1,0 +1,74 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  csharp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+      - run: dotnet restore GEffectsLogic.slnx
+      - run: dotnet format whitespace GEffectsLogic.slnx --no-restore --verify-no-changes
+      - run: dotnet format style GEffectsLogic.slnx --no-restore --verify-no-changes --severity warn
+      - run: dotnet format analyzers GEffectsLogic.slnx --no-restore --verify-no-changes --severity warn
+      - run: dotnet build GEffectsLogic.slnx -c Release --no-restore -warnaserror
+
+  misc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: false
+      - name: YAML
+        run: |
+          python -m pip install yamllint==1.38.0
+          yamllint -c .yamllint .github .yamllint
+      - name: GitHub Actions
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint"
+      - name: Markdown
+        run: npx --yes markdownlint-cli2@0.23.2 "**/*.md"
+      - name: Shell
+        run: shellcheck scripts/*.sh .githooks/commit-msg
+      - name: PowerShell
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -RequiredVersion 1.25.0
+          $issues = @(Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error)
+          $issues | Format-Table -AutoSize | Out-String | Write-Host
+          if ($issues.Count -gt 0) { exit 1 }
+      - name: JSON
+        run: npx --yes prettier@3.9.6 --check "**/*.json" "**/*.jsonc"
+      - name: XML
+        run: |
+          python - <<'PY'
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          for path in subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0'):
+              if path.endswith(('.axaml', '.csproj', '.slnx')):
+                  ET.parse(path)
+          PY
+
+  license-headers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: bash scripts/enforce-license-headers.sh --check
