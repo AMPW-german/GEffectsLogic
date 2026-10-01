@@ -191,6 +191,9 @@ public static class LogicSettings
     public static double GxRespiratoryFatigueAccelerationFactor { get; set; } = 2.5; // Multiplier for respiratory fatigue under Gx
     public static double GxLungOxygenationImpairmentThreshold { get; set; } = 2.0; // Gx level where lung oxygenation begins to fail
     public static double GxLungOxygenationImpairmentSeverity { get; set; } = 0.9; // Max lung oxygenation reduction at extreme Gx
+    public static double GxLungOxygenationImpairmentFullGx { get; set; } = 15.0; // Gx level where respiratory impairment saturates (~15G: chest wall can no longer be lifted)
+    public static double GxHypoxiaDepletionTau { get; set; } = 150.0; // Arterial O2 reserve depletion time constant under respiratory failure (GLoC after ~1-2 min at >=15Gx)
+    public static double GxHypoxiaRecoveryTau { get; set; } = 8.0; // Arterial O2 reoxygenation time constant once the Gx load is relieved
     public static double GxSuddenLoCThreshold { get; set; } = 4.0; // Gx level contributing to sudden G-LOC
     public static double GxSuddenLoCSeverity { get; set; } = 0.2; // Severity of Gx contribution to sudden G-LOC
     public static double GxPainFactor { get; set; } = 0.05; // Pain contribution per Gx (for future use)

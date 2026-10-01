@@ -238,6 +238,7 @@ public class GEffectsLogicInstance
     public double BloodO2Core => PhysModel.BloodO2Core;
     public double BloodO2Lower => PhysModel.BloodO2Lower;
     public double BrainO2 => PhysModel.BrainO2;
+    public double ArterialOxygenation => PhysModel.ArterialOxygenation;
 
     // Respiratory and tolerance properties
     public double RespiratoryFatigue => PhysModel.RespiratoryFatigue;

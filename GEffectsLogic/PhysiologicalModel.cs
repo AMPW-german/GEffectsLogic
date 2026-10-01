@@ -33,7 +33,9 @@ namespace GEffectsLogic;
 ///     +Gx = chest-to-back (eyeballs in, pilot pushed into seat back)
 ///     -Gx = back-to-chest (eyeballs out)
 ///     Gy  = lateral
-///     For the first version only Gz is fully modeled. Gx/Gy are stubbed for expansion.
+///     Gz acts through hydrostatic blood shift (perfusion), Gx through respiratory hypoxia
+///     (slow arterial O2 depletion at unbreatheable chest loads), Gy through tolerance
+///     reduction, lung compression and neck fatigue.
 /// </summary>
 public class PhysiologicalModel
 {
@@ -81,6 +83,9 @@ public class PhysiologicalModel
     protected double lungCompressionLevel; // Lung compression (0-1)
     protected double oxygenExchangeReduction; // Oxygen exchange reduction (0-1)
 
+    // Gx respiratory hypoxia
+    protected double arterialOxygenation = 1.0; // Arterial blood oxygenation relative to normal (V/Q mismatch under sustained high Gx)
+
     // Pain
     protected double painLevel; // Current pain level (0-1)
 
@@ -116,6 +121,9 @@ public class PhysiologicalModel
 
     /// <summary>O2 saturation in core compartment (lungs).</summary>
     public double BloodO2Core => bloodO2Core;
+
+    /// <summary>Arterial blood oxygenation relative to normal (1 = fully oxygenated). Depletes under sustained high Gx (respiratory hypoxia).</summary>
+    public double ArterialOxygenation => arterialOxygenation;
 
     /// <summary>O2 saturation in lower body compartment.</summary>
     public double BloodO2Lower => bloodO2Lower;
@@ -236,6 +244,7 @@ public class PhysiologicalModel
         isDead = false;
         lungCompressionLevel = 0.0;
         oxygenExchangeReduction = 0.0;
+        arterialOxygenation = 1.0;
         painLevel = 0.0;
     }
 
@@ -313,8 +322,8 @@ public class PhysiologicalModel
     /// </summary>
     /// <param name="dt">Time step in seconds.</param>
     /// <param name="gz">Current Gz (positive = headward-to-footward).</param>
-    /// <param name="gx">Current Gx (unused in v1, reserved).</param>
-    /// <param name="gy">Current Gy (unused in v1, reserved).</param>
+    /// <param name="gx">Current Gx (positive = chest-to-back).</param>
+    /// <param name="gy">Current Gy (lateral).</param>
     public virtual void Update(double dt, double gz, double gx = 0.0, double gy = 0.0)
     {
         // TODO:
@@ -504,7 +513,7 @@ public class PhysiologicalModel
         var hypoperfusion = Math.Max(0.0, threshold - shapedPerfusion) / threshold;
         var hypoperfusionPenalty = LogicSettings.BrainO2HypoperfusionPenaltyStrength * hypoperfusion * hypoperfusion;
 
-        effectiveDelivery = Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0) * heartRateMultiplier;
+        effectiveDelivery = Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0) * heartRateMultiplier * arterialOxygenation;
 
         // Respiratory fatigue (chest muscles for breathing)
         // Gx accelerates respiratory fatigue (thoracic compression makes breathing harder)
@@ -547,6 +556,31 @@ public class PhysiologicalModel
                 Math.Pow((gxMagnitude - LogicSettings.GxLungOxygenationImpairmentThreshold) / 4.0, 2.0);
         }
         gxLungImpairment = Clamp(gxLungImpairment, 0.0, 1.0);
+
+        // Gx respiratory hypoxia: blood stays level with the brain so perfusion is unaffected, but
+        // under high sustained Gx the chest wall becomes too heavy to lift and blood pools in the
+        // dependent lung while air stays trapped - a ventilation-perfusion mismatch where blood
+        // circulates without picking up oxygen. Ventilation failure saturates around ~15Gx
+        // (GxLungOxygenationImpairmentFullGx), and arterial oxygenation then decays on the slow
+        // timescale of the body's O2 reserves (~1-2 min to GLoC at >=15Gx) rather than the fast
+        // perfusion dynamics used for Gz. Fighter-jet Gx (~1-1.5G) stays below the impairment
+        // threshold and is tolerable indefinitely.
+        var gxVentilationFailureRange = Math.Max(
+            LogicSettings.GxLungOxygenationImpairmentFullGx - LogicSettings.GxLungOxygenationImpairmentThreshold, 1e-9);
+        var gxVentilationFailure = 0.0;
+        if (gxMagnitude > LogicSettings.GxLungOxygenationImpairmentThreshold)
+        {
+            gxVentilationFailure = LogicSettings.GxLungOxygenationImpairmentSeverity *
+                Math.Pow((gxMagnitude - LogicSettings.GxLungOxygenationImpairmentThreshold) / gxVentilationFailureRange, 3.0);
+        }
+        gxVentilationFailure = Clamp(gxVentilationFailure, 0.0, 1.0);
+
+        var arterialOxygenationTarget = 1.0 - gxVentilationFailure;
+        var arterialOxygenationTau = arterialOxygenationTarget < arterialOxygenation
+            ? LogicSettings.GxHypoxiaDepletionTau
+            : LogicSettings.GxHypoxiaRecoveryTau;
+        arterialOxygenation = StepTowardsLinear(arterialOxygenation, arterialOxygenationTarget, arterialOxygenationTau, dt);
+        arterialOxygenation = Clamp(arterialOxygenation, 0.0, 1.0);
 
         var lungEffectiveness = 1.0 - oxygenExchangeReduction - gxLungImpairment - (respiratoryFatigue * 0.5);
         lungEffectiveness = Clamp(lungEffectiveness, 0.1, 1.0);

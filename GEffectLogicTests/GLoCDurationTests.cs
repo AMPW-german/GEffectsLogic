@@ -142,9 +142,9 @@ public class GLoCDurationTests
 
     /// <summary>
     ///     Extreme sustained Gx pushes the multi-axis sudden G-LOC accumulator over its trigger
-    ///     threshold. Pure Gx never reaches full unconsciousness on its own (lung oxygenation
-    ///     impairment plateaus consciousness around 0.37), so the GLoC event here is the
-    ///     InSuddenLoC trigger. Gz stays at 0 to isolate the Gx axis.
+    ///     threshold within seconds, long before the slow respiratory hypoxia pathway could deplete
+    ///     the arterial O2 reserves. The GLoC event here is the InSuddenLoC trigger. Gz stays at 0
+    ///     to isolate the Gx axis.
     /// </summary>
     [Theory]
     [InlineData(13.0, 15.0, 28.0)]
@@ -154,6 +154,33 @@ public class GLoCDurationTests
     {
         PlataueSequenceGLoC(0.0, endGx, 0.0, 0.0, 0.0, 0.0, expectedGLoCTimeStart,
             expectedGLoCTimeEnd, _output, instance => instance.InSuddenLoC);
+    }
+
+    /// <summary>
+    ///     Sustained extreme Gx reaches full GLoC through respiratory hypoxia, not blood pooling:
+    ///     the chest wall becomes too heavy to lift and blood pooled in the dependent lung picks up
+    ///     no oxygen, so the arterial O2 reserves have to deplete before consciousness is lost. That
+    ///     takes on the order of 1-2 minutes even at very high Gx, far slower than perfusion-driven
+    ///     Gz GLoC. The sign of Gx is irrelevant - the model only uses its magnitude.
+    /// </summary>
+    [Theory]
+    [InlineData(15.0, 70.0, 120.0)]
+    [InlineData(20.0, 60.0, 110.0)]
+    [InlineData(-20.0, 60.0, 110.0)]
+    public void GxHypoxiaGLoCDuration(double endGx, double expectedGLoCTimeStart, double expectedGLoCTimeEnd)
+    {
+        PlataueSequenceGLoC(0.0, endGx, 0.0, 0.0, 0.0, 0.0, expectedGLoCTimeStart,
+            expectedGLoCTimeEnd, _output, instance => instance.IsUnconscious);
+    }
+
+    /// <summary>
+    ///     Fighter-jet-level Gx (~1.5G at catapult launch or maximum afterburner) stays below the
+    ///     respiratory impairment threshold and is tolerable indefinitely.
+    /// </summary>
+    [Fact]
+    public void GxFighterJetLevelsNoGLoC()
+    {
+        AssertNoGLoCEvent(1.5, 0.0, 0.0, 0.0, 300.0);
     }
 
     /// <summary>
@@ -298,7 +325,7 @@ public class GLoCDurationTests
     [InlineData(2.0, 1.0, 5.0, 5.0, 9.5)]
     [InlineData(4.0, 1.0, 5.0, 15.0, 28.0)]
     [InlineData(2.0, 2.0, 4.0, 3.0, 6.5)]
-    [InlineData(13.0, 1.5, 5.0, 4.0, 7.5)]
+    [InlineData(13.0, 1.5, 5.0, 4.0, 15.0)]
     public void MultiAxisGLoCDuration(double endGx, double endGy, double endGz,
         double expectedGLoCTimeStart, double expectedGLoCTimeEnd)
     {
