@@ -74,12 +74,12 @@ public static class LogicSettings
     public static double BrainO2Floor { get; set; } = 0.18;
     public static double BrainO2DepletionTauMild { get; set; } = 12.5; // mild perfusion loss
     public static double BrainO2DepletionTauSevere { get; set; } = 4.5; // severe perfusion loss
-    public static double BrainO2RecoveryTau { get; set; } = 9.0;
+    public static double BrainO2RecoveryTau { get; set; } = 7.0;
 
     // stronger non-linearity + sustained mild-loss penalty
     public static double BrainO2PerfusionExponent { get; set; } = 1.9; // >1 lowers delivery at mid perfusion
     public static double BrainO2HypoperfusionThreshold { get; set; } = 0.92; // penalty starts below this perfusion
-    public static double BrainO2HypoperfusionPenaltyStrength { get; set; } = 0.55;
+    public static double BrainO2HypoperfusionPenaltyStrength { get; set; } = 0.75;
 
     // --- Consciousness mapping ---
     public static double ConsciousnessLossTauMin { get; set; } = 5.0;
@@ -104,6 +104,13 @@ public static class LogicSettings
     public static double CerebralPressureImpairmentMaxBuildRate { get; set; } = 0.65;
     public static double CerebralPressureImpairmentExponent { get; set; } = 150.0;
     public static double CerebralPressureImpairmentMidOverfill { get; set; } = 0.07;
+    // Sustained negative Gz causes cephalic venous congestion (redout headache): a mild extra
+    // impairment build rate driven by the sustained -Gz load itself. Driving this off the input
+    // rather than simulated head overfill keeps it exact across dt (the overfill equilibrium is
+    // dt-sensitive) and continuous for mixed-axis inputs. The cap keeps it from stacking on top
+    // of the logistic term that already dominates at high -Gz.
+    public static double CerebralPressureImpairmentNegativeGzRate { get; set; } = 0.0011;
+    public static double CerebralPressureImpairmentNegativeGzCap { get; set; } = 1.5;
     public static double CerebralPressureImpairmentRecoveryTau { get; set; } = 25.0;
     public static double CerebralPressureConsciousnessExponent { get; set; } = 7.7;
 
@@ -156,6 +163,70 @@ public static class LogicSettings
 
     // Cardiovascular fatigue: hrFatigue (0..1) accumulates at CardioFatigueBuildRate × hrElevation per second
     public static double CardioFatigueBuildRate { get; set; } = 0.008; // ~125s at max HR elevation to fully fatigue
+    public static double CardioFatigueHrElevationThreshold { get; set; } = 0.8; // HR elevation (above resting) required before cardiovascular fatigue accumulates
     public static double CardioFatigueRecoveryTau { get; set; } = 240.0; // ~4 min to fully recover
     public static double CardioFatigueMaxHrFloor { get; set; } = 1.25; // HR floor when fully fatigued
+
+    // --- Expanded oxygen model parameters ---
+    public static double LungOxygenationRate { get; set; } = 0.3; // Rate at which lungs refresh blood oxygen (slower for pure Gz timing)
+    public static double CoreBloodO2Resting { get; set; } = 0.98; // Resting O2 in core (after lung oxygenation)
+    public static double HeadBloodO2Resting { get; set; } = 0.95; // Resting O2 in head
+    public static double LowerBloodO2Resting { get; set; } = 0.90; // Resting O2 in lower body
+    public static double OxygenConsumptionRateHead { get; set; } = 0.03; // O2 consumption rate in head (increased for pure Gz timing)
+    public static double OxygenConsumptionRateCore { get; set; } = 0.001; // O2 consumption rate in core (minimal for pure Gz)
+    public static double OxygenConsumptionRateLower { get; set; } = 0.0005; // O2 consumption rate in lower body (minimal for pure Gz)
+
+    // Heart-rate-dependent oxygen transport parameters
+    public static double OxygenTransportBaseRate { get; set; } = 0.06; // Base rate of O2 transport between compartments (minimal for pure Gz)
+    public static double OxygenTransportHeartRateSensitivity { get; set; } = 1.0; // How strongly HR affects O2 transport
+
+    // Respiratory fatigue parameters (separate from cardiovascular)
+    public static double RespiratoryFatigueBuildRate { get; set; } = 0.01; // Build rate per second at max effort
+    public static double RespiratoryFatigueRecoveryTau { get; set; } = 120.0; // Recovery time constant (2 minutes)
+    public static double RespiratoryFatigueHrFloor { get; set; } = 1.0; // HR floor when respiratory fatigue maxes out (breathing rate limit)
+
+    // Gx (transverse) parameters
+    public static double GxToleranceImprovementFactor { get; set; } = 0.15; // Gz tolerance improvement per Gx
+    public static double GxRespiratoryFatigueThreshold { get; set; } = 1.0; // Gx level where breathing effort starts building respiratory fatigue
+    public static double GxRespiratoryFatigueAccelerationFactor { get; set; } = 2.5; // Multiplier for respiratory fatigue under Gx
+    public static double GxLungOxygenationImpairmentThreshold { get; set; } = 2.0; // Gx level where lung oxygenation begins to fail
+    public static double GxLungOxygenationImpairmentSeverity { get; set; } = 0.9; // Max lung oxygenation reduction at extreme Gx
+    public static double GxLungOxygenationImpairmentFullGx { get; set; } = 15.0; // Gx level where respiratory impairment saturates (~15G: chest wall can no longer be lifted)
+    public static double GxHypoxiaDepletionTau { get; set; } = 150.0; // Arterial O2 reserve depletion time constant under respiratory failure (GLoC after ~1-2 min at >=15Gx)
+    public static double GxHypoxiaRecoveryTau { get; set; } = 8.0; // Arterial O2 reoxygenation time constant once the Gx load is relieved
+    public static double GxSuddenLoCThreshold { get; set; } = 4.0; // Gx level contributing to sudden G-LOC
+    public static double GxSuddenLoCSeverity { get; set; } = 0.2; // Severity of Gx contribution to sudden G-LOC
+    public static double GxPainFactor { get; set; } = 0.05; // Pain contribution per Gx (for future use)
+
+    // Gy (lateral) parameters - non-linear scaling
+    public static double GyToleranceReductionBase { get; set; } = 0.3; // Base Gz tolerance reduction per Gy
+    public static double GyToleranceNonlinearity { get; set; } = 1.5; // Exponent for non-linear scaling
+    public static double GySuddenLoCThreshold { get; set; } = 1.5; // Gy level contributing to sudden G-LOC (low tolerance)
+    public static double GySuddenLoCSeverity { get; set; } = 0.4; // Severity of Gy contribution to sudden G-LOC (high impact)
+
+    // Gy neck side fatigue parameters (damage/death with ceiling)
+    public static double GyNeckFatigueBuildRate { get; set; } = 0.5; // Build rate per second at extreme Gy
+    public static double GyNeckFatigueRecoveryTau { get; set; } = 60.0; // Recovery time constant
+    public static double GyNeckFatigueThreshold { get; set; } = 3.0; // Gy level where neck fatigue begins
+    public static double GyNeckFatigueCeiling { get; set; } = 0.8; // Maximum fatigue level (ceiling - can't reach death below this)
+    public static double GyNeckFatigueNonlinearity { get; set; } = 2.0; // Exponent for non-linear scaling
+    public static double GyNeckFatigueDeathLevel { get; set; } = 0.95; // Fatigue level causing death
+    public static double GyNeckFatigueDeathDelay { get; set; } = 1.5; // Delay (seconds) from reaching death level to actual death
+
+    // Gy lung compression parameters
+    public static double GyLungCompressionThreshold { get; set; } = 2.0; // Gy level where lung compression begins
+    public static double GyLungCompressionSeverity { get; set; } = 0.8; // Oxygen exchange reduction at high sustained Gy
+    public static double GyLungCompressionTau { get; set; } = 30.0; // Time constant for lung compression effects (minutes)
+    public static double GyLungCompressionRecoveryTau { get; set; } = 60.0; // Recovery time constant
+
+    // Gy pain parameters
+    public static double GyPainBaseFactor { get; set; } = 0.2; // Base pain per Gy
+    public static double GyPainNonlinearity { get; set; } = 2.0; // Exponent for pain scaling
+    public static double GyPainAccumulationTau { get; set; } = 5.0; // Pain accumulation time constant
+    public static double GyPainRecoveryTau { get; set; } = 20.0; // Pain recovery time constant
+
+    // Multi-axis sudden G-LOC parameters
+    public static double MultiAxisSuddenLoCThreshold { get; set; } = 0.7; // Combined threshold for sudden G-LOC
+    public static double SuddenLoCConsciousnessDrop { get; set; } = 0.3; // Consciousness drop when sudden G-LOC triggers
+    public static double SuddenLoCRecoveryTau { get; set; } = 5.0; // Recovery time from sudden G-LOC
 }

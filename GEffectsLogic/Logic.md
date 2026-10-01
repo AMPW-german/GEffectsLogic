@@ -135,6 +135,40 @@ Parameters:
 - CerebralPressureConsciousnessExponent: shaping of the consciousness reserve (approximately 7.7)
 - CerebralPressureImpairmentDeadband: impairment ignored below this level (approximately 0.003)
 
+### Gx Respiratory Hypoxia (Transverse G)
+
+Along Gx blood stays level with the brain, so head perfusion is unaffected and the failure mode
+shifts from the cardiovascular system to the respiratory system. Under high sustained Gx the chest
+wall becomes too heavy for the intercostal muscles and diaphragm to lift while blood pools in the
+dependent lung, trapping air in the front: a ventilation-perfusion (V/Q) mismatch where blood keeps
+circulating but no longer picks up oxygen.
+
+This is modeled as a dedicated `arterialOxygenation` state (1.0 = fully oxygenated):
+
+- `gxVentilationFailure` grows cubically from GxLungOxygenationImpairmentThreshold (approximately 2G)
+  toward saturation at GxLungOxygenationImpairmentFullGx (approximately 15G, where the chest can no
+  longer be lifted at all). It is intentionally sharper than the broader breathing-difficulty
+  `gxLungImpairment` curve (quadratic, saturating around 6G) that feeds `lungEffectiveness` for the
+  core-compartment O2 pool.
+- `arterialOxygenation` decays toward `1 - gxVentilationFailure` with the slow
+  GxHypoxiaDepletionTau (approximately 150s) - the body's blood O2 reserves last on the order of a
+  minute or two, like breath-holding - and recovers with the fast GxHypoxiaRecoveryTau
+  (approximately 8s).
+- Arterial oxygenation multiplies `effectiveDelivery`, so low arterial O2 starves the brain even at
+  full perfusion - systemic hypoxia, not blood-pressure loss.
+
+Resulting behavior: fighter-jet Gx (~1-1.5G, catapult launch / full afterburner) is tolerable
+indefinitely, moderate Gx degrades consciousness partially, and sustained ~15G+ causes GLoC after
+roughly 1-2 minutes. Gx tolerance is near-identical in both directions, so the model uses |Gx|.
+
+Parameters:
+
+- GxLungOxygenationImpairmentThreshold: Gx where respiratory impairment begins (approximately 2G)
+- GxLungOxygenationImpairmentSeverity: maximum impairment fraction (approximately 0.9)
+- GxLungOxygenationImpairmentFullGx: Gx where impairment saturates (approximately 15G)
+- GxHypoxiaDepletionTau: arterial O2 reserve depletion time constant (approximately 150s)
+- GxHypoxiaRecoveryTau: reoxygenation time constant after unloading (approximately 8s)
+
 ### Visual Effects
 
 The GEffectsLogic library provides all required values for drawing visual effects. Clients define how to render them.
@@ -288,7 +322,7 @@ match medical literature better than linear models. Parameters are calibrated to
 
 ## Future Enhancements
 
-- Gx/Gy full modeling (currently stubbed)
+- Push-pull effect (Gz- before Gz+ reduces tolerance)
 - Fatigue accumulation over extended high-G exposure
 - Pilot-specific tolerance variations (age, fitness, training)
 - Anti-G maneuver effectiveness variations
