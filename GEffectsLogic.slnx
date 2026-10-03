@@ -8,6 +8,7 @@
         <File Path=".github/copilot-instructions.md" />
         <File Path=".github/pull_request_template.md" />
         <File Path=".github/workflows/build.yml" />
+        <File Path="AGENTS.md" />
         <File Path="CLA.md" />
         <File Path="README.md" />
     </Folder>

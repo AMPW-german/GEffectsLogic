@@ -55,7 +55,7 @@ jobs:
           $issues | Format-Table -AutoSize | Out-String | Write-Host
           if ($issues.Count -gt 0) { exit 1 }
       - name: JSON
-        run: npx --yes prettier@3.9.6 --check "**/*.json" "**/*.jsonc"
+        run: npx --yes prettier@3.9.6 --check "**/*.json" "**/*.jsonc" --trailing-comma none
       - name: XML
         run: |
           python - <<'PY'
