@@ -53,9 +53,10 @@ public class GEffectsLogicInstance
 
     // physModel will always be set by the SetPhysiologicalModel method which is called in the constructor but the compiler doesn't recognize this
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    public GEffectsLogicInstance(Logger? logger = null)
+    public GEffectsLogicInstance(Logger? logger = null, LogicSettings? settings = null)
     {
         this.logger = logger;
+        Settings = settings ?? LogicSettings.Default;
         SetPhysiologicalModel();
     }
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
@@ -63,12 +64,34 @@ public class GEffectsLogicInstance
     /// <summary>Do not change during runtime!</summary>
     public PhysiologicalModel PhysModel { get; private set; }
 
+    public LogicSettings Settings { get; private set; }
+
+    public void ApplySettings(LogicSettings settings)
+    {
+#if NET481
+        if (settings is null) throw new ArgumentNullException(nameof(settings));
+#else
+        ArgumentNullException.ThrowIfNull(settings);
+#endif
+        if (ReferenceEquals(Settings, settings)) return;
+        Settings = settings;
+        InvalidateStabilization();
+    }
+
+    private void InvalidateStabilization()
+    {
+        stable = false;
+        stableRecorded = false;
+        stabilizationTime = 0.0;
+    }
+
     public virtual void Reset()
     {
         time = 0;
         lastGx = 0;
         lastGy = 0;
         lastGz = 0;
+        InvalidateStabilization();
         PhysModel.Reset();
     }
 
@@ -168,7 +191,7 @@ public class GEffectsLogicInstance
             else
             {
                 stabilizationTime += dt;
-                if (stabilizationTime > LogicSettings.StabilizationTimeThreshold && !stable)
+                if (stabilizationTime > Settings.StabilizationTimeThreshold && !stable)
                 {
                     stable = true; // Consider stabilized if conditions are met for the threshold duration
                     Logger.Log(
@@ -182,7 +205,7 @@ public class GEffectsLogicInstance
                 var wasUnconscious = PhysModel.IsUnconscious;
 
                 // Physiological model update
-                PhysModel.Update(dt, currentGz, currentGx, currentGy);
+                PhysModel.Update(dt, currentGx, currentGy, currentGz);
 
                 if (wasUnconscious && !PhysModel.IsUnconscious)
                     Logger.Log("Instance has regained consciousness.", this, Logger.LogLevel.Info);

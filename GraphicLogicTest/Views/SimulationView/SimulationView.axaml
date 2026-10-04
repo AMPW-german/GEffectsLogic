@@ -4,6 +4,16 @@
              xmlns:local="clr-namespace:GraphicLogicTest"
              x:Class="GraphicLogicTest.Views.SimulationView.SimulationView"
              x:DataType="local:SimulationViewModel">
+    <UserControl.Resources>
+        <DataTemplate x:Key="NumericSettingTemplate" x:DataType="local:LogicSettingEntry">
+            <Grid ColumnDefinitions="*,100" ColumnSpacing="8" Margin="8,4">
+                <TextBlock Grid.Column="0" Foreground="White" Text="{Binding Name}"
+                           TextWrapping="Wrap" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Text="{Binding ValueText, Mode=TwoWay}"
+                         Background="#FF404040" Foreground="White" />
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
     <Grid ColumnDefinitions="420,*">
         <!-- LEFT SIDEBAR -->
         <ScrollViewer Grid.Column="0" Margin="12,8,8,12">
@@ -68,23 +78,28 @@
 
                 <Expander IsExpanded="False" Background="#FF1E1E1E" Width="390" HorizontalAlignment="Stretch">
                     <Expander.Header>
-                        <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="LogicSettings.cs (all variables)" />
+                        <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="Numeric defaults" />
                     </Expander.Header>
-                    <ScrollViewer MaxHeight="520">
-                        <ItemsControl ItemsSource="{Binding LogicSettingsEntries}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="local:LogicSettingEntry">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4,8,4">
-                                        <TextBlock Width="240" Foreground="White" Text="{Binding Name}"
-                                                   VerticalAlignment="Center" />
-                                        <TextBox Width="130" Text="{Binding ValueText, Mode=TwoWay}"
-                                                 Background="#FF404040" Foreground="White" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <StackPanel Spacing="8">
+                        <TextBlock Margin="8,0" Foreground="White" TextWrapping="Wrap"
+                                   Text="Apply to new simulations and future GLoC plot runs only." />
+                        <ScrollViewer MaxHeight="520">
+                            <ItemsControl ItemsSource="{Binding DefaultsEditor.Entries}"
+                                          ItemTemplate="{StaticResource NumericSettingTemplate}" />
+                        </ScrollViewer>
+                        <Button Margin="8,0" Content="Apply defaults" Click="ApplyDefaults_Click"
+                                Background="#FF606060" Foreground="White" />
+                        <TextBlock Margin="8,0" Text="{Binding DefaultsEditor.ErrorText}"
+                                   Foreground="Salmon" TextWrapping="Wrap" />
+                    </StackPanel>
                 </Expander>
+                <StackPanel Margin="8" Spacing="6">
+                    <TextBlock Foreground="LightSkyBlue" FontWeight="Bold" Text="Global logging (immediate)" />
+                    <CheckBox Content="Debug logging for all instances" Foreground="White"
+                              IsChecked="{Binding GlobalDebugMode, Mode=TwoWay}" />
+                    <CheckBox Content="Suppress info logs for all instances" Foreground="White"
+                              IsChecked="{Binding GlobalSuppressInfoLogs, Mode=TwoWay}" />
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 
@@ -99,7 +114,8 @@
                                     CornerRadius="4"
                                     Padding="10"
                                     MinHeight="360">
-                                <Grid ColumnDefinitions="1.25*,3*,Auto" ColumnSpacing="10">
+                                <Grid ColumnDefinitions="1.25*,3*,Auto" RowDefinitions="*,Auto" RowSpacing="8"
+                                      ColumnSpacing="10">
                                     <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" RowSpacing="8">
                                         <TextBlock Grid.Row="0" Foreground="LightSkyBlue" FontWeight="Bold"
                                                    Text="{Binding Title}" />
@@ -176,6 +192,25 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </StackPanel>
+
+                                    <Expander Grid.Row="1" Grid.ColumnSpan="3" IsExpanded="False"
+                                              HorizontalAlignment="Stretch">
+                                        <Expander.Header>
+                                            <TextBlock Foreground="LightSkyBlue" FontWeight="Bold"
+                                                       Text="Instance numeric settings" />
+                                        </Expander.Header>
+                                        <StackPanel Spacing="8">
+                                            <ScrollViewer MaxHeight="320">
+                                                <ItemsControl ItemsSource="{Binding SettingsEditor.Entries}"
+                                                              ItemTemplate="{StaticResource NumericSettingTemplate}" />
+                                            </ScrollViewer>
+                                            <Button Margin="8,0" Content="Apply to this instance"
+                                                    Click="ApplyInstanceSettings_Click"
+                                                    Background="#FF606060" Foreground="White" />
+                                            <TextBlock Margin="8,0" Text="{Binding SettingsEditor.ErrorText}"
+                                                       Foreground="Salmon" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Expander>
                                 </Grid>
                             </Border>
                         </DataTemplate>

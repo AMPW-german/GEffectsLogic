@@ -17,6 +17,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\GEffectsLogic\GEffectsLogic.csproj"/>
+        <ProjectReference Include="..\GraphicLogicTest\GraphicLogicTest.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

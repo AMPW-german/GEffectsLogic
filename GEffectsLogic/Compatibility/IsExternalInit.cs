@@ -14,12 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using GEffectsLogic;
+#if NET481
+namespace System.Runtime.CompilerServices;
 
-namespace GraphicLogicTest;
-
-public sealed class NamedGEffectsLogicInstance(string name, LogicSettings? settings = null)
-    : GEffectsLogicInstance(settings: settings)
+internal static class IsExternalInit
 {
-    public string Name { get; } = name;
 }
+#endif

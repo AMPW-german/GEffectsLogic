@@ -40,9 +40,9 @@ namespace GEffectsLogic;
 public class PhysiologicalModel
 {
     // --- Compartment blood volumes (fraction of total, sum = 1.0) ---
-    protected double bloodHead = LogicSettings.RestingBloodHead;
-    protected double bloodCore = LogicSettings.RestingBloodCore;
-    protected double bloodLower = LogicSettings.RestingBloodLower;
+    protected double bloodHead;
+    protected double bloodCore;
+    protected double bloodLower;
 
     // Expanded oxygen model
     protected double bloodO2Head; // O2 saturation in head compartment
@@ -60,7 +60,7 @@ public class PhysiologicalModel
     protected double
         hrFatigue; // Cardiovascular fatigue (0..1): suppresses baroreceptor HR toward fatigueHeartRateFloor
 
-    protected double fatigueHeartRateFloor = LogicSettings.CardioFatigueMaxHrFloor;
+    protected double fatigueHeartRateFloor => Settings.CardioFatigueMaxHrFloor;
     protected double perfusionLevel;
 
     // Respiratory fatigue (separate from cardiovascular)
@@ -104,6 +104,8 @@ public class PhysiologicalModel
     #region Public read-only state
 
     private readonly GEffectsLogicInstance logicInstance;
+
+    protected LogicSettings Settings => logicInstance.Settings;
 
     /// <summary>Fraction of total blood in the head compartment.</summary>
     public double BloodHead => bloodHead;
@@ -212,18 +214,17 @@ public class PhysiologicalModel
     /// <summary>Reset all state to resting equilibrium.</summary>
     public virtual void Reset()
     {
-        bloodHead = LogicSettings.RestingBloodHead;
-        bloodCore = LogicSettings.RestingBloodCore;
-        bloodLower = LogicSettings.RestingBloodLower;
-        bloodO2Head = LogicSettings.HeadBloodO2Resting;
-        bloodO2Core = LogicSettings.CoreBloodO2Resting;
-        bloodO2Lower = LogicSettings.LowerBloodO2Resting;
+        bloodHead = Settings.RestingBloodHead;
+        bloodCore = Settings.RestingBloodCore;
+        bloodLower = Settings.RestingBloodLower;
+        bloodO2Head = Settings.HeadBloodO2Resting;
+        bloodO2Core = Settings.CoreBloodO2Resting;
+        bloodO2Lower = Settings.LowerBloodO2Resting;
         heartRateMultiplier = 1.0;
         strainingLevel = 0.0;
         strainingFatigue = 0.0;
         gSuitFatigue = 0.0;
         hrFatigue = 0.0;
-        fatigueHeartRateFloor = LogicSettings.CardioFatigueMaxHrFloor;
         visualTunnelVisionLevel = 0.0;
         visualRedoutLevel = 0.0;
         visualLoCLevel = 0.0;
@@ -276,21 +277,21 @@ public class PhysiologicalModel
         return current + (target - current) * alpha;
     }
 
-    private static double GetHeadBloodOverfill(double headBlood) =>
-        Math.Max((headBlood - LogicSettings.RestingBloodHead) / LogicSettings.RestingBloodHead, 0.0);
+    private double GetHeadBloodOverfill(double headBlood) =>
+        Math.Max((headBlood - Settings.RestingBloodHead) / Settings.RestingBloodHead, 0.0);
 
-    private static double PressureImpairmentBuildRate(double overfill) =>
-        LogicSettings.CerebralPressureImpairmentMaxBuildRate /
-        (1.0 + Math.Exp(-LogicSettings.CerebralPressureImpairmentExponent *
-                        (overfill - LogicSettings.CerebralPressureImpairmentMidOverfill)));
+    private double PressureImpairmentBuildRate(double overfill) =>
+        Settings.CerebralPressureImpairmentMaxBuildRate /
+        (1.0 + Math.Exp(-Settings.CerebralPressureImpairmentExponent *
+                        (overfill - Settings.CerebralPressureImpairmentMidOverfill)));
 
-    private static double StepHeadBloodImplicit(
+    private double StepHeadBloodImplicit(
     double current,
     double hydrostaticRate,
     double returnRate,
     double dt)
     {
-        var resting = LogicSettings.RestingBloodHead;
+        var resting = Settings.RestingBloodHead;
         var passiveFactor = 1.0 + dt * returnRate;
         var drivenHeadBlood = current + dt * (hydrostaticRate + returnRate * resting);
         var noPressureHeadBlood = drivenHeadBlood / passiveFactor;
@@ -304,8 +305,8 @@ public class PhysiologicalModel
         {
             var candidate = 0.5 * (lower + upper);
             var overfill = GetHeadBloodOverfill(candidate);
-            var pressureReturnRate = LogicSettings.HeadPressureReturnRate *
-                                     (Math.Exp(LogicSettings.HeadPressureReturnExponent * overfill) - 1.0);
+            var pressureReturnRate = Settings.HeadPressureReturnRate *
+                                     (Math.Exp(Settings.HeadPressureReturnExponent * overfill) - 1.0);
             var residual = passiveFactor * candidate + dt * pressureReturnRate - drivenHeadBlood;
 
             if (residual > 0.0)
@@ -321,10 +322,10 @@ public class PhysiologicalModel
     ///     Advance the model by deltaTime seconds under the given G-force vector.
     /// </summary>
     /// <param name="dt">Time step in seconds.</param>
-    /// <param name="gz">Current Gz (positive = headward-to-footward).</param>
     /// <param name="gx">Current Gx (positive = chest-to-back).</param>
     /// <param name="gy">Current Gy (lateral).</param>
-    public virtual void Update(double dt, double gz, double gx = 0.0, double gy = 0.0)
+    /// <param name="gz">Current Gz (positive = headward-to-footward).</param>
+    public virtual void Update(double dt, double gx, double gy, double gz)
     {
         // TODO:
         // Shorter GLoC time at high Gz-, longer GLoC time at moderate (3) Gz-, less consciousness loss at low Gz- (0.5-2 Gz-)
@@ -336,10 +337,10 @@ public class PhysiologicalModel
         var gyMagnitude = Math.Abs(gy);
 
         // Gx: Improves short-term Gz tolerance
-        gxEffectiveTolerance = 1.0 + LogicSettings.GxToleranceImprovementFactor * gxMagnitude;
+        gxEffectiveTolerance = 1.0 + Settings.GxToleranceImprovementFactor * gxMagnitude;
 
         // Gy: Severely reduces Gz tolerance (lowest tolerance axis) - non-linear scaling
-        var gyToleranceReduction = LogicSettings.GyToleranceReductionBase * Math.Pow(gyMagnitude, LogicSettings.GyToleranceNonlinearity);
+        var gyToleranceReduction = Settings.GyToleranceReductionBase * Math.Pow(gyMagnitude, Settings.GyToleranceNonlinearity);
         gyEffectiveTolerance = 1.0 - gyToleranceReduction;
         gyEffectiveTolerance = Clamp(gyEffectiveTolerance, 0.1, 1.0); // Minimum 10% tolerance
 
@@ -351,23 +352,23 @@ public class PhysiologicalModel
         // The shift rate is proportional to Gz magnitude beyond the 1G baseline. Subtracting the
         // 1G-equivalent makes normal upright 1G the neutral point (head blood ~ resting), so level
         // flight settles at near-full consciousness while high +Gz still pools strongly.
-        var gzNetScaled = Math.Sign(gz) * Math.Pow(Math.Abs(gz) / combinedTolerance, LogicSettings.HydrostaticShiftExponent) - 1.0;
+        var gzNetScaled = Math.Sign(gz) * Math.Pow(Math.Abs(gz) / combinedTolerance, Settings.HydrostaticShiftExponent) - 1.0;
 
         // Drive straining level from +Gz with first-order lag
         var targetStraining = 0.0;
-        if (gz > LogicSettings.StrainingStartGz) targetStraining = (gz - LogicSettings.StrainingStartGz) / (LogicSettings.StrainingFullGz - LogicSettings.StrainingStartGz);
+        if (gz > Settings.StrainingStartGz) targetStraining = (gz - Settings.StrainingStartGz) / (Settings.StrainingFullGz - Settings.StrainingStartGz);
         targetStraining = Clamp(targetStraining, 0.0, 1.0);
-        strainingLevel = StepTowardsLinear(strainingLevel, targetStraining, LogicSettings.StrainingTau, dt);
+        strainingLevel = StepTowardsLinear(strainingLevel, targetStraining, Settings.StrainingTau, dt);
 
         // Fatigue: straining fatigue fills while strainingLevel is high, drains slowly at rest
-        var strainingFatigueBuildRate = LogicSettings.StrainingFatigueBuildRate * strainingLevel * strainingLevel;
-        var strainingFatigueDecayRate = 1.0 / LogicSettings.StrainingFatigueRecoveryTau;
+        var strainingFatigueBuildRate = Settings.StrainingFatigueBuildRate * strainingLevel * strainingLevel;
+        var strainingFatigueDecayRate = 1.0 / Settings.StrainingFatigueRecoveryTau;
         strainingFatigue += strainingLevel > 0.01 ? strainingFatigueBuildRate * dt : -strainingFatigueDecayRate * strainingFatigue * dt;
         strainingFatigue = Clamp(strainingFatigue, 0.0, 1.0);
 
         // G-suit fatigue builds more slowly (mechanical, outlasts the pilot's AGSM), also drains slowly
-        var gSuitFatigueBuildRate = LogicSettings.GSuitFatigueBuildRate * strainingLevel;
-        var gSuitFatigueDecayRate = 1.0 / LogicSettings.GSuitFatigueRecoveryTau;
+        var gSuitFatigueBuildRate = Settings.GSuitFatigueBuildRate * strainingLevel;
+        var gSuitFatigueDecayRate = 1.0 / Settings.GSuitFatigueRecoveryTau;
         gSuitFatigue += strainingLevel > 0.01 ? gSuitFatigueBuildRate * dt : -gSuitFatigueDecayRate * gSuitFatigue * dt;
         gSuitFatigue = Clamp(gSuitFatigue, 0.0, 1.0);
 
@@ -375,28 +376,28 @@ public class PhysiologicalModel
         var effectiveStraining = strainingLevel * (1.0 - strainingFatigue);
 
         // Effective g-suit: mechanical suit retains a passive fraction, only the active compression degrades
-        var gSuitActiveFraction = 1.0 - LogicSettings.GSuitPassiveFraction;
-        var effectiveGSuit = LogicSettings.GSuitEffectiveness * (LogicSettings.GSuitPassiveFraction + gSuitActiveFraction * (1.0 - gSuitFatigue));
+        var gSuitActiveFraction = 1.0 - Settings.GSuitPassiveFraction;
+        var effectiveGSuit = Settings.GSuitEffectiveness * (Settings.GSuitPassiveFraction + gSuitActiveFraction * (1.0 - gSuitFatigue));
 
         // Suit effect only for +Gz loading, coupled to effective straining
         var suitActivation = Clamp(effectiveGSuit * effectiveStraining, 0.0, 1.0);
         var suit = gz > 0.0 ? suitActivation : 0.0;
 
         // Mild global scaling + targeted redistribution
-        var effectiveGzShift = gzNetScaled * (1.0 - LogicSettings.GSuitGlobalShiftReductionMax * suit);
-        var coreLowerFractionEffective = Clamp(LogicSettings.CoreLowerShiftFraction * (1.0 - LogicSettings.GSuitCoreLowerReductionMax * suit), 0.05, 0.95);
+        var effectiveGzShift = gzNetScaled * (1.0 - Settings.GSuitGlobalShiftReductionMax * suit);
+        var coreLowerFractionEffective = Clamp(Settings.CoreLowerShiftFraction * (1.0 - Settings.GSuitCoreLowerReductionMax * suit), 0.05, 0.95);
 
         Logger.Log($"effectiveGzShift: {effectiveGzShift}, coreLowerFractionEffective: {coreLowerFractionEffective}", logicInstance);
 
         // Blood flow rate between compartments
-        var shiftRate = LogicSettings.HydrostaticShiftRate * effectiveGzShift;
+        var shiftRate = Settings.HydrostaticShiftRate * effectiveGzShift;
         var shiftHeadRate = -shiftRate;
         var shiftCoreRate = shiftRate;
         var shiftLowerRate = shiftRate * coreLowerFractionEffective;
 
         // Passive return (boost lower pool return under suit)
-        var returnRate = LogicSettings.PassiveReturnRate * heartRateMultiplier;
-        var lowerReturnRate = returnRate * (1.0 + LogicSettings.GSuitLowerReturnBoostMax * suit);
+        var returnRate = Settings.PassiveReturnRate * heartRateMultiplier;
+        var lowerReturnRate = returnRate * (1.0 + Settings.GSuitLowerReturnBoostMax * suit);
 
         bloodHead = StepHeadBloodImplicit(
             bloodHead,
@@ -404,8 +405,8 @@ public class PhysiologicalModel
             returnRate,
             dt);
 
-        bloodCore = (bloodCore + (shiftCoreRate + returnRate * LogicSettings.RestingBloodCore) * dt) / (1.0 + returnRate * dt);
-        bloodLower = (bloodLower + (shiftLowerRate + lowerReturnRate * LogicSettings.RestingBloodLower) * dt) / (1.0 + lowerReturnRate * dt);
+        bloodCore = (bloodCore + (shiftCoreRate + returnRate * Settings.RestingBloodCore) * dt) / (1.0 + returnRate * dt);
+        bloodLower = (bloodLower + (shiftLowerRate + lowerReturnRate * Settings.RestingBloodLower) * dt) / (1.0 + lowerReturnRate * dt);
 
         // Enforce conservation (redistribute any numerical drift)
         var total = bloodHead + bloodCore + bloodLower;
@@ -425,9 +426,9 @@ public class PhysiologicalModel
         bloodLower /= total;
 
         // enforce residual head blood floor while preserving total = 1.0
-        if (bloodHead < LogicSettings.MinHeadBloodFraction)
+        if (bloodHead < Settings.MinHeadBloodFraction)
         {
-            bloodHead = LogicSettings.MinHeadBloodFraction;
+            bloodHead = Settings.MinHeadBloodFraction;
             var remaining = 1.0 - bloodHead;
             var coreLower = bloodCore + bloodLower;
 
@@ -454,9 +455,9 @@ public class PhysiologicalModel
         // (headache) that keeps prolonged mild negative G below full consciousness.
         var pressureImpairmentBuildRate =
             Math.Max(PressureImpairmentBuildRate(headOverfill) - PressureImpairmentBuildRate(0.0), 0.0) +
-            LogicSettings.CerebralPressureImpairmentNegativeGzRate *
-            Math.Min(Math.Max(0.0, -gz), LogicSettings.CerebralPressureImpairmentNegativeGzCap);
-        var pressureImpairmentRecoveryRate = 1.0 / Math.Max(LogicSettings.CerebralPressureImpairmentRecoveryTau, 1e-9);
+            Settings.CerebralPressureImpairmentNegativeGzRate *
+            Math.Min(Math.Max(0.0, -gz), Settings.CerebralPressureImpairmentNegativeGzCap);
+        var pressureImpairmentRecoveryRate = 1.0 / Math.Max(Settings.CerebralPressureImpairmentRecoveryTau, 1e-9);
         var pressureImpairmentRate = pressureImpairmentBuildRate + pressureImpairmentRecoveryRate;
         var pressureImpairmentTarget = pressureImpairmentBuildRate / pressureImpairmentRate;
         var pressureImpairmentAlpha = 1.0 - Math.Exp(-pressureImpairmentRate * dt);
@@ -465,21 +466,21 @@ public class PhysiologicalModel
         cerebralPressureImpairment = Clamp(cerebralPressureImpairment, 0.0, 1.0);
 
         // O2 delivery depends on head blood volume relative to resting
-        var perfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
+        var perfusionRatio = bloodHead / Settings.RestingBloodHead;
         var perfusionRatioClamped = Clamp(perfusionRatio, 0.0, 1.0);
 
         // Perfusion shaping
-        var s = LogicSettings.O2PerfusionCurveStrength;
-        var pivot = LogicSettings.O2PerfusionCurvePivot;
+        var s = Settings.O2PerfusionCurveStrength;
+        var pivot = Settings.O2PerfusionCurvePivot;
         var shapedPerfusion = perfusionRatioClamped - s * perfusionRatioClamped * (1.0 - perfusionRatioClamped) * (perfusionRatioClamped - pivot);
         shapedPerfusion = Clamp(shapedPerfusion, 0.0, 1.0);
 
         // Cardiovascular fatigue: hrFatigue (0..1) accumulates with time × HR elevation,
         // decays slowly at rest. It is independent of current HR so it always wins eventually.
         var hrElevation = Math.Max(0.0, heartRateMultiplier - 1.0);
-        var hrFatigueElevation = Math.Max(0.0, hrElevation - LogicSettings.CardioFatigueHrElevationThreshold);
-        var hrFatigueBuildRate = LogicSettings.CardioFatigueBuildRate * hrFatigueElevation;
-        hrFatigue += hrFatigueElevation > 0.0 ? hrFatigueBuildRate * dt : -(hrFatigue / LogicSettings.CardioFatigueRecoveryTau) * dt;
+        var hrFatigueElevation = Math.Max(0.0, hrElevation - Settings.CardioFatigueHrElevationThreshold);
+        var hrFatigueBuildRate = Settings.CardioFatigueBuildRate * hrFatigueElevation;
+        hrFatigue += hrFatigueElevation > 0.0 ? hrFatigueBuildRate * dt : -(hrFatigue / Settings.CardioFatigueRecoveryTau) * dt;
         hrFatigue = Clamp(hrFatigue, 0.0, 1.0);
 
         // fatigueHeartRateFloor is a fixed setting: the resting HR offset the cardiovascular
@@ -488,72 +489,72 @@ public class PhysiologicalModel
         double baroTarget;
 
         double hrTau;
-        if (bloodHead > LogicSettings.RestingBloodHead)
+        if (bloodHead > Settings.RestingBloodHead)
         {
-            var bradycardia = Clamp(GetHeadBloodOverfill(bloodHead) / LogicSettings.NegativeGHeartStopOverfill, 0.0, 1.0);
+            var bradycardia = Clamp(GetHeadBloodOverfill(bloodHead) / Settings.NegativeGHeartStopOverfill, 0.0, 1.0);
             baroTarget = 1.0 - bradycardia;
-            hrTau = LogicSettings.BaroreceptorTimeConstantNegativeMin + (LogicSettings.BaroreceptorTimeConstantNegativeMax - LogicSettings.BaroreceptorTimeConstantNegativeMin) * baroTarget;
+            hrTau = Settings.BaroreceptorTimeConstantNegativeMin + (Settings.BaroreceptorTimeConstantNegativeMax - Settings.BaroreceptorTimeConstantNegativeMin) * baroTarget;
         }
         else
         {
-            baroTarget = 1.0 + LogicSettings.BaroreceptorGain * (1.0 - perfusionRatioClamped);
-            hrTau = LogicSettings.BaroreceptorTimeConstantPositive;
+            baroTarget = 1.0 + Settings.BaroreceptorGain * (1.0 - perfusionRatioClamped);
+            hrTau = Settings.BaroreceptorTimeConstantPositive;
         }
 
-        baroTarget = Clamp(baroTarget, 0.0, LogicSettings.MaxHeartRateMultiplier);
+        baroTarget = Clamp(baroTarget, 0.0, Settings.MaxHeartRateMultiplier);
 
         // hrFatigue suppresses baroreceptor response: at hrFatigue=1 the target is pinned to the floor.
         var targetHR = baroTarget + hrFatigue * (fatigueHeartRateFloor - baroTarget);
         heartRateMultiplier = StepTowardsLinear(heartRateMultiplier, targetHR, hrTau, dt);
 
         // convert perfusion -> effective O2 delivery (non-linear + mild sustained hypoperfusion penalty)
-        var effectiveDelivery = Math.Pow(shapedPerfusion, LogicSettings.BrainO2PerfusionExponent);
+        var effectiveDelivery = Math.Pow(shapedPerfusion, Settings.BrainO2PerfusionExponent);
 
-        var threshold = Clamp(LogicSettings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
+        var threshold = Clamp(Settings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
         var hypoperfusion = Math.Max(0.0, threshold - shapedPerfusion) / threshold;
-        var hypoperfusionPenalty = LogicSettings.BrainO2HypoperfusionPenaltyStrength * hypoperfusion * hypoperfusion;
+        var hypoperfusionPenalty = Settings.BrainO2HypoperfusionPenaltyStrength * hypoperfusion * hypoperfusion;
 
         effectiveDelivery = Clamp(effectiveDelivery - hypoperfusionPenalty, 0.0, 1.0) * heartRateMultiplier * arterialOxygenation;
 
         // Respiratory fatigue (chest muscles for breathing)
         // Gx accelerates respiratory fatigue (thoracic compression makes breathing harder)
-        var respiratoryEffort = Math.Max(0.0, gxMagnitude - LogicSettings.GxRespiratoryFatigueThreshold) * 0.5; // Breathing effort increases with Gx chest compression
-        var respiratoryFatigueMultiplier = 1.0 + (LogicSettings.GxRespiratoryFatigueAccelerationFactor - 1.0) * gxMagnitude;
+        var respiratoryEffort = Math.Max(0.0, gxMagnitude - Settings.GxRespiratoryFatigueThreshold) * 0.5; // Breathing effort increases with Gx chest compression
+        var respiratoryFatigueMultiplier = 1.0 + (Settings.GxRespiratoryFatigueAccelerationFactor - 1.0) * gxMagnitude;
 
-        var respiratoryFatigueBuildRate = LogicSettings.RespiratoryFatigueBuildRate * respiratoryEffort * respiratoryFatigueMultiplier;
+        var respiratoryFatigueBuildRate = Settings.RespiratoryFatigueBuildRate * respiratoryEffort * respiratoryFatigueMultiplier;
         respiratoryFatigue += respiratoryFatigueBuildRate * dt;
 
         // Recover respiratory fatigue (higher recovery rate when Gx is low)
-        var respiratoryRecoveryRate = respiratoryFatigue / LogicSettings.RespiratoryFatigueRecoveryTau;
+        var respiratoryRecoveryRate = respiratoryFatigue / Settings.RespiratoryFatigueRecoveryTau;
         respiratoryFatigue -= respiratoryRecoveryRate * dt;
         respiratoryFatigue = Clamp(respiratoryFatigue, 0.0, 1.0);
 
         // Respiratory fatigue affects heart rate (breathing rate limits)
         var respiratoryHrMultiplier = 1.0 - respiratoryFatigue * 0.2; // Breathing rate limits HR
-        heartRateMultiplier *= Math.Max(respiratoryHrMultiplier, LogicSettings.RespiratoryFatigueHrFloor);
+        heartRateMultiplier *= Math.Max(respiratoryHrMultiplier, Settings.RespiratoryFatigueHrFloor);
 
         // Gy lung compression and oxygen exchange reduction
-        var compressionTarget = gyMagnitude > LogicSettings.GyLungCompressionThreshold
-            ? Math.Pow((gyMagnitude - LogicSettings.GyLungCompressionThreshold) / 3.0, LogicSettings.GyToleranceNonlinearity)
+        var compressionTarget = gyMagnitude > Settings.GyLungCompressionThreshold
+            ? Math.Pow((gyMagnitude - Settings.GyLungCompressionThreshold) / 3.0, Settings.GyToleranceNonlinearity)
             : 0.0;
         compressionTarget = Clamp(compressionTarget, 0.0, 1.0);
 
-        var compressionTau = gyMagnitude > LogicSettings.GyLungCompressionThreshold
-            ? LogicSettings.GyLungCompressionTau
-            : LogicSettings.GyLungCompressionRecoveryTau;
+        var compressionTau = gyMagnitude > Settings.GyLungCompressionThreshold
+            ? Settings.GyLungCompressionTau
+            : Settings.GyLungCompressionRecoveryTau;
         lungCompressionLevel = StepTowardsLinear(lungCompressionLevel, compressionTarget, compressionTau, dt);
         lungCompressionLevel = Clamp(lungCompressionLevel, 0.0, 1.0);
 
         // Oxygen exchange reduction affects lung oxygenation
-        oxygenExchangeReduction = lungCompressionLevel * LogicSettings.GyLungCompressionSeverity;
+        oxygenExchangeReduction = lungCompressionLevel * Settings.GyLungCompressionSeverity;
 
         // Lung oxygenation in core compartment
         // Lungs refresh blood O2 toward resting level, reduced by Gx (thoracic compression) and respiratory fatigue
         var gxLungImpairment = 0.0;
-        if (gxMagnitude > LogicSettings.GxLungOxygenationImpairmentThreshold)
+        if (gxMagnitude > Settings.GxLungOxygenationImpairmentThreshold)
         {
-            gxLungImpairment = LogicSettings.GxLungOxygenationImpairmentSeverity *
-                Math.Pow((gxMagnitude - LogicSettings.GxLungOxygenationImpairmentThreshold) / 4.0, 2.0);
+            gxLungImpairment = Settings.GxLungOxygenationImpairmentSeverity *
+                Math.Pow((gxMagnitude - Settings.GxLungOxygenationImpairmentThreshold) / 4.0, 2.0);
         }
         gxLungImpairment = Clamp(gxLungImpairment, 0.0, 1.0);
 
@@ -566,40 +567,40 @@ public class PhysiologicalModel
         // perfusion dynamics used for Gz. Fighter-jet Gx (~1-1.5G) stays below the impairment
         // threshold and is tolerable indefinitely.
         var gxVentilationFailureRange = Math.Max(
-            LogicSettings.GxLungOxygenationImpairmentFullGx - LogicSettings.GxLungOxygenationImpairmentThreshold, 1e-9);
+            Settings.GxLungOxygenationImpairmentFullGx - Settings.GxLungOxygenationImpairmentThreshold, 1e-9);
         var gxVentilationFailure = 0.0;
-        if (gxMagnitude > LogicSettings.GxLungOxygenationImpairmentThreshold)
+        if (gxMagnitude > Settings.GxLungOxygenationImpairmentThreshold)
         {
-            gxVentilationFailure = LogicSettings.GxLungOxygenationImpairmentSeverity *
-                Math.Pow((gxMagnitude - LogicSettings.GxLungOxygenationImpairmentThreshold) / gxVentilationFailureRange, 3.0);
+            gxVentilationFailure = Settings.GxLungOxygenationImpairmentSeverity *
+                Math.Pow((gxMagnitude - Settings.GxLungOxygenationImpairmentThreshold) / gxVentilationFailureRange, 3.0);
         }
         gxVentilationFailure = Clamp(gxVentilationFailure, 0.0, 1.0);
 
         var arterialOxygenationTarget = 1.0 - gxVentilationFailure;
         var arterialOxygenationTau = arterialOxygenationTarget < arterialOxygenation
-            ? LogicSettings.GxHypoxiaDepletionTau
-            : LogicSettings.GxHypoxiaRecoveryTau;
+            ? Settings.GxHypoxiaDepletionTau
+            : Settings.GxHypoxiaRecoveryTau;
         arterialOxygenation = StepTowardsLinear(arterialOxygenation, arterialOxygenationTarget, arterialOxygenationTau, dt);
         arterialOxygenation = Clamp(arterialOxygenation, 0.0, 1.0);
 
         var lungEffectiveness = 1.0 - oxygenExchangeReduction - gxLungImpairment - (respiratoryFatigue * 0.5);
         lungEffectiveness = Clamp(lungEffectiveness, 0.1, 1.0);
-        var targetCoreO2 = LogicSettings.CoreBloodO2Resting * lungEffectiveness;
-        bloodO2Core = StepTowardsLinear(bloodO2Core, targetCoreO2, LogicSettings.LungOxygenationRate, dt);
+        var targetCoreO2 = Settings.CoreBloodO2Resting * lungEffectiveness;
+        bloodO2Core = StepTowardsLinear(bloodO2Core, targetCoreO2, Settings.LungOxygenationRate, dt);
         bloodO2Core = Clamp(bloodO2Core, 0.0, 1.0);
 
         // Oxygen consumption in each compartment
-        bloodO2Head -= LogicSettings.OxygenConsumptionRateHead * dt;
-        bloodO2Core -= LogicSettings.OxygenConsumptionRateCore * dt;
-        bloodO2Lower -= LogicSettings.OxygenConsumptionRateLower * dt;
+        bloodO2Head -= Settings.OxygenConsumptionRateHead * dt;
+        bloodO2Core -= Settings.OxygenConsumptionRateCore * dt;
+        bloodO2Lower -= Settings.OxygenConsumptionRateLower * dt;
 
         // Oxygen transport between compartments via blood flow (heart-rate-dependent)
         // Effective transport rate scales with heart rate and with the blood actually reaching
         // each compartment: when +Gz drains the head or -Gz overfills it, flow scales accordingly.
-        var effectiveTransportRate = LogicSettings.OxygenTransportBaseRate *
-            (1.0 + LogicSettings.OxygenTransportHeartRateSensitivity * (heartRateMultiplier - 1.0));
-        var headPerfusionRatio = bloodHead / LogicSettings.RestingBloodHead;
-        var lowerPerfusionRatio = bloodLower / LogicSettings.RestingBloodLower;
+        var effectiveTransportRate = Settings.OxygenTransportBaseRate *
+            (1.0 + Settings.OxygenTransportHeartRateSensitivity * (heartRateMultiplier - 1.0));
+        var headPerfusionRatio = bloodHead / Settings.RestingBloodHead;
+        var lowerPerfusionRatio = bloodLower / Settings.RestingBloodLower;
 
         // Core → Head (arterial flow)
         var o2FlowCoreToHead = (bloodO2Core - bloodO2Head) * effectiveTransportRate * headPerfusionRatio * dt;
@@ -628,34 +629,34 @@ public class PhysiologicalModel
 
         // For consciousness, use head O2 (brain oxygen)
         // Target O2 is bounded by floor, then approached with time constants
-        var targetBrainO2 = LogicSettings.BrainO2Floor + (1.0 - LogicSettings.BrainO2Floor) * effectiveDelivery;
+        var targetBrainO2 = Settings.BrainO2Floor + (1.0 - Settings.BrainO2Floor) * effectiveDelivery;
 
         // Severity-based depletion tau: high perfusion loss => faster depletion
         var severity = 1.0 - effectiveDelivery;
-        var depletionTau = LogicSettings.BrainO2DepletionTauMild + (LogicSettings.BrainO2DepletionTauSevere - LogicSettings.BrainO2DepletionTauMild) * severity;
+        var depletionTau = Settings.BrainO2DepletionTauMild + (Settings.BrainO2DepletionTauSevere - Settings.BrainO2DepletionTauMild) * severity;
 
-        var o2Tau = targetBrainO2 < bloodO2Head ? depletionTau : LogicSettings.BrainO2RecoveryTau;
+        var o2Tau = targetBrainO2 < bloodO2Head ? depletionTau : Settings.BrainO2RecoveryTau;
 
         bloodO2Head = StepTowardsLinear(bloodO2Head, targetBrainO2, o2Tau, dt);
-        bloodO2Head = Clamp(bloodO2Head, LogicSettings.BrainO2Floor, 1.0);
+        bloodO2Head = Clamp(bloodO2Head, Settings.BrainO2Floor, 1.0);
 
         // Map brain O2 to consciousness
         var o2Normalized = Clamp(
-            (BrainO2 - LogicSettings.BrainO2Blackout) / (LogicSettings.BrainO2Full - LogicSettings.BrainO2Blackout),
+            (BrainO2 - Settings.BrainO2Blackout) / (Settings.BrainO2Full - Settings.BrainO2Blackout),
             0.0, 1.0);
 
-        var perfRatio = Clamp(bloodHead / LogicSettings.RestingBloodHead, 0.0, 1.0);
+        var perfRatio = Clamp(bloodHead / Settings.RestingBloodHead, 0.0, 1.0);
         perfusionLevel = perfRatio;
 
         // Use soft minimum for consciousness mapping (not blackout threshold)
         var perfNorm = Clamp(
-            (perfRatio - LogicSettings.ConsciousnessPerfusionSoftMinRatio) /
-            (1.0 - LogicSettings.ConsciousnessPerfusionSoftMinRatio),
+            (perfRatio - Settings.ConsciousnessPerfusionSoftMinRatio) /
+            (1.0 - Settings.ConsciousnessPerfusionSoftMinRatio),
             0.0, 1.0);
 
         // "Weakest-link" blend: either low O2 or low perfusion can drive LOC
-        var o2Term = Math.Pow(o2Normalized, LogicSettings.ConsciousnessO2Exponent);
-        var perfTerm = Math.Pow(SmoothStep(perfNorm), LogicSettings.ConsciousnessPerfusionExponent);
+        var o2Term = Math.Pow(o2Normalized, Settings.ConsciousnessO2Exponent);
+        var perfTerm = Math.Pow(SmoothStep(perfNorm), Settings.ConsciousnessPerfusionExponent);
 
         // Geometric blend: both channels matter strongly, avoids high flat plateau
         var targetConsciousness = o2Term * perfTerm;
@@ -664,14 +665,14 @@ public class PhysiologicalModel
         // A small deadband ignores negligible impairment (e.g. the tiny residual overfill at 0G),
         // then rescales so sustained negative-G impairment still reaches full effect.
         var effectivePressureImpairment = Clamp(
-            (cerebralPressureImpairment - LogicSettings.CerebralPressureImpairmentDeadband) /
-            Math.Max(1.0 - LogicSettings.CerebralPressureImpairmentDeadband, 1e-9),
+            (cerebralPressureImpairment - Settings.CerebralPressureImpairmentDeadband) /
+            Math.Max(1.0 - Settings.CerebralPressureImpairmentDeadband, 1e-9),
             0.0, 1.0);
-        var pressureConsciousnessReserve = Math.Pow(Clamp(1.0 - effectivePressureImpairment, 0.0, 1.0), LogicSettings.CerebralPressureConsciousnessExponent);
+        var pressureConsciousnessReserve = Math.Pow(Clamp(1.0 - effectivePressureImpairment, 0.0, 1.0), Settings.CerebralPressureConsciousnessExponent);
 
         // sustained hypoxia/hypoperfusion bias (prevents 5G plateau like 0.09)
         var combinedDeficit = 1.0 - (0.5 * o2Normalized + 0.5 * perfNorm);
-        targetConsciousness = Math.Max(0.0, targetConsciousness - LogicSettings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
+        targetConsciousness = Math.Max(0.0, targetConsciousness - Settings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
 
         // hard cap when perfusion is critically low
         if (perfNorm < 0.25) targetConsciousness = Math.Min(targetConsciousness, perfNorm * 0.75);
@@ -679,44 +680,44 @@ public class PhysiologicalModel
         targetConsciousness = Math.Min(targetConsciousness, pressureConsciousnessReserve);
 
         // Dynamic loss tau (non-linear so mid-G loses slower)
-        var lossSeverity = Math.Pow(1.0 - targetConsciousness, LogicSettings.ConsciousnessLossSeverityExponent);
+        var lossSeverity = Math.Pow(1.0 - targetConsciousness, Settings.ConsciousnessLossSeverityExponent);
 
-        var baseLossTau = LogicSettings.ConsciousnessLossTauMax + (LogicSettings.ConsciousnessLossTauMin - LogicSettings.ConsciousnessLossTauMax) * lossSeverity;
+        var baseLossTau = Settings.ConsciousnessLossTauMax + (Settings.ConsciousnessLossTauMin - Settings.ConsciousnessLossTauMax) * lossSeverity;
 
         // Critical collapse accelerator (mostly affects extreme +G)
-        var criticalPerf = 1.0 - Clamp(perfNorm / LogicSettings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
+        var criticalPerf = 1.0 - Clamp(perfNorm / Settings.ConsciousnessCriticalPerfusionNorm, 0.0, 1.0);
 
-        var criticalO2 = 1.0 - Clamp(o2Normalized / LogicSettings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
+        var criticalO2 = 1.0 - Clamp(o2Normalized / Settings.ConsciousnessCriticalO2Norm, 0.0, 1.0);
 
         var criticalPressure = Clamp(
-            (effectivePressureImpairment - LogicSettings.ConsciousnessCriticalPressureNorm) /
-            Math.Max(1.0 - LogicSettings.ConsciousnessCriticalPressureNorm, 1e-9),
+            (effectivePressureImpairment - Settings.ConsciousnessCriticalPressureNorm) /
+            Math.Max(1.0 - Settings.ConsciousnessCriticalPressureNorm, 1e-9),
             0.0, 1.0);
         var critical = Math.Max(Math.Max(criticalPerf, criticalO2), criticalPressure);
-        var criticalTauMultiplier = 1.0 - (1.0 - LogicSettings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical);
+        var criticalTauMultiplier = 1.0 - (1.0 - Settings.ConsciousnessCriticalTauMultiplierMin) * SmoothStep(critical);
 
         var lossTau = baseLossTau * criticalTauMultiplier;
-        var tau = targetConsciousness < consciousnessLevel ? lossTau : LogicSettings.ConsciousnessRecoveryTau;
+        var tau = targetConsciousness < consciousnessLevel ? lossTau : Settings.ConsciousnessRecoveryTau;
 
         consciousnessLevel = StepTowardsLinear(consciousnessLevel, targetConsciousness, tau, dt);
         consciousnessLevel = Clamp(consciousnessLevel, 0.0, 1.0);
 
         if (isUnconscious)
         {
-            if (consciousnessLevel > LogicSettings.ConsciousnessRecoveryThreshold) isUnconscious = false;
+            if (consciousnessLevel > Settings.ConsciousnessRecoveryThreshold) isUnconscious = false;
         }
-        else if (consciousnessLevel <= LogicSettings.ConsciousnessLossThreshold)
+        else if (consciousnessLevel <= Settings.ConsciousnessLossThreshold)
         {
             isUnconscious = true;
         }
 
         var consciousnessVisualRange = Math.Max(
-            LogicSettings.ConsciousnessRecoveryThreshold - LogicSettings.ConsciousnessLossThreshold,
+            Settings.ConsciousnessRecoveryThreshold - Settings.ConsciousnessLossThreshold,
             1e-9);
         var visualLoCMaximum = Math.Pow(Clamp(
-            (LogicSettings.ConsciousnessRecoveryThreshold - consciousnessLevel) / consciousnessVisualRange,
+            (Settings.ConsciousnessRecoveryThreshold - consciousnessLevel) / consciousnessVisualRange,
             0.0,
-            1.0), LogicSettings.VisualLoCConsciousnessExponent);
+            1.0), Settings.VisualLoCConsciousnessExponent);
         if (isUnconscious)
         {
             visualLoCLevel = 1.0;
@@ -724,8 +725,8 @@ public class PhysiologicalModel
         else
         {
             var visualLoCRate = visualLoCMaximum > visualLoCLevel
-                ? LogicSettings.VisualLoCIncreaseRate
-                : LogicSettings.VisualLoCDecreaseRate;
+                ? Settings.VisualLoCIncreaseRate
+                : Settings.VisualLoCDecreaseRate;
             var visualLoCMaximumDelta = Math.Max(visualLoCRate, 0.0) * dt;
             visualLoCLevel += Clamp(
                 visualLoCMaximum - visualLoCLevel,
@@ -738,14 +739,14 @@ public class PhysiologicalModel
         var visualO2 = Clamp((o2Normalized - 0.15) / 0.85, 0.0, 1.0);
         var visualReserve = 0.7 * visualPerf + 0.3 * visualO2;
         var visualDeficit = 1.0 - visualReserve;
-        var physiologicalVisualTarget = bloodHead < LogicSettings.RestingBloodHead
+        var physiologicalVisualTarget = bloodHead < Settings.RestingBloodHead
             ? Math.Pow(Clamp((visualDeficit - 0.18) / 0.82, 0.0, 1.0), 2.2)
             : 0.0;
 
         #region Tunnel Vision
         var tunnelTau = physiologicalVisualTarget > visualTunnelVisionLevel
-            ? LogicSettings.VisualTunnelVisionInTau
-            : LogicSettings.VisualTunnelVisionOutTau;
+            ? Settings.VisualTunnelVisionInTau
+            : Settings.VisualTunnelVisionOutTau;
         visualTunnelVisionLevel = StepTowardsLinear(
             visualTunnelVisionLevel,
             physiologicalVisualTarget,
@@ -756,23 +757,23 @@ public class PhysiologicalModel
 
         #region Redout
         var redoutRange = Math.Max(
-            LogicSettings.VisualRedoutFullHeadBloodOverfill - LogicSettings.VisualRedoutOnsetHeadBloodOverfill,
+            Settings.VisualRedoutFullHeadBloodOverfill - Settings.VisualRedoutOnsetHeadBloodOverfill,
             1e-9);
         var redoutTarget = SmoothStep(Clamp(
-            (headOverfill - LogicSettings.VisualRedoutOnsetHeadBloodOverfill) / redoutRange,
+            (headOverfill - Settings.VisualRedoutOnsetHeadBloodOverfill) / redoutRange,
             0.0,
             1.0));
         var redoutTau = redoutTarget > visualRedoutLevel
-            ? LogicSettings.VisualRedoutInTau
-            : LogicSettings.VisualRedoutOutTau;
+            ? Settings.VisualRedoutInTau
+            : Settings.VisualRedoutOutTau;
         visualRedoutLevel = StepTowardsLinear(visualRedoutLevel, redoutTarget, redoutTau, dt);
         visualRedoutLevel = Clamp(visualRedoutLevel, 0.0, 1.0);
         #endregion
 
         #region Grayscale
         var grayscaleTau = physiologicalVisualTarget > visualGrayscaleLevel
-            ? LogicSettings.VisualGrayscaleInTau
-            : LogicSettings.VisualGrayscaleOutTau;
+            ? Settings.VisualGrayscaleInTau
+            : Settings.VisualGrayscaleOutTau;
         visualGrayscaleLevel = StepTowardsLinear(
             visualGrayscaleLevel,
             physiologicalVisualTarget,
@@ -797,14 +798,14 @@ public class PhysiologicalModel
         #endregion
 
         // Pain accumulation from Gy (and Gx for future)
-        var gyPainTarget = LogicSettings.GyPainBaseFactor * Math.Pow(gyMagnitude, LogicSettings.GyPainNonlinearity);
-        var gxPainTarget = LogicSettings.GxPainFactor * gxMagnitude; // Future: may increase
+        var gyPainTarget = Settings.GyPainBaseFactor * Math.Pow(gyMagnitude, Settings.GyPainNonlinearity);
+        var gxPainTarget = Settings.GxPainFactor * gxMagnitude; // Future: may increase
         var totalPainTarget = gyPainTarget + gxPainTarget;
         totalPainTarget = Clamp(totalPainTarget, 0.0, 1.0);
 
         var painTau = totalPainTarget > painLevel
-            ? LogicSettings.GyPainAccumulationTau
-            : LogicSettings.GyPainRecoveryTau;
+            ? Settings.GyPainAccumulationTau
+            : Settings.GyPainRecoveryTau;
         painLevel = StepTowardsLinear(painLevel, totalPainTarget, painTau, dt);
         painLevel = Clamp(painLevel, 0.0, 1.0);
 
@@ -812,28 +813,28 @@ public class PhysiologicalModel
 
         // Gy neck side fatigue (damage/death with ceiling)
         // Low Gy can't reach death level even with infinite time (ceiling)
-        var fatigueBuildRate = gyMagnitude > LogicSettings.GyNeckFatigueThreshold
-            ? LogicSettings.GyNeckFatigueBuildRate *
-              Math.Pow((gyMagnitude - LogicSettings.GyNeckFatigueThreshold) / 3.0, LogicSettings.GyNeckFatigueNonlinearity)
+        var fatigueBuildRate = gyMagnitude > Settings.GyNeckFatigueThreshold
+            ? Settings.GyNeckFatigueBuildRate *
+              Math.Pow((gyMagnitude - Settings.GyNeckFatigueThreshold) / 3.0, Settings.GyNeckFatigueNonlinearity)
             : 0.0;
         gyNeckFatigue += fatigueBuildRate * dt;
 
         // Apply ceiling - low Gy can't reach death level
-        var maxFatigueAtCurrentGy = LogicSettings.GyNeckFatigueCeiling +
-            (1.0 - LogicSettings.GyNeckFatigueCeiling) *
-            Math.Pow((gyMagnitude - LogicSettings.GyNeckFatigueThreshold) / 8.0, LogicSettings.GyNeckFatigueNonlinearity);
-        maxFatigueAtCurrentGy = Clamp(maxFatigueAtCurrentGy, LogicSettings.GyNeckFatigueCeiling, 1.0);
+        var maxFatigueAtCurrentGy = Settings.GyNeckFatigueCeiling +
+            (1.0 - Settings.GyNeckFatigueCeiling) *
+            Math.Pow((gyMagnitude - Settings.GyNeckFatigueThreshold) / 8.0, Settings.GyNeckFatigueNonlinearity);
+        maxFatigueAtCurrentGy = Clamp(maxFatigueAtCurrentGy, Settings.GyNeckFatigueCeiling, 1.0);
         gyNeckFatigue = Clamp(gyNeckFatigue, 0.0, maxFatigueAtCurrentGy);
 
         // Recover from neck fatigue
-        gyNeckFatigue -= gyNeckFatigue / LogicSettings.GyNeckFatigueRecoveryTau * dt;
+        gyNeckFatigue -= gyNeckFatigue / Settings.GyNeckFatigueRecoveryTau * dt;
         gyNeckFatigue = Clamp(gyNeckFatigue, 0.0, 1.0);
 
         // Check for death
-        if (gyNeckFatigue >= LogicSettings.GyNeckFatigueDeathLevel)
+        if (gyNeckFatigue >= Settings.GyNeckFatigueDeathLevel)
         {
             // Accumulate time at death level
-            gyNeckFatigueDeathAccumulatedTime += dt / LogicSettings.GyNeckFatigueDeathDelay;
+            gyNeckFatigueDeathAccumulatedTime += dt / Settings.GyNeckFatigueDeathDelay;
 
             if (gyNeckFatigueDeathAccumulatedTime >= 1.0)
             {
@@ -850,29 +851,29 @@ public class PhysiologicalModel
         }
 
         // Calculate sudden G-LOC risk from multi-axis combination
-        var gxSuddenRisk = gxMagnitude > LogicSettings.GxSuddenLoCThreshold
-            ? LogicSettings.GxSuddenLoCSeverity * (gxMagnitude - LogicSettings.GxSuddenLoCThreshold) / 2.0
+        var gxSuddenRisk = gxMagnitude > Settings.GxSuddenLoCThreshold
+            ? Settings.GxSuddenLoCSeverity * (gxMagnitude - Settings.GxSuddenLoCThreshold) / 2.0
             : 0.0;
-        var gySuddenRisk = gyMagnitude > LogicSettings.GySuddenLoCThreshold
-            ? LogicSettings.GySuddenLoCSeverity * (gyMagnitude - LogicSettings.GySuddenLoCThreshold) / 1.0
+        var gySuddenRisk = gyMagnitude > Settings.GySuddenLoCThreshold
+            ? Settings.GySuddenLoCSeverity * (gyMagnitude - Settings.GySuddenLoCThreshold) / 1.0
             : 0.0;
 
         var totalSuddenRisk = gxSuddenRisk + gySuddenRisk;
         totalSuddenRisk = Clamp(totalSuddenRisk, 0.0, 1.0);
 
         // Accumulate sudden G-LOC risk (automatic recovery when below threshold)
-        if (totalSuddenRisk > LogicSettings.MultiAxisSuddenLoCThreshold)
+        if (totalSuddenRisk > Settings.MultiAxisSuddenLoCThreshold)
         {
-            suddenLoCAccumulator += (totalSuddenRisk - LogicSettings.MultiAxisSuddenLoCThreshold) * dt;
+            suddenLoCAccumulator += (totalSuddenRisk - Settings.MultiAxisSuddenLoCThreshold) * dt;
         }
-        suddenLoCAccumulator -= suddenLoCAccumulator / LogicSettings.SuddenLoCRecoveryTau * dt;
+        suddenLoCAccumulator -= suddenLoCAccumulator / Settings.SuddenLoCRecoveryTau * dt;
         suddenLoCAccumulator = Clamp(suddenLoCAccumulator, 0.0, 1.0);
 
         // Trigger sudden G-LOC
         if (suddenLoCAccumulator > 0.8 && !inSuddenLoC && !isDead)
         {
             inSuddenLoC = true;
-            consciousnessLevel = Math.Max(0.0, consciousnessLevel - LogicSettings.SuddenLoCConsciousnessDrop);
+            consciousnessLevel = Math.Max(0.0, consciousnessLevel - Settings.SuddenLoCConsciousnessDrop);
             Logger.Log("Sudden G-LOC triggered by multi-axis G-forces", logicInstance, Logger.LogLevel.Warning);
         }
 

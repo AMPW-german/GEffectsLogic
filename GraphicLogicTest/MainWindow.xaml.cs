@@ -67,7 +67,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         // Register new windows only here.
         WindowViews.Add(new WindowViewEntry(0, "Simulation",
             new SimulationView { DataContext = _simulationViewModel }));
-        WindowViews.Add(new WindowViewEntry(1, "GLoC Plot", new GLoCPlot()));
+        WindowViews.Add(new WindowViewEntry(1, "GLoC Plot",
+            new GLoCPlot(() => _simulationViewModel.DefaultSettings)));
 
         SetActiveWindow(0);
     }
@@ -176,77 +177,28 @@ public sealed class LegendItemViewModel : INotifyPropertyChanged
 public sealed class LogicSettingEntry : INotifyPropertyChanged
 {
     private readonly PropertyInfo _property;
+    private string _valueText;
 
-    public LogicSettingEntry(PropertyInfo property)
+    public LogicSettingEntry(PropertyInfo property, double initialValue)
     {
         _property = property;
+        _valueText = initialValue.ToString("R", CultureInfo.InvariantCulture);
     }
 
     public string Name => _property.Name;
 
     public string ValueText
     {
-        get => Convert.ToString(_property.GetValue(null), CultureInfo.InvariantCulture) ?? string.Empty;
+        get => _valueText;
         set
         {
-            if (!TryConvert(value, _property.PropertyType, out var parsed)) return;
-            _property.SetValue(null, parsed);
+            if (_valueText == value) return;
+            _valueText = value;
             OnPropertyChanged();
         }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    private static bool TryConvert(string input, Type targetType, out object? value)
-    {
-        value = null;
-
-        if (targetType == typeof(double))
-        {
-            if (double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
-            {
-                value = d;
-                return true;
-            }
-
-            return false;
-        }
-
-        if (targetType == typeof(float))
-        {
-            if (float.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var f))
-            {
-                value = f;
-                return true;
-            }
-
-            return false;
-        }
-
-        if (targetType == typeof(int))
-        {
-            if (int.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
-            {
-                value = i;
-                return true;
-            }
-
-            return false;
-        }
-
-        if (targetType == typeof(bool))
-        {
-            if (bool.TryParse(input, out var b))
-            {
-                value = b;
-                return true;
-            }
-
-            return false;
-        }
-
-        return false;
-    }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
@@ -300,10 +252,12 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
 
     private string _sequenceText;
 
-    public SimulationInstanceViewModel(string title, string defaultSequence, double recordedTime)
+    public SimulationInstanceViewModel(string title, string defaultSequence, double recordedTime,
+        LogicSettings? settings = null)
     {
         Title = title;
-        _logic = new NamedGEffectsLogicInstance(title);
+        _logic = new NamedGEffectsLogicInstance(title, settings);
+        SettingsEditor = new LogicSettingsEditorViewModel(_logic.Settings, _logic.ApplySettings);
         _sequenceText = defaultSequence;
 
         GSeries =
@@ -378,6 +332,8 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
     public string PauseButtonText => IsPaused ? "Resume" : "Pause";
     public bool HasStarted { get; private set; }
 
+    public LogicSettingsEditorViewModel SettingsEditor { get; }
+
     public ISeries[] GSeries { get; }
     public Axis[] GXAxes { get; }
     public Axis[] GYAxes { get; }
@@ -407,7 +363,7 @@ public sealed class SimulationInstanceViewModel : INotifyPropertyChanged
 
     public void ResetModel()
     {
-        _logic.PhysModel.Reset();
+        _logic.Reset();
 
         ResetAxis(_gxAxis);
         ResetAxis(_gyAxis);

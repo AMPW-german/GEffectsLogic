@@ -16,7 +16,6 @@
 
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -37,9 +36,16 @@ public sealed class SimulationViewModel : INotifyPropertyChanged
 
     private int _updateMultiplier = 5;
 
-    public SimulationViewModel()
+    private LogicSettings _defaultSettings;
+
+    public SimulationViewModel(LogicSettings? initialSettings = null)
     {
-        BuildLogicSettingsEntries();
+        _defaultSettings = initialSettings ?? LogicSettings.Default;
+        DefaultsEditor = new LogicSettingsEditorViewModel(_defaultSettings, settings =>
+        {
+            _defaultSettings = settings;
+            OnPropertyChanged(nameof(DefaultSettings));
+        });
 
         AddInstanceInternal("[1 5 5],[25]");
         AddInstanceInternal("[Gz 1 9 9],[21];[Gy 0 3 8],[0 20]");
@@ -50,7 +56,10 @@ public sealed class SimulationViewModel : INotifyPropertyChanged
     }
 
     public ObservableCollection<SimulationInstanceViewModel> Instances { get; } = [];
-    public ObservableCollection<LogicSettingEntry> LogicSettingsEntries { get; } = [];
+
+    public LogicSettings DefaultSettings => _defaultSettings;
+
+    public LogicSettingsEditorViewModel DefaultsEditor { get; }
 
     public double TimeMultiplier
     {
@@ -83,20 +92,32 @@ public sealed class SimulationViewModel : INotifyPropertyChanged
         }
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private void BuildLogicSettingsEntries()
+    public bool GlobalDebugMode
     {
-        var props = typeof(LogicSettings)
-            .GetProperties(BindingFlags.Public | BindingFlags.Static)
-            .Where(p => p.CanRead && p.CanWrite);
-
-        foreach (var prop in props) LogicSettingsEntries.Add(new LogicSettingEntry(prop));
+        get => LogicSettings.DebugMode;
+        set
+        {
+            LogicSettings.DebugMode = value;
+            OnPropertyChanged();
+        }
     }
+
+    public bool GlobalSuppressInfoLogs
+    {
+        get => LogicSettings.SuppresInfoLogs;
+        set
+        {
+            LogicSettings.SuppresInfoLogs = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     private void AddInstanceInternal(string defaultSequence)
     {
-        var vm = new SimulationInstanceViewModel($"Instance {_instanceCounter++}", defaultSequence, RecordedTime);
+        var vm = new SimulationInstanceViewModel($"Instance {_instanceCounter++}", defaultSequence, RecordedTime,
+            DefaultSettings);
         Instances.Add(vm);
     }
 
@@ -140,6 +161,16 @@ public sealed class SimulationViewModel : INotifyPropertyChanged
     internal void AddInstance_Click(object? sender, RoutedEventArgs e)
     {
         AddInstanceInternal("[1 5 5],[25]");
+    }
+
+    internal void ApplyDefaults_Click(object? sender, RoutedEventArgs e)
+    {
+        DefaultsEditor.Apply();
+    }
+
+    internal void ApplyInstanceSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control c && c.DataContext is SimulationInstanceViewModel vm) vm.SettingsEditor.Apply();
     }
 
     internal void InstanceStart_Click(object? sender, RoutedEventArgs e)
