@@ -71,4 +71,14 @@ public partial class SimulationView : UserControl
     {
         GetSimulationViewModel()?.ToggleMetricSeries_Click(sender, e);
     }
+
+    private void ApplyDefaults_Click(object? sender, RoutedEventArgs e)
+    {
+        GetSimulationViewModel()?.ApplyDefaults_Click(sender, e);
+    }
+
+    private void ApplyInstanceSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        GetSimulationViewModel()?.ApplyInstanceSettings_Click(sender, e);
+    }
 }

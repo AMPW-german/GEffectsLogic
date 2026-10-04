@@ -21,7 +21,22 @@ using GEffectsLogic.Logging;
 namespace GEffectLogicTests;
 
 [CollectionDefinition("Global logger", DisableParallelization = true)]
-public class GlobalLoggerCollection;
+public class GlobalLoggerCollection : ICollectionFixture<GlobalLoggerIsolationFixture>;
+
+public sealed class GlobalLoggerIsolationFixture : IDisposable
+{
+    private readonly Logger? _originalLogger = Logger.Instance;
+
+    public GlobalLoggerIsolationFixture()
+    {
+        Logger.Instance = null;
+    }
+
+    public void Dispose()
+    {
+        Logger.Instance = _originalLogger;
+    }
+}
 
 [Collection("Global logger")]
 public class LoggingAndInstanceConcurrencyTests

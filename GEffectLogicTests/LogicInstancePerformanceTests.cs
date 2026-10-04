@@ -28,6 +28,7 @@ public class LogicInstancePerformanceTests
     private const int ConstructionSampleCount = 4_096;
     private const long TimingNoGcRegionBytes = 64 * 1024 * 1024;
     private const double MaximumConstructionBytesPerInstance = 1_024.0;
+    private const double MaximumCustomConstructionBytesPerInstance = 2_048.0;
     private const double MaximumAverageUpdateMilliseconds = 0.1;
     private const double MaximumSingleUpdateMilliseconds = 0.5;
     private const double MinimumDistributionFraction = 0.025;
@@ -46,20 +47,38 @@ public class LogicInstancePerformanceTests
     [Fact]
     public void ConstructionAllocationRemainsWithinPerInstanceBudget()
     {
-        var warmupInstance = new GEffectsLogicInstance();
-        var retainedInstances = new GEffectsLogicInstance[ConstructionSampleCount];
-        GC.KeepAlive(warmupInstance);
+        AssertConstructionAllocation(() => new GEffectsLogicInstance(), MaximumConstructionBytesPerInstance, "Default");
+    }
 
+    [Fact]
+    public void CustomProfileConstructionAllocationRemainsWithinPerInstanceBudget()
+    {
+        AssertConstructionAllocation(
+            () => new GEffectsLogicInstance(settings: LogicSettings.Default with { GSuitEffectiveness = 0.25 }),
+            MaximumCustomConstructionBytesPerInstance, "Unique custom profile");
+    }
+
+    [Fact]
+    public void SharedProfileConstructionAllocationRemainsWithinPerInstanceBudget()
+    {
+        var profile = LogicSettings.Default with { GSuitEffectiveness = 0.25 };
+        AssertConstructionAllocation(() => new GEffectsLogicInstance(settings: profile),
+            MaximumConstructionBytesPerInstance, "Caller-shared profile");
+    }
+
+    private void AssertConstructionAllocation(Func<GEffectsLogicInstance> create, double budget, string label)
+    {
+        GC.KeepAlive(create());
+        var retainedInstances = new GEffectsLogicInstance[ConstructionSampleCount];
         var allocatedBytesBefore = GC.GetAllocatedBytesForCurrentThread();
         for (var index = 0; index < retainedInstances.Length; index++)
-            retainedInstances[index] = new GEffectsLogicInstance();
+            retainedInstances[index] = create();
         var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBytesBefore;
-
         GC.KeepAlive(retainedInstances);
         var bytesPerInstance = allocatedBytes / (double)retainedInstances.Length;
-        output.WriteLine($"Construction allocation: {bytesPerInstance:F1} bytes per instance.");
-        Assert.True(bytesPerInstance <= MaximumConstructionBytesPerInstance,
-            $"Construction allocated {bytesPerInstance:F1} bytes per instance; budget is {MaximumConstructionBytesPerInstance:F0} bytes.");
+        output.WriteLine($"{label} construction over {ConstructionSampleCount} instances: {bytesPerInstance:F1} bytes per instance.");
+        Assert.True(bytesPerInstance <= budget,
+            $"{label} construction allocated {bytesPerInstance:F1} bytes per instance; budget is {budget:F0} bytes.");
     }
 
     [Fact]
@@ -85,14 +104,19 @@ public class LogicInstancePerformanceTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     [Trait("Category", "Performance")]
-    public void UpdateExecutionTimeRemainsWithinFrameBudget()
+    public void UpdateExecutionTimeRemainsWithinFrameBudget(bool customProfile)
     {
 #if DEBUG
         output.WriteLine("The execution-time budget is only measured in a Release build.");
         return;
 #endif
+        var settings = customProfile
+            ? LogicSettings.Default with { GSuitEffectiveness = 0.25 }
+            : LogicSettings.Default;
         var workload = CreateWorkload();
         var elapsedTimestamps = new long[workload.Length];
         var results = new FrameResult[workload.Length];
@@ -101,8 +125,8 @@ public class LogicInstancePerformanceTests
 
         try
         {
-            WarmUpdatePath(workload);
-            var logicInstance = new GEffectsLogicInstance();
+            WarmUpdatePath(workload, settings);
+            var logicInstance = new GEffectsLogicInstance(settings: settings);
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
@@ -142,7 +166,7 @@ public class LogicInstancePerformanceTests
                 .ToArray();
             var averageMilliseconds = elapsedMilliseconds.Average();
             var maximumMilliseconds = elapsedMilliseconds.Max();
-            output.WriteLine($"Update timing over {FrameCount} frames: average {averageMilliseconds:F4} ms; maximum {maximumMilliseconds:F4} ms.");
+            output.WriteLine($"Update timing ({(customProfile ? "custom" : "default")}) over {FrameCount} frames: average {averageMilliseconds:F4} ms; maximum {maximumMilliseconds:F4} ms.");
 
             Assert.True(averageMilliseconds <= MaximumAverageUpdateMilliseconds,
                 $"Average update time was {averageMilliseconds:F4} ms; budget is {MaximumAverageUpdateMilliseconds:F1} ms.");
@@ -153,6 +177,26 @@ public class LogicInstancePerformanceTests
         {
             Logger.Instance = originalLogger;
         }
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void ParallelConstructionBurstReportsElapsedTime()
+    {
+#if DEBUG
+        output.WriteLine("The construction burst is only measured in a Release build.");
+#else
+        var instances = new GEffectsLogicInstance[ConstructionSampleCount];
+        Action<int> construct = index => instances[index] = new GEffectsLogicInstance(
+            settings: LogicSettings.Default with { GSuitEffectiveness = 0.1 + index * 0.0002 });
+        Parallel.For(0, instances.Length, construct);
+        Array.Clear(instances);
+        var startedAt = Stopwatch.GetTimestamp();
+        Parallel.For(0, instances.Length, construct);
+        var elapsedMilliseconds = (Stopwatch.GetTimestamp() - startedAt) * 1_000.0 / Stopwatch.Frequency;
+        GC.KeepAlive(instances);
+        output.WriteLine($"Parallel construction of {ConstructionSampleCount} unique-profile instances: {elapsedMilliseconds:F4} ms.");
+#endif
     }
 
     private static WorkloadFrame[] CreateWorkload()
@@ -183,9 +227,9 @@ public class LogicInstancePerformanceTests
         return Math.Exp(-0.5 * normalizedDistance * normalizedDistance);
     }
 
-    private static void WarmUpdatePath(WorkloadFrame[] workload)
+    private static void WarmUpdatePath(WorkloadFrame[] workload, LogicSettings settings)
     {
-        var logicInstance = new GEffectsLogicInstance();
+        var logicInstance = new GEffectsLogicInstance(settings: settings);
         foreach (var frame in workload)
             logicInstance.Update(frame.DeltaTime, 0.0, 0.0, frame.Gz);
         GC.KeepAlive(logicInstance);

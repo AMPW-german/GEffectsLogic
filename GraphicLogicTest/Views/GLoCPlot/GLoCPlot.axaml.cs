@@ -30,9 +30,15 @@ namespace GraphicLogicTest.Views.GLoCPlot;
 public partial class GLoCPlot : UserControl
 {
     private readonly ObservableCollection<ObservablePoint> GLoCPoints = [];
+    private readonly Func<LogicSettings> _settingsProvider;
 
-    public GLoCPlot()
+    public GLoCPlot() : this(() => LogicSettings.Default)
     {
+    }
+
+    public GLoCPlot(Func<LogicSettings> settingsProvider)
+    {
+        _settingsProvider = settingsProvider;
         AvaloniaXamlLoader.Load(this);
         GLoCPoints.Add(new ObservablePoint(1, 0));
         GLoCPoints.Add(new ObservablePoint(0.25, 0.5));
@@ -104,6 +110,8 @@ public partial class GLoCPlot : UserControl
             int.TryParse(Iterations, out var iterations)
         )
         {
+            var settings = _settingsProvider();
+            LogicInstance.ApplySettings(settings);
             var stepSize = (endG - startG) / (iterations - 1);
             for (var i = startG; i <= endG; i += stepSize)
             {

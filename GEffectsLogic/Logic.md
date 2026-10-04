@@ -238,7 +238,12 @@ Purpose: Enables high time-warp without instability or computational waste
 
 ## Settings Overview
 
-All behavior is controlled through LogicSettings static properties.
+All physiological behavior is controlled through immutable `LogicSettings` profile records. Each `GEffectsLogicInstance`
+holds one selected profile: the fixed `LogicSettings.Default`, or a caller-owned `with` copy supplied at construction or
+applied later through `ApplySettings`. Applying a profile preserves accumulated physiological state and wakes the
+stabilization fast path; `Reset()` reinitializes the model from the currently selected profile. `DebugMode` and
+`SuppresInfoLogs` remain global static logging flags, not profile data. The sections below list the parameter groups each
+profile carries.
 
 ### Hydrostatic and Circulation
 
@@ -328,6 +333,17 @@ match medical literature better than linear models. Parameters are calibrated to
 - Anti-G maneuver effectiveness variations
 - Long-term cardiovascular stress effects
 
+### Long-Term Condition Attributes (boundary)
+
+Caller-owned long-term condition attributes, such as cardiovascular or muscular deconditioning from extended
+microgravity, are a future layer separate from the calibrated baseline profiles and the existing short-term fatigue,
+blood, oxygenation, and impairment state. They are not baseline-settings overrides and must not rewrite settings.
+A future attribute input or application path must wake stabilization, preserve baseline profiles, and survive a
+short-term `Reset()` until the caller explicitly clears the attributes. Neutral attributes must reproduce current
+behavior, and effects must act on the mechanisms they affect rather than through blanket multipliers on final
+consciousness or visual channels. Units, ranges, mechanism mapping, accumulation and recovery ownership, composition,
+time integration, and acceptance tests are deferred to a separate feature; no modifier APIs are implemented here.
+
 ## Architecture Notes
 
 ### Class Hierarchy
@@ -337,31 +353,32 @@ GEffectsLogicInstance: Public API for each character/vessel
 - Manages per-instance state (time, last G-forces)
 - Delegates physics to PhysiologicalModel
 - Implements stability optimization
-- Manages instance registry for multi-character scenarios
+- Holds its selected immutable LogicSettings profile; ApplySettings swaps it while preserving physiological state
 
 PhysiologicalModel: Core physics engine
 
 - All blood dynamics, O2, consciousness calculations
-- Reads from LogicSettings for parameters
+- Reads parameters through the owning instance's LogicSettings profile
 - Emits Logger events for debugging
 
-LogicSettings: Centralized configuration
+LogicSettings: Per-instance numeric configuration
 
-- Static properties for all tunable parameters
-- Enables hot-tuning during play/testing
-- Source of truth for physiological constants
+- Sealed immutable record of init-only numeric parameters; LogicSettings.Default is the fixed built-in profile
+- Instances reference caller-owned profiles; the library keeps no registry or managed copies
+- DebugMode and SuppresInfoLogs remain global static logging flags
 
 ### Logging and Debugging
 
 - Built-in Logger for event tracking
 - Optional performance profiling via #if PERFDEBUG
-- DebugMode and SuppressInfoLogs flags in LogicSettings
+- DebugMode and SuppresInfoLogs flags in LogicSettings
 
 ## Performance Characteristics
 
 - Update-time budget: at most 0.1 ms per frame on average, with no measured frame above 0.5 ms
 - Timing workload: 1,000 smoothly generated Gz/delta-time frames; 2.5–5% below 100 ms, at least 50% between 150 and 300 ms, and 2.5–5% above 1 second
 - Measurement scope: complete non-`PERFDEBUG` `GEffectsLogicInstance.Update` call with logging output disabled; timing test is opt-in and runs in Release
-- Per-instance memory budget: at most 1 KB of managed construction allocation for a parameterless `GEffectsLogicInstance` and its owned `PhysiologicalModel`, excluding an external logger
+- Per-instance memory budget: at most 1 KB of managed construction allocation for a parameterless or shared-profile `GEffectsLogicInstance` and its owned `PhysiologicalModel`, excluding an external logger; a unique custom profile plus its instance is budgeted at 2 KB. Each case is measured over 4,096 warm serial samples.
+- Construction allocation measured on Windows with .NET 10.0.12 over 4,096 warm serial samples: 472 bytes per instance for the built-in default profile, 472 for a pre-created caller-shared custom profile, and 1,464 for a unique custom profile plus its instance; see [README Performance](../README.md#performance) for measurement conditions.
 - Stability: Robust to time-steps 0.01–1s (auto-subdivides if larger)
 - Scaling: Linear with number of instances (100+ characters feasible)
