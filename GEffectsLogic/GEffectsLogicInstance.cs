@@ -42,11 +42,12 @@ public class GEffectsLogicInstance
 
     // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
     // Stabilized conditions:
-    // 1. Gn remains within 0.05 of the last stabilized value for 10 seconds
-    // 2. all physmodel values remain within 0.025 of the recorded values for 10 seconds
-    // Stabilization is lost if Gn deviates by more than 0.05
+    // 1. the model reports a stable equilibrium under the current forces
+    // 2. that equilibrium holds for the stabilization dwell
+    // Stabilization is lost if any force component changes from the recorded vector
     protected bool stable;
     protected bool stableRecorded;
+    private const double StabilizationStateError = 0.025;
 
     private readonly Logger? logger;
     public Logger? Logger => logger;
@@ -100,25 +101,8 @@ public class GEffectsLogicInstance
 #if PERFDEBUG
         var sw = Stopwatch.StartNew();
 #endif
-        List<double> dtList = [];
-
-        if (deltaTime > 0.5)
-        {
-            var stepCount = (int)Math.Ceiling(deltaTime / 0.5);
-            dtList.AddRange(Enumerable.Repeat(deltaTime / stepCount, stepCount));
-            if (!stable)
-                Logger.Log(
-                    $"High deltaTime detected: {deltaTime}s - splitting it into {stepCount} steps of {deltaTime / stepCount}s each",
-                    this, Logger.LogLevel.Warning);
-        }
-        else if (deltaTime <= 0)
-        {
+        if (deltaTime <= 0)
             Logger.Log($"Negative deltaTime detected: {deltaTime}s", this, Logger.LogLevel.Error);
-        }
-        else
-        {
-            dtList.Add(deltaTime);
-        }
 
         // Update last G-forces
         lastGx = currentGx;
@@ -127,15 +111,30 @@ public class GEffectsLogicInstance
         // Update time
         time += deltaTime;
 
-        if (stable && Math.Abs(currentGx - stabilizedGx) <= 0.05 && Math.Abs(currentGy - stabilizedGy) <= 0.05 &&
-            Math.Abs(currentGz - stabilizedGz) <= 0.05)
-            // No Gn change, physmodel can't change
-            return;
-
-        foreach (var dt in dtList)
+        if (stable)
         {
-            if (!stableRecorded)
+            if (currentGx == stabilizedGx && currentGy == stabilizedGy &&
+                currentGz == stabilizedGz)
+                // No Gn change, physmodel can't change
+                return;
+
+            Logger.Log(
+                $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
+                this, Logger.LogLevel.Info);
+            InvalidateStabilization();
+        }
+
+        if (deltaTime <= 0) return;
+
+        // Single full-interval model call for the whole caller step
+        PhysModel.Update(deltaTime, currentGx, currentGy, currentGz);
+
+        if (PhysModel.CanStabilize(currentGx, currentGy, currentGz, StabilizationStateError))
+        {
+            stabilizationTime += deltaTime;
+            if (stabilizationTime > Settings.StabilizationTimeThreshold)
             {
+                stable = true;
                 stableRecorded = true;
                 stabilizedGx = currentGx;
                 stabilizedGy = currentGy;
@@ -151,72 +150,19 @@ public class GEffectsLogicInstance
                 stabilizedVisualTunnelVisionLevel = PhysModel.VisualTunnelVisionLevel;
                 stabilizedVisualRedoutLevel = PhysModel.VisualRedoutLevel;
                 stabilizedVisualLoCLevel = PhysModel.VisualLoCLevel;
+                Logger.Log(
+                    $"Instance has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
+                    this, Logger.LogLevel.Info);
             }
-            else if (Math.Abs(currentGx - stabilizedGx) > 0.025 || Math.Abs(currentGy - stabilizedGy) > 0.025 ||
-                     Math.Abs(currentGz - stabilizedGz) > 0.025)
-            {
-                // Separate check for Gn deviation to reduce deviation checks for the physmodel
-                if (stable)
-                    Logger.Log(
-                        $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
-                        this, Logger.LogLevel.Info);
-
-                stabilizationTime = 0.0;
-                stable = false;
-                stableRecorded = false;
-            }
-            else if (!stable && (
-                         Math.Abs(PhysModel.BloodHead - stabilizedBloodHead) > 0.025 ||
-                         Math.Abs(PhysModel.BloodCore - stabilizedBloodCore) > 0.025 ||
-                         Math.Abs(PhysModel.BloodLower - stabilizedBloodLower) > 0.025
-                         || Math.Abs(PhysModel.BloodO2Head - stabilizedBrainO2) > 0.025 ||
-                         Math.Abs(PhysModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 ||
-                         Math.Abs(PhysModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
-                         || Math.Abs(PhysModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualGrayscaleLevel - stabilizedVisualGrayscaleLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualTunnelVisionLevel - stabilizedVisualTunnelVisionLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualRedoutLevel - stabilizedVisualRedoutLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualLoCLevel - stabilizedVisualLoCLevel) > 0.025
-                     ))
-            {
-                if (stable)
-                    Logger.Log(
-                        $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
-                        this, Logger.LogLevel.Info);
-
-                stabilizationTime = 0.0;
-                stable = false;
-                stableRecorded = false;
-            }
-            else
-            {
-                stabilizationTime += dt;
-                if (stabilizationTime > Settings.StabilizationTimeThreshold && !stable)
-                {
-                    stable = true; // Consider stabilized if conditions are met for the threshold duration
-                    Logger.Log(
-                        $"Instance has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
-                        this, Logger.LogLevel.Info);
-                }
-            }
-
-            if (!stable)
-            {
-                var wasUnconscious = PhysModel.IsUnconscious;
-
-                // Physiological model update
-                PhysModel.Update(dt, currentGx, currentGy, currentGz);
-
-                if (wasUnconscious && !PhysModel.IsUnconscious)
-                    Logger.Log("Instance has regained consciousness.", this, Logger.LogLevel.Info);
-                else if (!wasUnconscious && PhysModel.IsUnconscious)
-                    Logger.Log("Instance has lost consciousness.", this, Logger.LogLevel.Info);
-            }
-
-            Logger.Log(
-                $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BloodO2Head:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}",
-                this);
         }
+        else
+        {
+            stabilizationTime = 0.0;
+        }
+
+        Logger.Log(
+            $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BloodO2Head:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {deltaTime:f4}",
+            this);
 
 #if PERFDEBUG
         sw.Stop();
