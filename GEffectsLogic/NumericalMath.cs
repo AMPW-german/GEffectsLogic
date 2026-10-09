@@ -19,9 +19,147 @@ namespace GEffectsLogic;
 internal static class NumericalMath
 {
     internal const int RadauStageCount = 3;
+    private const int MomentPowerCacheSize = 32;
 
     internal static readonly double[] RadauC = CreateRadauC();
     internal static readonly double[][] RadauA = CreateRadauA();
+
+    internal struct Matrix3
+    {
+        internal double M00;
+        internal double M01;
+        internal double M02;
+        internal double M10;
+        internal double M11;
+        internal double M12;
+        internal double M20;
+        internal double M21;
+        internal double M22;
+
+        internal double this[int row, int column]
+        {
+            get => row switch
+            {
+                0 => column switch
+                {
+                    0 => M00,
+                    1 => M01,
+                    2 => M02,
+                    _ => throw new ArgumentOutOfRangeException(nameof(column))
+                },
+                1 => column switch
+                {
+                    0 => M10,
+                    1 => M11,
+                    2 => M12,
+                    _ => throw new ArgumentOutOfRangeException(nameof(column))
+                },
+                2 => column switch
+                {
+                    0 => M20,
+                    1 => M21,
+                    2 => M22,
+                    _ => throw new ArgumentOutOfRangeException(nameof(column))
+                },
+                _ => throw new ArgumentOutOfRangeException(nameof(row))
+            };
+            set
+            {
+                switch (row)
+                {
+                    case 0:
+                        switch (column)
+                        {
+                            case 0: M00 = value; break;
+                            case 1: M01 = value; break;
+                            case 2: M02 = value; break;
+                            default: throw new ArgumentOutOfRangeException(nameof(column));
+                        }
+                        break;
+                    case 1:
+                        switch (column)
+                        {
+                            case 0: M10 = value; break;
+                            case 1: M11 = value; break;
+                            case 2: M12 = value; break;
+                            default: throw new ArgumentOutOfRangeException(nameof(column));
+                        }
+                        break;
+                    case 2:
+                        switch (column)
+                        {
+                            case 0: M20 = value; break;
+                            case 1: M21 = value; break;
+                            case 2: M22 = value; break;
+                            default: throw new ArgumentOutOfRangeException(nameof(column));
+                        }
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(row));
+                }
+            }
+        }
+    }
+
+    internal struct MatrixMoments
+    {
+        internal Matrix3 J0;
+        internal Matrix3 J1;
+        internal Matrix3 J2;
+
+        internal double this[int moment, int row, int column]
+        {
+            get => moment switch
+            {
+                0 => J0[row, column],
+                1 => J1[row, column],
+                2 => J2[row, column],
+                _ => throw new ArgumentOutOfRangeException(nameof(moment))
+            };
+            set
+            {
+                switch (moment)
+                {
+                    case 0: J0[row, column] = value; break;
+                    case 1: J1[row, column] = value; break;
+                    case 2: J2[row, column] = value; break;
+                    default: throw new ArgumentOutOfRangeException(nameof(moment));
+                }
+            }
+        }
+
+        internal void Set(int moment, Matrix3 value)
+        {
+            switch (moment)
+            {
+                case 0: J0 = value; break;
+                case 1: J1 = value; break;
+                case 2: J2 = value; break;
+                default: throw new ArgumentOutOfRangeException(nameof(moment));
+            }
+        }
+    }
+
+    internal sealed class MomentPowerCache
+    {
+        private readonly Matrix3[] powers;
+
+        internal Matrix3 ScaledA { get; }
+        internal double Norm { get; }
+        internal int PowerCount => powers.Length;
+
+        internal MomentPowerCache(Matrix3 scaledA, double norm, Matrix3[] powers)
+        {
+            ScaledA = scaledA;
+            Norm = norm;
+            this.powers = powers;
+        }
+
+        internal Matrix3 PowerAt(int exponent) => powers[exponent];
+    }
+
+    internal static bool IsFinite(double value) =>
+        !double.IsNaN(value) && !double.IsInfinity(value);
 
     private static double[] CreateRadauC()
     {
@@ -61,6 +199,32 @@ internal static class NumericalMath
         Math.Abs(x) < 1e-4
             ? x * (1.0 + x * (-0.5 + x * (1.0 / 3.0 + x * (-0.25 + x / 5.0))))
             : Math.Log(1.0 + x);
+
+    internal static double ExponentialConvolution(double initial, double from, double to,
+        double decayRate, Func<double, double> source)
+    {
+        var span = to - from;
+        if (span <= 0.0) return initial;
+
+        var x = decayRate * span;
+        var decay = Math.Exp(-x);
+        var w = -ExpMinusOne(-x);
+        var mass = decayRate == 0.0 || x == 0.0 ? span : w / decayRate;
+        var nodes = GaussLegendre16Nodes;
+        var weights = GaussLegendre16Weights;
+        var sum = 0.0;
+        for (var node = 0; node < nodes.Length; node++)
+        {
+            var offset = decayRate == 0.0 || x == 0.0
+                ? from + nodes[node] * span
+                : to + (x >= 1.0
+                    ? Math.Log(decay + w * nodes[node])
+                    : LogOnePlus(-w * (1.0 - nodes[node]))) / decayRate;
+            sum += weights[node] * source(offset);
+        }
+
+        return initial * decay + mass * sum;
+    }
 
     internal static double[] GaussLegendre16Nodes { get; } =
     [
@@ -128,7 +292,7 @@ internal static class NumericalMath
 
     private static void TryAddRoot(double[] roots, ref int count, double root, double min, double max)
     {
-        if (!double.IsNaN(root) && !double.IsInfinity(root) && root > min && root < max &&
+        if (IsFinite(root) && root > min && root < max &&
             (count == 0 || Math.Abs(root - roots[count - 1]) > 1e-12))
         {
             roots[count++] = root;
@@ -190,58 +354,148 @@ internal static class NumericalMath
         return true;
     }
 
-    internal static double[][] IdentityMatrix(int size)
+    private static Matrix3 IdentityMatrix(int size)
     {
-        var matrix = CreateMatrix(size);
-        for (var i = 0; i < size; i++) matrix[i][i] = 1.0;
+        var matrix = default(Matrix3);
+        if (size >= 1) matrix.M00 = 1.0;
+        if (size >= 2) matrix.M11 = 1.0;
+        if (size >= 3) matrix.M22 = 1.0;
         return matrix;
     }
 
-    internal static double[][] MultiplyMatrices(double[][] a, double[][] b)
+    private static Matrix3 MultiplyMatrices(in Matrix3 a, in Matrix3 b, int size)
     {
-        var n = a.Length;
-        var result = CreateMatrix(n);
-        for (var i = 0; i < n; i++)
-            for (var k = 0; k < n; k++)
-            {
-                var aik = a[i][k];
-                if (aik == 0.0) continue;
-                for (var j = 0; j < n; j++)
-                    result[i][j] += aik * b[k][j];
-            }
+        var result = default(Matrix3);
+        if (size == 3)
+        {
+            result.M00 = a.M00 * b.M00 + a.M01 * b.M10 + a.M02 * b.M20;
+            result.M01 = a.M00 * b.M01 + a.M01 * b.M11 + a.M02 * b.M21;
+            result.M02 = a.M00 * b.M02 + a.M01 * b.M12 + a.M02 * b.M22;
+            result.M10 = a.M10 * b.M00 + a.M11 * b.M10 + a.M12 * b.M20;
+            result.M11 = a.M10 * b.M01 + a.M11 * b.M11 + a.M12 * b.M21;
+            result.M12 = a.M10 * b.M02 + a.M11 * b.M12 + a.M12 * b.M22;
+            result.M20 = a.M20 * b.M00 + a.M21 * b.M10 + a.M22 * b.M20;
+            result.M21 = a.M20 * b.M01 + a.M21 * b.M11 + a.M22 * b.M21;
+            result.M22 = a.M20 * b.M02 + a.M21 * b.M12 + a.M22 * b.M22;
+        }
+        else if (size == 2)
+        {
+            result.M00 = a.M00 * b.M00 + a.M01 * b.M10;
+            result.M01 = a.M00 * b.M01 + a.M01 * b.M11;
+            result.M10 = a.M10 * b.M00 + a.M11 * b.M10;
+            result.M11 = a.M10 * b.M01 + a.M11 * b.M11;
+        }
+        else if (size == 1)
+        {
+            result.M00 = a.M00 * b.M00;
+        }
         return result;
     }
 
-    private static double MaxAbsEntry(double[][] a)
+    private static Matrix3 ScaleMatrix(in Matrix3 matrix, double scale, int size)
     {
-        var maximum = 0.0;
-        for (var i = 0; i < a.Length; i++)
-            for (var j = 0; j < a[i].Length; j++)
-            {
-                var magnitude = Math.Abs(a[i][j]);
-                if (magnitude > maximum) maximum = magnitude;
-            }
-        return maximum;
+        var result = default(Matrix3);
+        if (size >= 1) result.M00 = matrix.M00 * scale;
+        if (size >= 2)
+        {
+            result.M01 = matrix.M01 * scale;
+            result.M10 = matrix.M10 * scale;
+            result.M11 = matrix.M11 * scale;
+        }
+        if (size >= 3)
+        {
+            result.M02 = matrix.M02 * scale;
+            result.M12 = matrix.M12 * scale;
+            result.M20 = matrix.M20 * scale;
+            result.M21 = matrix.M21 * scale;
+            result.M22 = matrix.M22 * scale;
+        }
+        return result;
     }
 
-    private static double MaxRowSum(double[][] a)
+    private static Matrix3 AddMatrices(in Matrix3 left, in Matrix3 right, int size,
+        double rightScale = 1.0)
     {
-        var maximum = 0.0;
-        for (var i = 0; i < a.Length; i++)
+        var result = default(Matrix3);
+        if (size >= 1) result.M00 = left.M00 + right.M00 * rightScale;
+        if (size >= 2)
         {
-            var rowSum = 0.0;
-            for (var j = 0; j < a[i].Length; j++) rowSum += Math.Abs(a[i][j]);
-            if (rowSum > maximum) maximum = rowSum;
+            result.M01 = left.M01 + right.M01 * rightScale;
+            result.M10 = left.M10 + right.M10 * rightScale;
+            result.M11 = left.M11 + right.M11 * rightScale;
         }
-        return maximum;
+        if (size >= 3)
+        {
+            result.M02 = left.M02 + right.M02 * rightScale;
+            result.M12 = left.M12 + right.M12 * rightScale;
+            result.M20 = left.M20 + right.M20 * rightScale;
+            result.M21 = left.M21 + right.M21 * rightScale;
+            result.M22 = left.M22 + right.M22 * rightScale;
+        }
+        return result;
+    }
+
+    private static double MaxAbsEntry(in Matrix3 matrix)
+    {
+        if (!IsFinite(matrix.M00) || !IsFinite(matrix.M01) ||
+            !IsFinite(matrix.M02) || !IsFinite(matrix.M10) ||
+            !IsFinite(matrix.M11) || !IsFinite(matrix.M12) ||
+            !IsFinite(matrix.M20) || !IsFinite(matrix.M21) ||
+            !IsFinite(matrix.M22))
+            return double.NaN;
+        return Math.Max(
+            Math.Max(Math.Max(Math.Abs(matrix.M00), Math.Abs(matrix.M01)),
+                Math.Abs(matrix.M02)),
+            Math.Max(Math.Max(Math.Max(Math.Abs(matrix.M10), Math.Abs(matrix.M11)),
+                    Math.Abs(matrix.M12)),
+                Math.Max(Math.Max(Math.Abs(matrix.M20), Math.Abs(matrix.M21)),
+                    Math.Abs(matrix.M22))));
+    }
+
+    private static double MaxRowSum(in Matrix3 matrix, int size)
+    {
+        if (size == 3)
+        {
+            var row0 = Math.Abs(matrix.M00) + Math.Abs(matrix.M01) +
+                       Math.Abs(matrix.M02);
+            var row1 = Math.Abs(matrix.M10) + Math.Abs(matrix.M11) +
+                       Math.Abs(matrix.M12);
+            var row2 = Math.Abs(matrix.M20) + Math.Abs(matrix.M21) +
+                       Math.Abs(matrix.M22);
+            return IsFinite(row0) && IsFinite(row1) && IsFinite(row2)
+                ? Math.Max(row0, Math.Max(row1, row2))
+                : double.NaN;
+        }
+        if (size == 2)
+        {
+            var row0 = Math.Abs(matrix.M00) + Math.Abs(matrix.M01);
+            var row1 = Math.Abs(matrix.M10) + Math.Abs(matrix.M11);
+            return IsFinite(row0) && IsFinite(row1)
+                ? Math.Max(row0, row1)
+                : double.NaN;
+        }
+        if (size == 1)
+        {
+            var row = Math.Abs(matrix.M00);
+            return IsFinite(row) ? row : double.NaN;
+        }
+        return 0.0;
     }
 
     // Scalar J_m(u*a) = integral_0^u exp((u - s) a) s^m ds for m = 0..2 in j.
     // Closed forms outside |a*u| < 0.5, Taylor series inside.
     internal static bool ScalarMoments(double a, double extent, double[] j)
     {
+        if (!IsFinite(a) || !IsFinite(extent) || extent < 0.0) return false;
+        if (extent == 0.0)
+        {
+            j[0] = 0.0;
+            j[1] = 0.0;
+            j[2] = 0.0;
+            return true;
+        }
         var x = a * extent;
-        if (!double.IsFinite(x) || !double.IsFinite(extent) || extent <= 0.0) return false;
+        if (!IsFinite(x)) return false;
         if (Math.Abs(x) < 0.5)
         {
             var extentPower = extent;
@@ -260,16 +514,16 @@ internal static class NumericalMath
                 j[m] = extentPower * Factorial(m) * sum;
                 extentPower *= extent;
             }
-            return j[0] == j[0] && j[1] == j[1] && j[2] == j[2];
+            return IsFinite(j[0]) && IsFinite(j[1]) && IsFinite(j[2]);
         }
         if (a == 0.0) return false;
         var exponential = Math.Exp(x);
-        if (double.IsNaN(exponential)) return false;
+        if (!IsFinite(exponential)) return false;
         var a2 = a * a;
         j[0] = (exponential - 1.0) / a;
         j[1] = (exponential - 1.0 - x) / a2;
         j[2] = (2.0 * (exponential - 1.0) - 2.0 * x - x * x) / (a2 * a);
-        return double.IsFinite(j[0]) && double.IsFinite(j[1]) && double.IsFinite(j[2]);
+        return IsFinite(j[0]) && IsFinite(j[1]) && IsFinite(j[2]);
     }
 
     private static double Factorial(int n)
@@ -279,110 +533,218 @@ internal static class NumericalMath
         return value;
     }
 
-    // J_m(u*A) = integral_0^u exp((u - s) A) s^m ds for m = 0..2, evaluated as a
-    // series at extent u then doubled while ||u*A|| > 0.5 (max row sum norm);
-    // arithmetic rescaling only, not physiological stepping. Returns null on any
-    // nonfinite input, divergent series, or underflowed scaling.
+    // Test wrapper; production callers use the fixed-size value result directly.
     internal static double[][][]? MomentMatrices(double[][] a, double extent)
     {
-        var n = a.Length;
-        if (!double.IsFinite(extent) || extent <= 0.0) return null;
-        var norm = MaxRowSum(a);
-        if (!double.IsFinite(norm)) return null;
+        if (!TryMomentMatrices(a, 1.0, extent, out var moments)) return null;
+        var result = new double[3][][];
+        for (var moment = 0; moment < 3; moment++)
+        {
+            result[moment] = CreateMatrix(a.Length);
+            for (var row = 0; row < a.Length; row++)
+                for (var column = 0; column < a.Length; column++)
+                    result[moment][row][column] = moments[moment, row, column];
+        }
+        return result;
+    }
 
-        var powered = new double[3][][];
+    private static bool TryScaleMatrix(double[][] baseMatrix, int size, double scale,
+        out Matrix3 scaledMatrix)
+    {
+        scaledMatrix = default;
+        if (size > 3 || !IsFinite(scale)) return false;
+        for (var row = 0; row < size; row++)
+        {
+            if (baseMatrix[row] == null || baseMatrix[row].Length < size) return false;
+            for (var column = 0; column < size; column++)
+            {
+                var value = baseMatrix[row][column];
+                if (!IsFinite(value)) return false;
+                value *= scale;
+                if (!IsFinite(value)) return false;
+                scaledMatrix[row, column] = value;
+            }
+        }
+        return true;
+    }
+
+    internal static MomentPowerCache? CreateMomentPowerCache(double[][] baseMatrix,
+        double scale)
+    {
+        if (baseMatrix.Length != 3 ||
+            !TryScaleMatrix(baseMatrix, 3, scale, out var scaledA))
+            return null;
+
+        var norm = MaxRowSum(in scaledA, 3);
+        if (!IsFinite(norm) || norm <= 0.0 || norm > 8.0) return null;
+
+        var powers = new Matrix3[MomentPowerCacheSize];
+        powers[0] = IdentityMatrix(3);
+        for (var exponent = 1; exponent < powers.Length; exponent++)
+        {
+            var previous = powers[exponent - 1];
+            powers[exponent] = MultiplyMatrices(in previous, in scaledA, 3);
+            if (!IsFinite(MaxAbsEntry(in powers[exponent]))) return null;
+        }
+        return new MomentPowerCache(scaledA, norm, powers);
+    }
+
+    // J_m(u*A) = integral_0^u exp((u - s) A) s^m ds for m = 0..2, evaluated as a
+    // series at extent u then doubled while ||u*A|| > 0.5 (max row sum norm);
+    // arithmetic rescaling only, not physiological stepping.
+    internal static bool TryMomentMatrices(double[][] baseMatrix, double scale,
+        double extent, out MatrixMoments moments) =>
+        TryMomentMatricesCore(baseMatrix, scale, extent, null, out moments);
+
+    internal static bool TryMomentMatrices(MomentPowerCache cache, double extent,
+        out MatrixMoments moments) =>
+        TryMomentMatricesCore(null, 1.0, extent, cache, out moments);
+
+    private static bool TryMomentMatricesCore(double[][]? baseMatrix, double scale,
+        double extent, MomentPowerCache? cache, out MatrixMoments moments)
+    {
+        moments = default;
+        var size = cache == null ? baseMatrix!.Length : 3;
+        if (size > 3 || !IsFinite(scale) || !IsFinite(extent) || extent < 0.0)
+            return false;
+
+        Matrix3 a;
+        if (cache == null)
+        {
+            if (!TryScaleMatrix(baseMatrix!, size, scale, out a)) return false;
+        }
+        else
+        {
+            a = cache.ScaledA;
+        }
+
+        if (extent == 0.0 || size == 0) return true;
+        var norm = MaxRowSum(a, size);
+        if (!IsFinite(norm)) return false;
         if (norm == 0.0)
         {
             var power = extent;
-            for (var m = 0; m < 3; m++)
+            for (var moment = 0; moment < 3; moment++)
             {
-                var j = CreateMatrix(n);
-                for (var i = 0; i < n; i++) j[i][i] = power / (m + 1);
-                powered[m] = j;
+                var diagonal = power / (moment + 1);
+                if (!IsFinite(diagonal)) return false;
+                for (var i = 0; i < size; i++)
+                    moments[moment, i, i] = diagonal;
                 power *= extent;
             }
-            return powered;
+            return true;
         }
 
         var u = extent;
         for (var halvings = 0; u * norm > 0.5; halvings++)
         {
-            if (halvings > 128 || u == 0.0) return null;
+            if (halvings > 128 || u == 0.0) return false;
             u *= 0.5;
         }
 
-        var powers = new[] { u, u * u, u * u * u };
-        for (var m = 0; m < 3; m++)
+        var useCachedPowers = cache != null && extent <= 1.0;
+        var cachedPowerScale = u;
+        var scaledA = ScaleMatrix(in a, u, size);
+        if (!IsFinite(MaxAbsEntry(in scaledA))) return false;
+        var powerMatrix = IdentityMatrix(size);
+        var coefficient0 = u;
+        var coefficient1 = u * u / 2.0;
+        var coefficient2 = u * u * u / 3.0;
+        if (!IsFinite(coefficient0) || !IsFinite(coefficient1) ||
+            !IsFinite(coefficient2))
+            return false;
+
+        var j0 = default(Matrix3);
+        var j1 = default(Matrix3);
+        var j2 = default(Matrix3);
+        for (var i = 0; i < size; i++)
         {
-            var j = CreateMatrix(n);
-            var term = CreateMatrix(n);
-            for (var i = 0; i < n; i++)
-            {
-                j[i][i] = powers[m] / (m + 1);
-                term[i][i] = powers[m] / (m + 1);
-            }
-
-            var converged = false;
-            for (var iteration = 1; iteration <= 256; iteration++)
-            {
-                var next = MultiplyMatrices(term, a);
-                var scale = 0.0;
-                for (var i = 0; i < n; i++)
-                    for (var k = 0; k < n; k++)
-                    {
-                        next[i][k] *= u / (m + iteration + 1);
-                        var magnitude = Math.Abs(next[i][k]);
-                        if (magnitude > scale) scale = magnitude;
-                    }
-                if (!double.IsFinite(scale)) return null;
-                for (var i = 0; i < n; i++)
-                    for (var k = 0; k < n; k++)
-                        j[i][k] += next[i][k];
-                term = next;
-                if (scale <= 1e-18 * Math.Max(1.0, MaxAbsEntry(j)))
-                {
-                    converged = true;
-                    break;
-                }
-            }
-            if (!converged || !double.IsFinite(MaxRowSum(j))) return null;
-
-            powered[m] = j;
+            j0[i, i] = coefficient0;
+            j1[i, i] = coefficient1;
+            j2[i, i] = coefficient2;
         }
 
-        var e = IdentityMatrix(n);
-        var aj0 = MultiplyMatrices(a, powered[0]);
-        for (var i = 0; i < n; i++)
-            for (var k = 0; k < n; k++)
-                e[i][k] += aj0[i][k];
+        var converged = false;
+        for (var iteration = 1; iteration <= 256; iteration++)
+        {
+            if (useCachedPowers && cache != null && iteration < cache.PowerCount)
+            {
+                var cachedPower = cache.PowerAt(iteration);
+                powerMatrix = ScaleMatrix(in cachedPower, cachedPowerScale, size);
+                cachedPowerScale *= u;
+            }
+            else
+            {
+                powerMatrix = MultiplyMatrices(in powerMatrix, in scaledA, size);
+            }
+            var powerMagnitude = MaxAbsEntry(in powerMatrix);
+            if (!IsFinite(powerMagnitude)) return false;
+            coefficient0 /= iteration + 1;
+            coefficient1 /= iteration + 2;
+            coefficient2 /= iteration + 3;
+
+            var termMagnitude0 = powerMagnitude * Math.Abs(coefficient0);
+            var termMagnitude1 = powerMagnitude * Math.Abs(coefficient1);
+            var termMagnitude2 = powerMagnitude * Math.Abs(coefficient2);
+            if (!IsFinite(termMagnitude0) || !IsFinite(termMagnitude1) ||
+                !IsFinite(termMagnitude2))
+                return false;
+
+            j0 = AddMatrices(in j0, in powerMatrix, size, coefficient0);
+            j1 = AddMatrices(in j1, in powerMatrix, size, coefficient1);
+            j2 = AddMatrices(in j2, in powerMatrix, size, coefficient2);
+            var maximum0 = MaxAbsEntry(in j0);
+            var maximum1 = MaxAbsEntry(in j1);
+            var maximum2 = MaxAbsEntry(in j2);
+            if (!IsFinite(maximum0) || !IsFinite(maximum1) || !IsFinite(maximum2))
+                return false;
+
+            if (termMagnitude0 <= 1e-18 * Math.Max(1.0, maximum0) &&
+                termMagnitude1 <= 1e-18 * Math.Max(1.0, maximum1) &&
+                termMagnitude2 <= 1e-18 * Math.Max(1.0, maximum2))
+            {
+                converged = true;
+                break;
+            }
+        }
+        if (!converged || !IsFinite(MaxRowSum(in j0, size)) ||
+            !IsFinite(MaxRowSum(in j1, size)) || !IsFinite(MaxRowSum(in j2, size)))
+            return false;
+        moments.J0 = j0;
+        moments.J1 = j1;
+        moments.J2 = j2;
+
+        var exponential = IdentityMatrix(size);
+        var aj0 = MultiplyMatrices(in a, in moments.J0, size);
+        exponential = AddMatrices(in exponential, in aj0, size);
 
         while (u < extent)
         {
-            if (u == 0.0) return null;
-            var eNew = MultiplyMatrices(e, e);
-            var ej0 = MultiplyMatrices(e, powered[0]);
-            var ej1 = MultiplyMatrices(e, powered[1]);
-            var ej2 = MultiplyMatrices(e, powered[2]);
-            var j0New = CreateMatrix(n);
-            var j1New = CreateMatrix(n);
-            var j2New = CreateMatrix(n);
-            for (var i = 0; i < n; i++)
-                for (var k = 0; k < n; k++)
-                {
-                    j0New[i][k] = ej0[i][k] + powered[0][i][k];
-                    j1New[i][k] = ej1[i][k] + u * powered[0][i][k] + powered[1][i][k];
-                    j2New[i][k] = ej2[i][k] + u * u * powered[0][i][k] +
-                                  2.0 * u * powered[1][i][k] + powered[2][i][k];
-                }
-            e = eNew;
-            powered[0] = j0New;
-            powered[1] = j1New;
-            powered[2] = j2New;
-            if (!double.IsFinite(MaxRowSum(powered[0]))) return null;
+            if (u == 0.0) return false;
+            var eNew = MultiplyMatrices(in exponential, in exponential, size);
+            var ej0 = MultiplyMatrices(in exponential, in moments.J0, size);
+            var ej1 = MultiplyMatrices(in exponential, in moments.J1, size);
+            var ej2 = MultiplyMatrices(in exponential, in moments.J2, size);
+            var j0New = AddMatrices(in ej0, in moments.J0, size);
+            var scaledJ0 = ScaleMatrix(in moments.J0, u, size);
+            var j1Sum = AddMatrices(in ej1, in scaledJ0, size);
+            var j1New = AddMatrices(in j1Sum, in moments.J1, size);
+            var scaledJ0Squared = ScaleMatrix(in moments.J0, u * u, size);
+            var scaledJ1Twice = ScaleMatrix(in moments.J1, 2.0 * u, size);
+            var j2First = AddMatrices(in ej2, in scaledJ0Squared, size);
+            var j2Second = AddMatrices(in j2First, in scaledJ1Twice, size);
+            var j2New = AddMatrices(in j2Second, in moments.J2, size);
+            exponential = eNew;
+            moments.J0 = j0New;
+            moments.J1 = j1New;
+            moments.J2 = j2New;
+            if (!IsFinite(MaxRowSum(in moments.J0, size))) return false;
             u *= 2.0;
         }
 
-        return powered;
+        return IsFinite(MaxRowSum(in moments.J0, size)) &&
+               IsFinite(MaxRowSum(in moments.J1, size)) &&
+               IsFinite(MaxRowSum(in moments.J2, size));
     }
 
     // basis[s][m] is the degree-m coefficient of the Lagrange polynomial for Radau

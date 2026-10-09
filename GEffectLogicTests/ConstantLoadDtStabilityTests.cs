@@ -163,7 +163,7 @@ public class ConstantLoadDtStabilityTests
         while (remaining > 0.0)
         {
             var tail = remaining - dt;
-            if (tail > 0.0 && tail < 0.01)
+            if (tail is > 0.0 and < 0.01)
             {
                 intervals.Add(remaining / 2.0);
                 intervals.Add(remaining / 2.0);

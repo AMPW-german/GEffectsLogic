@@ -32,6 +32,14 @@ public class PhysiologicalIntegrationTests
     private const double ReferenceDt = 0.02;
 
     private static readonly double[] CandidateDt = [0.01, 0.1, 0.25, 0.5, 1.0];
+    private static readonly double[] UnitScalarInitialState = [1.0];
+    private static readonly double[] AffineDenseQueryPoints =
+    [
+        0.0, NumericalMath.RadauC[0], NumericalMath.RadauC[1],
+        NumericalMath.RadauC[2], 0.3, 1.0
+    ];
+    private static readonly string[] SimultaneousVisualTransitionOrder =
+        ["VisualGrayscaleTransition", "VisualTunnelTransition"];
 
     private static readonly string[] ChannelNames =
         ["BloodHead", "BloodCore", "BloodLower", "HeadOverfill", "HeartRateMultiplier",
@@ -688,6 +696,536 @@ public class PhysiologicalIntegrationTests
     }
 
     [Fact]
+    public void AffineMomentsSupportZeroExtentAndRejectNonfiniteInputs()
+    {
+        var scalarMoments = new[] { 1.0, 1.0, 1.0 };
+        Assert.True(NumericalMath.ScalarMoments(-2.0, 0.0, scalarMoments));
+        Assert.All(scalarMoments, moment => Assert.Equal(0.0, moment));
+        Assert.False(NumericalMath.ScalarMoments(double.NaN, 0.0, scalarMoments));
+
+        var matrix = new[] { new[] { 1.0, 2.0 }, new[] { 3.0, 4.0 } };
+        var moments = NumericalMath.MomentMatrices(matrix, 0.0);
+        Assert.NotNull(moments);
+        foreach (var moment in moments)
+            foreach (var row in moment)
+                Assert.All(row, value => Assert.Equal(0.0, value));
+
+        var nonfiniteMatrix = new[] { new[] { 1.0, double.NaN }, new[] { 0.0, 1.0 } };
+        Assert.Null(NumericalMath.MomentMatrices(nonfiniteMatrix, 0.0));
+        Assert.False(NumericalMath.TryMomentMatrices(matrix, double.NaN, 0.1, out _));
+        Assert.False(NumericalMath.TryMomentMatrices(matrix, 1.0,
+            double.PositiveInfinity, out _));
+    }
+
+    [Fact]
+    public void AffineMatrixMomentCoreMatchesDiagonalAndZeroMatrixValues()
+    {
+        var diagonalMatrices = new[]
+        {
+            new[]
+            {
+                new[] { -1e-12, 0.0 },
+                new[] { 0.0, -1000.0 }
+            },
+            new[]
+            {
+                new[] { -1e-12, 0.0, 0.0 },
+                new[] { 0.0, -25.0, 0.0 },
+                new[] { 0.0, 0.0, -1000.0 }
+            }
+        };
+        var extents = new[] { 0.0, 0.1, 1.0 };
+
+        foreach (var matrix in diagonalMatrices)
+            foreach (var extent in extents)
+            {
+                const double scale = 0.7;
+                Assert.True(NumericalMath.TryMomentMatrices(matrix, scale, extent,
+                    out var moments));
+                for (var row = 0; row < matrix.Length; row++)
+                    for (var column = 0; column < matrix.Length; column++)
+                    {
+                        if (row == column)
+                        {
+                            var expected = new double[3];
+                            Assert.True(NumericalMath.ScalarMoments(
+                                matrix[row][row] * scale, extent, expected));
+                            for (var moment = 0; moment < 3; moment++)
+                                Assert.True(Math.Abs(moments[moment, row, column] -
+                                                     expected[moment]) <=
+                                            2e-14 * Math.Max(1.0, Math.Abs(expected[moment])),
+                                    $"J{moment}[{row},{column}]={moments[moment, row, column]:R}; " +
+                                    $"expected {expected[moment]:R} at extent={extent:R}.");
+                        }
+                        else
+                        {
+                            for (var moment = 0; moment < 3; moment++)
+                                Assert.Equal(0.0, moments[moment, row, column]);
+                        }
+                    }
+            }
+
+        foreach (var size in new[] { 2, 3 })
+            foreach (var extent in extents)
+            {
+                var zero = NumericalMath.CreateMatrix(size);
+                Assert.True(NumericalMath.TryMomentMatrices(zero, 0.7, extent,
+                    out var moments));
+                for (var moment = 0; moment < 3; moment++)
+                    for (var row = 0; row < size; row++)
+                        for (var column = 0; column < size; column++)
+                        {
+                            var expected = row == column
+                                ? Math.Pow(extent, moment + 1) / (moment + 1)
+                                : 0.0;
+                            Assert.Equal(expected, moments[moment, row, column]);
+                        }
+            }
+
+        var wrapperInput = diagonalMatrices[1];
+        Assert.True(NumericalMath.TryMomentMatrices(wrapperInput, 1.0, 0.1,
+            out var core));
+        var wrapper = NumericalMath.MomentMatrices(wrapperInput, 0.1);
+        Assert.NotNull(wrapper);
+        for (var moment = 0; moment < 3; moment++)
+            for (var row = 0; row < wrapperInput.Length; row++)
+                for (var column = 0; column < wrapperInput.Length; column++)
+                    Assert.Equal(core[moment, row, column], wrapper[moment][row][column]);
+
+        var oversized = NumericalMath.CreateMatrix(4);
+        Assert.False(NumericalMath.TryMomentMatrices(oversized, 1.0, 0.1, out _));
+
+        var coupled = new[]
+        {
+            new[] { -0.2, 0.08, 0.01 },
+            new[] { 0.03, -0.24, 0.02 },
+            new[] { 0.02, 0.04, -0.18 }
+        };
+        void AssertMomentParity(NumericalMath.MatrixMoments uncached,
+            NumericalMath.MatrixMoments cached, double extent)
+        {
+            for (var moment = 0; moment < 3; moment++)
+                for (var row = 0; row < 3; row++)
+                    for (var column = 0; column < 3; column++)
+                    {
+                        var expected = uncached[moment, row, column];
+                        var actual = cached[moment, row, column];
+                        var tolerance = 2e-13 * Math.Max(1.0, Math.Abs(expected));
+                        Assert.True(Math.Abs(actual - expected) <= tolerance,
+                            $"cached J{moment}[{row},{column}]={actual:R}; " +
+                            $"uncached {expected:R} at extent={extent:R}.");
+                    }
+        }
+
+        var cacheExtents = new[] { 0.0, 0.001, 0.05, 0.5, 1.0 };
+        foreach (var scale in new[] { 0.7, 2.0, 8.0, 27.0 })
+        {
+            var powerCache = NumericalMath.CreateMomentPowerCache(coupled, scale);
+            Assert.NotNull(powerCache);
+            if (powerCache == null) return;
+
+            foreach (var extent in cacheExtents)
+            {
+                Assert.True(NumericalMath.TryMomentMatrices(coupled, scale, extent,
+                    out var uncached));
+                Assert.True(NumericalMath.TryMomentMatrices(powerCache, extent,
+                    out var cached));
+                AssertMomentParity(uncached, cached, extent);
+            }
+
+            if (scale == 27.0)
+            {
+                Assert.True(NumericalMath.TryMomentMatrices(coupled, scale, 2.0,
+                    out var uncached));
+                Assert.True(NumericalMath.TryMomentMatrices(powerCache, 2.0,
+                    out var cached));
+                AssertMomentParity(uncached, cached, 2.0);
+            }
+        }
+
+        Assert.Null(NumericalMath.CreateMomentPowerCache(coupled, 32.0));
+        Assert.True(NumericalMath.TryMomentMatrices(coupled, 32.0, 0.5, out _));
+    }
+
+    [Fact]
+    public void AffineMatrixMomentsMatchAnalyticSymmetricCoupling()
+    {
+        var matrix = new[]
+        {
+            new[] { -5.2, 1.3 },
+            new[] { 1.3, -5.2 }
+        };
+        const double scale = 0.7;
+        var lambdaPlus = scale * (-5.2 + 1.3);
+        var lambdaMinus = scale * (-5.2 - 1.3);
+
+        foreach (var extent in new[] { 0.01, 0.25, 1.0 })
+        {
+            Assert.True(NumericalMath.TryMomentMatrices(matrix, scale, extent,
+                out var moments));
+            var plus = new double[3];
+            var minus = new double[3];
+            Assert.True(NumericalMath.ScalarMoments(lambdaPlus, extent, plus));
+            Assert.True(NumericalMath.ScalarMoments(lambdaMinus, extent, minus));
+
+            for (var moment = 0; moment < 3; moment++)
+            {
+                var diagonal = 0.5 * (plus[moment] + minus[moment]);
+                var coupling = 0.5 * (plus[moment] - minus[moment]);
+                Assert.True(Math.Abs(moments[moment, 0, 0] - diagonal) <= 2e-13,
+                    $"J{moment}[0,0]={moments[moment, 0, 0]:R}; " +
+                    $"expected {diagonal:R} at extent={extent:R}.");
+                Assert.True(Math.Abs(moments[moment, 1, 1] - diagonal) <= 2e-13,
+                    $"J{moment}[1,1]={moments[moment, 1, 1]:R}; " +
+                    $"expected {diagonal:R} at extent={extent:R}.");
+                Assert.True(Math.Abs(moments[moment, 0, 1] - coupling) <= 2e-13,
+                    $"J{moment}[0,1]={moments[moment, 0, 1]:R}; " +
+                    $"expected {coupling:R} at extent={extent:R}.");
+                Assert.True(Math.Abs(moments[moment, 1, 0] - coupling) <= 2e-13,
+                    $"J{moment}[1,0]={moments[moment, 1, 0]:R}; " +
+                    $"expected {coupling:R} at extent={extent:R}.");
+            }
+        }
+    }
+
+    [Fact]
+    public void AffineMatrixMomentsMatchAnalyticNilpotentCoupling()
+    {
+        var baseMatrix = new[]
+        {
+            new[] { 0.0, 2.0, -0.5 },
+            new[] { 0.0, 0.0, 3.0 },
+            new[] { 0.0, 0.0, 0.0 }
+        };
+        const double scale = 0.4;
+
+        foreach (var extent in new[] { 0.001, 0.1, 1.0 })
+        {
+            Assert.True(NumericalMath.TryMomentMatrices(baseMatrix, scale, extent,
+                out var moments));
+            for (var moment = 0; moment < 3; moment++)
+                for (var row = 0; row < 3; row++)
+                    for (var column = 0; column < 3; column++)
+                    {
+                        var a = scale * baseMatrix[row][column];
+                        var aSquared = 0.0;
+                        for (var inner = 0; inner < 3; inner++)
+                            aSquared += scale * baseMatrix[row][inner] *
+                                        scale * baseMatrix[inner][column];
+                        var expected =
+                            (row == column ? Math.Pow(extent, moment + 1) / (moment + 1) : 0.0) +
+                            a * Math.Pow(extent, moment + 2) /
+                            ((moment + 1) * (moment + 2)) +
+                            aSquared * Math.Pow(extent, moment + 3) /
+                            ((moment + 1) * (moment + 2) * (moment + 3));
+                        Assert.True(Math.Abs(moments[moment, row, column] - expected) <= 2e-14,
+                            $"J{moment}[{row},{column}]={moments[moment, row, column]:R}; " +
+                            $"expected {expected:R} at extent={extent:R}.");
+                    }
+        }
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(1e-12)]
+    [InlineData(0.7)]
+    [InlineData(2.0)]
+    [InlineData(10.0)]
+    public void ExponentialConvolutionMatchesConstantTargetAndComposition(double decayRate)
+    {
+        const double initial = 0.17;
+        const double target = 0.83;
+        const double duration = 0.7;
+        double Source(double _) => decayRate * target;
+
+        var expected = target + (initial - target) * Math.Exp(-decayRate * duration);
+        var whole = NumericalMath.ExponentialConvolution(
+            initial, 0.0, duration, decayRate, Source);
+        var first = NumericalMath.ExponentialConvolution(
+            initial, 0.0, 0.3, decayRate, Source);
+        var composed = NumericalMath.ExponentialConvolution(
+            first, 0.3, duration, decayRate, Source);
+
+        Assert.True(Math.Abs(whole - expected) <= 2e-15,
+            $"whole convolution {whole:R} vs closed form {expected:R}.");
+        Assert.True(Math.Abs(composed - expected) <= 2e-15,
+            $"composed convolution {composed:R} vs closed form {expected:R}.");
+    }
+
+    [Fact]
+    public void ScalarLagSolutionPreservesUnitPlateauAndPositiveClosedForm()
+    {
+        const double duration = 1.0;
+        const double tau = 12.0;
+        var unitPlateau = new PhysiologicalModel.ScalarLagSolution(
+            1.0, duration, tau, _ => 1.0);
+        var rising = new PhysiologicalModel.ScalarLagSolution(
+            0.0, duration, tau, _ => 0.7);
+
+        Assert.Equal(1.0, unitPlateau.Evaluate(0.0));
+        foreach (var c in NumericalMath.RadauC)
+        {
+            Assert.Equal(1.0, unitPlateau.Evaluate(c));
+            var value = rising.Evaluate(c);
+            var expected = 0.7 * (1.0 - Math.Exp(-duration * c / tau));
+            Assert.InRange(value, 0.0, 0.7);
+            Assert.True(Math.Abs(value - expected) <= 2e-15,
+                $"scalar lag {value:R} vs closed form {expected:R} at c={c:R}.");
+        }
+    }
+
+    [Fact]
+    public void ScalarLagSolutionHomogeneousZeroTargetPreservesTinyPositiveLoss()
+    {
+        const double initial = 1e-89;
+        const double duration = 0.02;
+        static double VariableRate(double c) => 0.25 + 1.5 * c;
+
+        var variable = new PhysiologicalModel.ScalarLagSolution(
+            initial, duration, _ => 0.0, VariableRate);
+        var constantRate = new PhysiologicalModel.ScalarLagSolution(
+            initial, duration, _ => 0.0, _ => 0.4);
+        var points = new List<double> { 0.0, 0.001, 0.1, 0.33, 0.5, 0.9, 1.0 };
+        points.AddRange(NumericalMath.RadauC);
+        points.AddRange(NumericalMath.GaussLegendre16Nodes);
+
+        foreach (var c in points.Distinct())
+        {
+            var value = variable.Evaluate(c);
+            var expectedVariableRatio = Math.Exp(
+                -duration * (0.25 * c + 0.75 * c * c));
+            Assert.True(double.IsFinite(value) && value > 0.0,
+                $"homogeneous value {value:R} was not positive at c={c:R}.");
+            Assert.True(Math.Abs(value / initial - expectedVariableRatio) <= 2e-15,
+                $"variable-rate ratio {value / initial:R} vs " +
+                $"{expectedVariableRatio:R} at c={c:R}.");
+            Assert.Equal(-VariableRate(c) * value, variable.Derivative(c));
+
+            var constantValue = constantRate.Evaluate(c);
+            var expectedConstantRatio = Math.Exp(-0.4 * duration * c);
+            Assert.True(double.IsFinite(constantValue) && constantValue > 0.0,
+                $"constant-rate value {constantValue:R} was not positive at c={c:R}.");
+            Assert.True(Math.Abs(constantValue / initial - expectedConstantRatio) <=
+                        2e-15,
+                $"constant-rate ratio {constantValue / initial:R} vs " +
+                $"{expectedConstantRatio:R} at c={c:R}.");
+        }
+    }
+
+    [Fact]
+    public void ScalarLagSolutionConstantZeroAndOneTargetsMatchClosedForm()
+    {
+        const double duration = 1.0;
+        var points = new[] { 0.0, NumericalMath.RadauC[0],
+            NumericalMath.RadauC[1], 1.0 };
+        foreach (var initial in new[] { 0.7, 0.3 })
+            foreach (var target in new[] { 0.0, 1.0 })
+                foreach (var tau in new[] { 0.5, 2.0 })
+                {
+                    var scalar = new PhysiologicalModel.ScalarLagSolution(
+                        initial, duration, tau, target);
+                    foreach (var c in points)
+                    {
+                        var value = scalar.Evaluate(c);
+                        var expected = target + (initial - target) *
+                            Math.Exp(-duration * c / tau);
+                        Assert.True(Math.Abs(value - expected) <= 1e-12,
+                            $"constant-target value {value:R} vs {expected:R} at " +
+                            $"initial={initial:R}, target={target:R}, tau={tau:R}, c={c:R}.");
+                        Assert.True(Math.Abs(scalar.Derivative(c) -
+                                            (target - value) / tau) <= 1e-12,
+                            $"constant-target derivative mismatch at c={c:R}.");
+                    }
+
+                    var instantaneous = new PhysiologicalModel.ScalarLagSolution(
+                        initial, duration, 0.0, target);
+                    foreach (var c in points)
+                    {
+                        Assert.Equal(target, instantaneous.Evaluate(c));
+                        Assert.Equal(0.0, instantaneous.Derivative(c));
+                    }
+                }
+    }
+
+    [Theory]
+    [InlineData(0.01)]
+    [InlineData(0.25)]
+    [InlineData(1.0)]
+    public void AffineCollocationPreservesUnitConsciousnessWithVaryingLossRate(double duration)
+    {
+        PhysiologicalModel.AffineSystemSpec SystemAt(double c)
+        {
+            var rate = 0.25 + 1.75 * c;
+            var spec = new PhysiologicalModel.AffineSystemSpec
+            {
+                M = NumericalMath.CreateMatrix(1),
+                B = new double[1],
+                Instant = new bool[1],
+                InstantTargets = new Func<double, double>?[1]
+            };
+            spec.M[0][0] = -rate;
+            spec.B[0] = rate;
+            return spec;
+        }
+
+        var firstRate = SystemAt(NumericalMath.RadauC[0]).M[0][0];
+        var lastRate = SystemAt(NumericalMath.RadauC[2]).M[0][0];
+        Assert.NotEqual(firstRate, lastRate);
+
+        var solution = PhysiologicalModel.SolveAffineCollocation(
+            UnitScalarInitialState, duration, SystemAt(0.0), SystemAt);
+        Assert.True(solution.Valid);
+        Assert.Null(solution.MomentPowers);
+        Assert.Equal(1.0, solution.Y0[0]);
+        foreach (var stage in solution.Stages) Assert.Equal(1.0, stage[0]);
+        Assert.Equal(1.0, solution.Evaluate(0.0)[0]);
+        foreach (var node in NumericalMath.RadauC)
+            Assert.Equal(1.0, solution.Evaluate(node)[0]);
+    }
+
+    [Fact]
+    public void AffineCollocationCoupledNilpotentMatchesAnalyticDenseValues()
+    {
+        const double duration = 0.4;
+
+        PhysiologicalModel.AffineSystemSpec SystemAt(double c)
+        {
+            var spec = new PhysiologicalModel.AffineSystemSpec
+            {
+                M = NumericalMath.CreateMatrix(3),
+                B = [0.0, 0.0, c],
+                Instant = new bool[3],
+                InstantTargets = new Func<double, double>?[3]
+            };
+            spec.M[0][1] = 2.0;
+            spec.M[1][2] = 3.0;
+            return spec;
+        }
+
+        var solution = PhysiologicalModel.SolveAffineCollocation(
+            [0.0, 0.0, 0.0], duration, SystemAt(0.0), SystemAt);
+        Assert.True(solution.Valid);
+
+        foreach (var c in AffineDenseQueryPoints)
+        {
+            var time = duration * c;
+            var expected = new[]
+            {
+                time * time * time * time / (4.0 * duration),
+                time * time * time / (2.0 * duration),
+                time * time / (2.0 * duration)
+            };
+            var actual = solution.Evaluate(c);
+            for (var component = 0; component < 3; component++)
+                Assert.True(Math.Abs(actual[component] - expected[component]) <= 1e-12,
+                    $"component {component} at c={c:R}: {actual[component]:R} vs " +
+                    $"analytic {expected[component]:R}.");
+        }
+    }
+
+    [Fact]
+    public void AffineCollocationDenseResidualBasisMatchesStageExpansion()
+    {
+        const double duration = 0.3;
+        var baseMatrix = new[]
+        {
+            new[] { -5.2, 1.3, 0.1 },
+            new[] { 0.4, -4.1, 0.8 },
+            new[] { 0.2, 0.6, -3.3 }
+        };
+        var matrixDelta = new[]
+        {
+            new[] { 0.0, 1.0, 0.0 },
+            new[] { 0.0, 0.0, 1.0 },
+            new[] { 1.0, 0.0, 0.0 }
+        };
+        var baseSource = new[] { 0.3, -0.2, 0.1 };
+        var initial = new[] { 0.15, 0.5, 0.22 };
+        Assert.NotEqual(baseMatrix[0][2], baseMatrix[1][0]);
+
+        PhysiologicalModel.AffineSystemSpec SystemAt(double c, bool instant = false)
+        {
+            var matrix = NumericalMath.CreateMatrix(3);
+            for (var row = 0; row < 3; row++)
+                for (var column = 0; column < 3; column++)
+                    matrix[row][column] =
+                        baseMatrix[row][column] + c * matrixDelta[row][column];
+
+            var instantFlags = new bool[3];
+            var instantTargets = new Func<double, double>?[3];
+            if (instant)
+            {
+                instantFlags[1] = true;
+                instantTargets[1] = cValue => 0.2 + 0.1 * cValue;
+            }
+            return new PhysiologicalModel.AffineSystemSpec
+            {
+                M = matrix,
+                B =
+                [
+                    baseSource[0] + 0.4 * c,
+                    baseSource[1] - 0.25 * c,
+                    baseSource[2] + 0.15 * c * c
+                ],
+                Instant = instantFlags,
+                InstantTargets = instantTargets
+            };
+        }
+
+        var solution = PhysiologicalModel.SolveAffineCollocation(initial, duration,
+            SystemAt(0.0), c => SystemAt(c));
+        Assert.True(solution.Valid);
+        Assert.NotNull(solution.MomentPowers);
+        Assert.NotNull(solution.DenseMomentCoefficients);
+        Assert.True(solution.DenseMomentExtent is > 0.5 and < 0.6);
+        Assert.True(solution.DenseMomentNorm * 0.5 <= 1.0);
+        Assert.True(solution.DenseMomentNorm * 0.6 > 1.0);
+        Assert.Contains(solution.Residuals.SelectMany(stage => stage),
+            value => value != 0.0);
+
+        var basis = NumericalMath.LagrangeBasis();
+        var queryPoints = new[] { 0.0, 1e-6, 0.125, 0.25, 0.5, 0.6, 1.0 };
+        foreach (var c in queryPoints)
+        {
+            Assert.True(NumericalMath.TryMomentMatrices(solution.M0, duration, c,
+                out var moments));
+            var actual = solution.Evaluate(c);
+            for (var row = 0; row < 3; row++)
+            {
+                var expected = solution.Y0[row];
+                for (var k = 0; k < 3; k++)
+                    expected += duration * moments[0, row, k] * solution.BaseSource[k];
+                for (var stage = 0; stage < 3; stage++)
+                    for (var k = 0; k < 3; k++)
+                    {
+                        var weight = 0.0;
+                        for (var moment = 0; moment < 3; moment++)
+                            weight += basis[stage][moment] * moments[moment, row, k];
+                        expected += duration * weight * solution.Residuals[stage][k];
+                    }
+                Assert.True(Math.Abs(actual[row] - expected) <= 1e-12,
+                    $"component {row} at c={c:R}: {actual[row]:R} vs " +
+                    $"stage-basis reference {expected:R}.");
+            }
+        }
+
+        var cacheableSolution = PhysiologicalModel.SolveAffineCollocation(initial, 0.05,
+            SystemAt(0.0), c => SystemAt(c));
+        Assert.True(cacheableSolution.Valid);
+        Assert.NotNull(cacheableSolution.MomentPowers);
+        Assert.All(cacheableSolution.Evaluate(0.4),
+            value => Assert.True(double.IsFinite(value)));
+
+        var instantSolution = PhysiologicalModel.SolveAffineCollocation(initial, duration,
+            SystemAt(0.0, true), c => SystemAt(c, true));
+        Assert.True(instantSolution.Valid);
+        Assert.Contains(instantSolution.Residuals.SelectMany(stage => stage),
+            value => value != 0.0);
+        foreach (var c in queryPoints)
+            Assert.Equal(0.2 + 0.1 * c, instantSolution.Evaluate(c)[1]);
+    }
+
+    [Fact]
     public void QuadraticRootsInIntervalHandlesEdgeCases()
     {
         var roots = new double[2];
@@ -1106,6 +1644,94 @@ public class PhysiologicalIntegrationTests
     }
 
     [Fact]
+    public void NegativeFiveCoreBoundEntryCorrectionSurvivesAdjacentTenMillisecondCalls()
+    {
+        var head = 0.21146608737125144;
+        var reportedLower = 0.7885339126287486;
+        var lower = BitConverter.Int64BitsToDouble(
+            BitConverter.DoubleToInt64Bits(reportedLower) - 2L);
+        var state = new PhysiologicalModel.IntegrationState(head, lower,
+            0.8329045360148475, 0.0, 0.0, 0.0);
+        Assert.True(state.BloodCore is > 0.0 and <= 1e-12,
+            $"pre-entry core {state.BloodCore:R} is not a positive roundoff-scale reserve.");
+
+        var model = new GEffectsLogicInstance(new DtStabilityLogger()).PhysModel;
+        var first = model.AdvanceCirculationInterval(in state, 0.01, 0.0, 0.0, -5.0,
+            LogicSettings.Default);
+        Assert.True(first.Converged,
+            $"first -5Gz bound interval rejected: " +
+            $"crossings [{string.Join("; ", first.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", first.StateViolations)}].");
+        Assert.Empty(first.StateViolations);
+        Assert.Empty(first.ModeCrossings);
+        Assert.Single(first.CoreBoundEntries);
+        Assert.Empty(first.CoreBoundReleases);
+        Assert.Single(first.Events, item => item.Kind == "CoreEntry");
+        AssertAcceptedCoverage(first, 0.01);
+        AssertPhysicalStages(first);
+        Assert.Contains(first.Segments, segment => segment.CoreBound);
+        Assert.Equal(0.0, first.Final.BloodCore);
+
+        var firstFinal = first.Final;
+        var second = model.AdvanceCirculationInterval(in firstFinal, 0.01, 0.0, 0.0, -5.0,
+            LogicSettings.Default);
+        Assert.True(second.Converged,
+            $"adjacent -5Gz bound interval rejected: " +
+            $"crossings [{string.Join("; ", second.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", second.StateViolations)}].");
+        Assert.Empty(second.StateViolations);
+        Assert.Empty(second.ModeCrossings);
+        Assert.Empty(second.CoreBoundEntries);
+        Assert.Empty(second.CoreBoundReleases);
+        AssertAcceptedCoverage(second, 0.01);
+        AssertPhysicalStages(second);
+        Assert.All(second.Segments, segment => Assert.True(segment.CoreBound));
+        Assert.Equal(0.0, second.Final.BloodCore);
+    }
+
+    [Fact]
+    public void NegativeFiveCoreBoundStateSurvivesAdjacentTenMillisecondCalls()
+    {
+        var head = 0.21146608737125144;
+        var reportedLower = 0.7885339126287486;
+        var lower = BitConverter.Int64BitsToDouble(
+            BitConverter.DoubleToInt64Bits(reportedLower) - 1L);
+        var state = new PhysiologicalModel.IntegrationState(head, lower,
+            0.8329045360148475, 0.0, 0.0, 0.0);
+        Assert.Equal(0.0, state.BloodCore);
+
+        var model = new GEffectsLogicInstance(new DtStabilityLogger()).PhysModel;
+        var first = model.AdvanceCirculationInterval(in state, 0.01, 0.0, 0.0, -5.0,
+            LogicSettings.Default);
+        Assert.True(first.Converged,
+            $"first held-core update rejected: " +
+            $"crossings [{string.Join("; ", first.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", first.StateViolations)}].");
+        Assert.Empty(first.StateViolations);
+        AssertAcceptedCoverage(first, 0.01);
+        AssertPhysicalStages(first);
+        Assert.All(first.Segments, segment => Assert.True(segment.CoreBound));
+        Assert.Empty(first.CoreBoundEntries);
+        Assert.Empty(first.CoreBoundReleases);
+        Assert.Equal(0.0, first.Final.BloodCore);
+
+        var firstFinal = first.Final;
+        var second = model.AdvanceCirculationInterval(in firstFinal, 0.01, 0.0, 0.0, -5.0,
+            LogicSettings.Default);
+        Assert.True(second.Converged,
+            $"adjacent held-core update rejected: " +
+            $"crossings [{string.Join("; ", second.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", second.StateViolations)}].");
+        Assert.Empty(second.StateViolations);
+        AssertAcceptedCoverage(second, 0.01);
+        AssertPhysicalStages(second);
+        Assert.All(second.Segments, segment => Assert.True(segment.CoreBound));
+        Assert.Empty(second.CoreBoundEntries);
+        Assert.Empty(second.CoreBoundReleases);
+        Assert.Equal(0.0, second.Final.BloodCore);
+    }
+
+    [Fact]
     public void CoreBoundReleasesAtZeroUnderUnload()
     {
         var head = 0.21;
@@ -1194,18 +1820,35 @@ public class PhysiologicalIntegrationTests
         var fineModel = new GEffectsLogicInstance(new DtStabilityLogger()).PhysModel;
         var fineState = state;
         var elapsed = 0.0;
+        var fineCoreEntries = 0;
+        var coreHeld = false;
         for (var call = 0; call < 100; call++)
         {
             var fine = fineModel.AdvanceCirculationInterval(in fineState, 0.01, 0.0, 0.0, -5.0, settings);
             Assert.True(fine.Converged);
             Assert.Empty(fine.StateViolations);
             Assert.Empty(fine.ModeCrossings);
+            AssertAcceptedCoverage(fine, 0.01);
+            AssertPhysicalStages(fine);
+            if (coreHeld)
+            {
+                Assert.All(fine.Segments, segment => Assert.True(segment.CoreBound));
+                Assert.Empty(fine.CoreBoundEntries);
+                Assert.Empty(fine.CoreBoundReleases);
+            }
+            fineCoreEntries += fine.CoreBoundEntries.Length;
             if (double.IsNaN(reference) && fine.CoreBoundEntries.Length > 0)
+            {
                 reference = elapsed + fine.CoreBoundEntries[0];
+                Assert.Equal(0.0, fine.Final.BloodCore);
+                coreHeld = true;
+            }
             fineState = fine.Final;
             elapsed += 0.01;
         }
 
+        Assert.Equal(1, fineCoreEntries);
+        Assert.Equal(0.0, fineState.BloodCore);
         _output.WriteLine(
             $"entry converged={result.Converged} segments={result.Segments.Length} " +
             $"coreEntries=[{string.Join(",", result.CoreBoundEntries.Select(e => e.ToString("R", CultureInfo.InvariantCulture)))}] " +
@@ -1219,6 +1862,36 @@ public class PhysiologicalIntegrationTests
         var entry = Assert.Single(result.CoreBoundEntries);
         Assert.True(entry is > 0.0 and < 1.0,
             $"core entry {entry:R} not inside the interval.");
+        var entrySegment = Assert.Single(result.Segments,
+            segment => Math.Abs(segment.StartOffset + segment.Duration - entry) <= 1e-12);
+        var coefficientOffset = entrySegment.StartOffset + entrySegment.Duration -
+                                entrySegment.CoefficientStart;
+        var rawHead = NumericalMath.EvaluateCubic(
+            entrySegment.HeadCoefficients, coefficientOffset);
+        var rawLower = NumericalMath.EvaluateCubic(
+            entrySegment.LowerCoefficients, coefficientOffset);
+        var rawCore = 1.0 - rawHead - rawLower;
+        var headSlope = entrySegment.HeadCoefficients[1] +
+                        2.0 * entrySegment.HeadCoefficients[2] * coefficientOffset +
+                        3.0 * entrySegment.HeadCoefficients[3] *
+                        coefficientOffset * coefficientOffset;
+        var lowerSlope = entrySegment.LowerCoefficients[1] +
+                         2.0 * entrySegment.LowerCoefficients[2] * coefficientOffset +
+                         3.0 * entrySegment.LowerCoefficients[3] *
+                         coefficientOffset * coefficientOffset;
+        var allowedCorrection =
+            Math.Abs(-headSlope - lowerSlope) *
+            PhysiologicalModel.PressureBoundRootToleranceSeconds + 1e-12;
+        var maximumCorrection = Math.Max(
+            Math.Abs(entrySegment.Final.BloodHead - rawHead),
+            Math.Max(Math.Abs(entrySegment.Final.BloodLower - rawLower),
+                Math.Abs(entrySegment.Final.BloodCore - rawCore)));
+        Assert.True(maximumCorrection <= allowedCorrection,
+            $"entry correction {maximumCorrection:R} vs allowed {allowedCorrection:R}; " +
+            $"raw core {rawCore:R}, slope {-headSlope - lowerSlope:R}.");
+        Assert.Equal(0.0, entrySegment.Final.BloodCore);
+        Assert.Single(result.Events, item => item.Kind == "CoreEntry");
+        AssertPhysicalStages(result);
         Assert.Equal(0.0, result.Final.BloodCore);
         Assert.False(double.IsNaN(reference), "fine .01 path produced no entry.");
         Assert.True(Math.Abs(entry - reference) <= 0.05,
@@ -2840,6 +3513,80 @@ public class PhysiologicalIntegrationTests
     }
 
     [Fact]
+    public void FullIntervalModeRestingHeadBoundaryLocalizesOnce()
+    {
+        var settings = LogicSettings.Default;
+        var initial = new PhysiologicalModel.IntegrationState(
+            0.19919102341711858, 0.4592791369019615, 1.2685094794503124,
+            0.5847021136804541, 0.005062584299589358, 0.0)
+        {
+            StrainingLevel = 3.7790233266268377e-6,
+            StrainingFatigue = 0.9488171597463394,
+            GSuitFatigue = 0.6723834871741656,
+            BloodO2Head = 0.9335027827825298,
+            BloodO2Core = 0.9792215161767513,
+            BloodO2Lower = 0.9755424209144228,
+            ArterialOxygenation = 1.0,
+            ConsciousnessLevel = 0.529748042300978,
+            VisualGrayscaleLevel = 0.002632893494324454,
+            VisualTunnelVisionLevel = 0.1838856592383788,
+            VisualRedoutLevel = 0.0,
+            VisualLoCLevel = 0.0
+        };
+        const double duration = 0.20256244765573198;
+        const double gz = -1.6127926155320573;
+        var model = new GEffectsLogicInstance(settings: settings).PhysModel;
+        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
+            settings);
+
+        Assert.True(result.Converged,
+            $"frame561 interval rejected: crossings " +
+            $"[{string.Join("; ", result.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, duration);
+        AssertPhysicalStages(result);
+        Assert.Equal(2, result.Segments.Length);
+        var modeTransition = Assert.Single(result.Events,
+            item => item.Kind == "ModeTransition0");
+        var perfusionRange = Assert.Single(result.Events,
+            item => item.Kind == "PerfusionRangeBound");
+        var bloodSegmentBoundary = Assert.Single(result.Events,
+            item => item.Kind == "BloodSegmentBoundary");
+        var rootTolerance = PhysiologicalModel.PressureBoundRootToleranceSeconds;
+        Assert.True(Math.Abs(perfusionRange.Offset - modeTransition.Offset) <= rootTolerance,
+            $"perfusion range offset {perfusionRange.Offset:R} vs mode transition " +
+            $"{modeTransition.Offset:R} exceeds {rootTolerance:R}.");
+        Assert.True(Math.Abs(bloodSegmentBoundary.Offset - modeTransition.Offset) <=
+                    rootTolerance,
+            $"blood segment offset {bloodSegmentBoundary.Offset:R} vs mode transition " +
+            $"{modeTransition.Offset:R} exceeds {rootTolerance:R}.");
+
+        var partitioned = RunFullPath(0.0, 0.0, gz,
+            [0.5 * duration, 0.5 * duration], settings, initial);
+        var headSpread = Math.Abs(result.Final.BloodHead - partitioned.BloodHead);
+        Assert.True(headSpread <= StateSpreadTolerance,
+            $"head spread {headSpread:R}: whole {result.Final.BloodHead:R}, " +
+            $"partitioned {partitioned.BloodHead:R}.");
+        var headO2Spread = Math.Abs(result.Final.BloodO2Head - partitioned.BloodO2Head);
+        Assert.True(headO2Spread <= StateSpreadTolerance,
+            $"head O2 spread {headO2Spread:R}: whole {result.Final.BloodO2Head:R}, " +
+            $"partitioned {partitioned.BloodO2Head:R}.");
+        var consciousnessSpread =
+            Math.Abs(result.Final.ConsciousnessLevel - partitioned.ConsciousnessLevel);
+        Assert.True(consciousnessSpread <= StateSpreadTolerance,
+            $"consciousness spread {consciousnessSpread:R}: " +
+            $"whole {result.Final.ConsciousnessLevel:R}, " +
+            $"partitioned {partitioned.ConsciousnessLevel:R}.");
+        var tunnelVisionSpread =
+            Math.Abs(result.Final.VisualTunnelVisionLevel -
+                     partitioned.VisualTunnelVisionLevel);
+        Assert.True(tunnelVisionSpread <= StateSpreadTolerance,
+            $"tunnel vision spread {tunnelVisionSpread:R}: " +
+            $"whole {result.Final.VisualTunnelVisionLevel:R}, " +
+            $"partitioned {partitioned.VisualTunnelVisionLevel:R}.");
+    }
+
+    [Fact]
     public void CardioThresholdCrossingLocalizesAndPartitionsAgree()
     {
         var settings = LogicSettings.Default;
@@ -3000,11 +3747,751 @@ public class PhysiologicalIntegrationTests
         }
     }
 
-    private static PhysiologicalModel.IntegrationState RunFullPath(double gx, double gy,
-        double gz, double[] dts, LogicSettings settings)
+    [Fact]
+    public void FullIntervalInstantaneousRedoutUsesRedoutTarget()
     {
         var model = new GEffectsLogicInstance().PhysModel;
-        var state = model.CaptureIntervalState();
+        var state = model.CaptureIntervalState() with
+        {
+            BloodHead = 0.24,
+            BloodLower = 0.41,
+            VisualRedoutLevel = 0.0
+        };
+        var settings = LogicSettings.Default with { VisualRedoutInTau = 0.0 };
+        var result = model.AdvanceInterval(in state, 0.01, 0.0, 0.0, 1.0, settings);
+
+        Assert.True(result.Converged,
+            $"instantaneous redout update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        Assert.True(result.Final.VisualRedoutLevel > 0.0,
+            "instantaneous redout should follow the head-overfill target.");
+    }
+
+    [Fact]
+    public void FullIntervalConstantRedoutTargetMatchesClosedFormAndComposition()
+    {
+        var settings = LogicSettings.Default;
+        var state = new GEffectsLogicInstance().PhysModel.CaptureIntervalState() with
+        {
+            BloodHead = 0.30,
+            BloodLower = 0.35,
+            ConsciousnessLevel = 0.8,
+            VisualRedoutLevel = 0.2
+        };
+        const double duration = 0.25;
+        var targetHead = settings.RestingBloodHead *
+                         (1.0 + settings.VisualRedoutFullHeadBloodOverfill);
+
+        var wholeModel = new GEffectsLogicInstance().PhysModel;
+        var whole = wholeModel.AdvanceInterval(in state, duration, 0.0, 0.0, 1.0,
+            settings);
+        Assert.True(whole.Converged,
+            $"whole redout update rejected: " +
+            $"crossings [{string.Join("; ", whole.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", whole.StateViolations)}].");
+        AssertVisualRedoutBounds(whole);
+
+        var splitModel = new GEffectsLogicInstance().PhysModel;
+        var first = splitModel.AdvanceInterval(in state, 0.1, 0.0, 0.0, 1.0,
+            settings);
+        Assert.True(first.Converged,
+            $"first redout piece rejected: " +
+            $"crossings [{string.Join("; ", first.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", first.StateViolations)}].");
+        AssertVisualRedoutBounds(first);
+        var firstFinal = first.Final;
+        var second = splitModel.AdvanceInterval(in firstFinal, 0.15, 0.0, 0.0, 1.0,
+            settings);
+        Assert.True(second.Converged,
+            $"second redout piece rejected: " +
+            $"crossings [{string.Join("; ", second.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", second.StateViolations)}].");
+        AssertVisualRedoutBounds(second);
+
+        bool Saturated(double head) => head >= targetHead;
+        foreach (var segment in whole.Segments)
+        {
+            Assert.True(Saturated(segment.Initial.BloodHead));
+            Assert.True(Saturated(segment.Final.BloodHead));
+            Assert.All(segment.Stages, stage => Assert.True(Saturated(stage.BloodHead)));
+        }
+        foreach (var segment in first.Segments.Concat(second.Segments))
+        {
+            Assert.True(Saturated(segment.Initial.BloodHead));
+            Assert.True(Saturated(segment.Final.BloodHead));
+            Assert.All(segment.Stages, stage => Assert.True(Saturated(stage.BloodHead)));
+        }
+
+        var expected = 1.0 + (state.VisualRedoutLevel - 1.0) *
+            Math.Exp(-duration / settings.VisualRedoutInTau);
+        Assert.True(Math.Abs(whole.Final.VisualRedoutLevel - expected) <= 1e-12,
+            $"whole redout {whole.Final.VisualRedoutLevel:R} vs closed form {expected:R}.");
+        Assert.True(Math.Abs(second.Final.VisualRedoutLevel - expected) <= 1e-12,
+            $"composed redout {second.Final.VisualRedoutLevel:R} vs closed form {expected:R}.");
+    }
+
+    [Fact]
+    public void FullIntervalHeadRangeFindsAnalyticCubicExtremaAndCoefficientOrigin()
+    {
+        var coefficients = new[] { 0.19, 0.2, -0.2, 0.0 };
+        var state = default(PhysiologicalModel.IntegrationState);
+        var segment = new PhysiologicalModel.IntegrationSegment(
+            0.0, 1.0, state, state, Array.Empty<PhysiologicalModel.IntegrationState>(),
+            PhysiologicalModel.BloodBounds.None, coefficients, Array.Empty<double>(),
+            Array.Empty<double>(), Array.Empty<double>())
+        {
+            CoefficientStart = 0.0
+        };
+        Assert.Equal(0.19, NumericalMath.EvaluateCubic(coefficients, 0.0), 12);
+        Assert.Equal(0.19, NumericalMath.EvaluateCubic(coefficients, 1.0), 12);
+        Assert.True(PhysiologicalModel.TryHeadRange([segment], 0.0, 1.0,
+            out var minimum, out var maximum));
+        Assert.True(Math.Abs(minimum - 0.19) <= 1e-12,
+            $"minimum {minimum:R} vs analytic 0.19.");
+        Assert.True(Math.Abs(maximum - 0.24) <= 1e-12,
+            $"maximum {maximum:R} vs analytic 0.24.");
+
+        var shiftedSegment = segment with
+        {
+            StartOffset = 1.25,
+            Duration = 0.5,
+            CoefficientStart = 1.0
+        };
+        Assert.True(PhysiologicalModel.TryHeadRange([shiftedSegment], 1.25, 1.75,
+            out minimum, out maximum));
+        Assert.True(Math.Abs(minimum - 0.2275) <= 1e-12,
+            $"partial-range minimum {minimum:R} vs analytic 0.2275.");
+        Assert.True(Math.Abs(maximum - 0.24) <= 1e-12,
+            $"partial-range maximum {maximum:R} vs analytic 0.24.");
+    }
+
+    [Fact]
+    public void FullIntervalRestingHeadPositiveGRedoutUsesExactOutTauDecay()
+    {
+        var settings = LogicSettings.Default;
+        var initial = new GEffectsLogicInstance().PhysModel.CaptureIntervalState() with
+        {
+            VisualRedoutLevel = 0.6
+        };
+        const double duration = 0.25;
+        var circulation = new GEffectsLogicInstance().PhysModel
+            .AdvanceCirculationInterval(in initial, duration, 0.0, 0.0, 5.0, settings);
+        Assert.True(circulation.Converged);
+        Assert.True(PhysiologicalModel.TryHeadRange(circulation.Segments, 0.0,
+            duration, out _, out var maximumHead));
+        var redoutOnsetHead = settings.RestingBloodHead *
+            (1.0 + settings.VisualRedoutOnsetHeadBloodOverfill);
+        Assert.True(maximumHead < redoutOnsetHead,
+            $"head maximum {maximumHead:R} did not " +
+            $"certify zero redout target below {redoutOnsetHead:R}.");
+
+        var model = new GEffectsLogicInstance().PhysModel;
+        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 5.0,
+            settings);
+        Assert.True(result.Converged,
+            $"positive-G visual update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, duration);
+        AssertPhysicalStages(result);
+        foreach (var segment in result.Segments)
+        {
+            for (var stage = 0; stage < segment.Stages.Length; stage++)
+            {
+                var time = segment.StartOffset +
+                    NumericalMath.RadauC[stage] * segment.Duration;
+                var expected = initial.VisualRedoutLevel *
+                    Math.Exp(-time / settings.VisualRedoutOutTau);
+                Assert.True(Math.Abs(segment.Stages[stage].VisualRedoutLevel - expected) <=
+                            1e-12,
+                    $"redout stage at {time:R} was " +
+                    $"{segment.Stages[stage].VisualRedoutLevel:R}, expected {expected:R}.");
+            }
+
+            var endTime = segment.StartOffset + segment.Duration;
+            var expectedEnd = initial.VisualRedoutLevel *
+                Math.Exp(-endTime / settings.VisualRedoutOutTau);
+            Assert.True(Math.Abs(segment.Final.VisualRedoutLevel - expectedEnd) <= 1e-12,
+                $"redout endpoint at {endTime:R} was " +
+                $"{segment.Final.VisualRedoutLevel:R}, expected {expectedEnd:R}.");
+        }
+    }
+
+    [Fact]
+    public void FullIntervalOverfilledHeadVisualChannelsUseExactOutTauWhenRangeStaysHigh()
+    {
+        var settings = LogicSettings.Default;
+        var initial = new GEffectsLogicInstance().PhysModel.CaptureIntervalState() with
+        {
+            BloodHead = 0.23,
+            BloodLower = 0.45,
+            VisualTunnelVisionLevel = 0.6,
+            VisualGrayscaleLevel = 0.4
+        };
+        const double duration = 0.25;
+        var circulation = new GEffectsLogicInstance().PhysModel
+            .AdvanceCirculationInterval(in initial, duration, 0.0, 0.0, -5.0, settings);
+        Assert.True(circulation.Converged);
+        Assert.True(PhysiologicalModel.TryHeadRange(circulation.Segments, 0.0,
+            duration, out var minimumHead, out _));
+
+        var model = new GEffectsLogicInstance().PhysModel;
+        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, -5.0,
+            settings);
+        Assert.True(result.Converged,
+            $"negative-G visual update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, duration);
+        AssertPhysicalStages(result);
+        Assert.True(minimumHead > settings.RestingBloodHead,
+            $"head minimum {minimumHead:R} did not stay above resting " +
+            $"{settings.RestingBloodHead:R}.");
+
+        foreach (var segment in result.Segments)
+        {
+            for (var stage = 0; stage < segment.Stages.Length; stage++)
+            {
+                var time = segment.StartOffset +
+                    NumericalMath.RadauC[stage] * segment.Duration;
+                var expectedTunnel = initial.VisualTunnelVisionLevel *
+                    Math.Exp(-time / settings.VisualTunnelVisionOutTau);
+                var expectedGrayscale = initial.VisualGrayscaleLevel *
+                    Math.Exp(-time / settings.VisualGrayscaleOutTau);
+                Assert.True(Math.Abs(segment.Stages[stage].VisualTunnelVisionLevel -
+                                     expectedTunnel) <= 1e-12,
+                    $"tunnel stage at {time:R} was " +
+                    $"{segment.Stages[stage].VisualTunnelVisionLevel:R}, " +
+                    $"expected {expectedTunnel:R}.");
+                Assert.True(Math.Abs(segment.Stages[stage].VisualGrayscaleLevel -
+                                     expectedGrayscale) <= 1e-12,
+                    $"grayscale stage at {time:R} was " +
+                    $"{segment.Stages[stage].VisualGrayscaleLevel:R}, " +
+                    $"expected {expectedGrayscale:R}.");
+            }
+
+            var endTime = segment.StartOffset + segment.Duration;
+            var expectedTunnelEnd = initial.VisualTunnelVisionLevel *
+                Math.Exp(-endTime / settings.VisualTunnelVisionOutTau);
+            var expectedGrayscaleEnd = initial.VisualGrayscaleLevel *
+                Math.Exp(-endTime / settings.VisualGrayscaleOutTau);
+            Assert.True(Math.Abs(segment.Final.VisualTunnelVisionLevel -
+                                 expectedTunnelEnd) <= 1e-12,
+                $"tunnel endpoint at {endTime:R} was " +
+                $"{segment.Final.VisualTunnelVisionLevel:R}, " +
+                $"expected {expectedTunnelEnd:R}.");
+            Assert.True(Math.Abs(segment.Final.VisualGrayscaleLevel -
+                                 expectedGrayscaleEnd) <= 1e-12,
+                $"grayscale endpoint at {endTime:R} was " +
+                $"{segment.Final.VisualGrayscaleLevel:R}, " +
+                $"expected {expectedGrayscaleEnd:R}.");
+        }
+    }
+
+    [Fact]
+    public void FullIntervalTunnelVisionRespondsAfterOverfillTransitionsToHypoperfusion()
+    {
+        var settings = LogicSettings.Default;
+        var initial = new GEffectsLogicInstance().PhysModel.CaptureIntervalState() with
+        {
+            BloodHead = 0.30,
+            BloodLower = 0.35,
+            VisualTunnelVisionLevel = 0.0
+        };
+        const int coarseSteps = 20;
+        const int fineSteps = 100;
+        var coarseState = RunFullPath(0.0, 0.0, 5.0,
+            Enumerable.Repeat(0.1, coarseSteps).ToArray(), settings, initial);
+
+        Assert.True(initial.BloodHead > settings.RestingBloodHead);
+        Assert.True(coarseState.BloodHead < settings.RestingBloodHead,
+            $"final head {coarseState.BloodHead:R} did not enter hypoperfusion.");
+        Assert.True(coarseState.VisualTunnelVisionLevel > 0.0,
+            "tunnel vision did not respond after the head crossed below resting.");
+
+        var fineState = RunFullPath(0.0, 0.0, 5.0,
+            Enumerable.Repeat(0.02, fineSteps).ToArray(), settings, initial);
+
+        Assert.True(Math.Abs(coarseState.VisualTunnelVisionLevel -
+                             fineState.VisualTunnelVisionLevel) <=
+                    StateSpreadTolerance,
+            $"coarse tunnel vision {coarseState.VisualTunnelVisionLevel:R} vs fine " +
+            $"{fineState.VisualTunnelVisionLevel:R}.");
+    }
+
+    [Fact]
+    public void FullIntervalRedoutAtNegativeFiveGzRemainsPositiveAndMatchesFineCadence()
+    {
+        var settings = LogicSettings.Default;
+        var wholeModel = new GEffectsLogicInstance().PhysModel;
+        var state = wholeModel.CaptureIntervalState();
+        var whole = wholeModel.AdvanceInterval(in state, 0.25, 0.0, 0.0, -5.0,
+            settings);
+        Assert.True(whole.Converged,
+            $"quarter-second redout update rejected: " +
+            $"crossings [{string.Join("; ", whole.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", whole.StateViolations)}].");
+        AssertVisualRedoutBounds(whole);
+        Assert.True(whole.Final.VisualRedoutLevel > 0.0,
+            "negative-five-Gz redout must have a positive endpoint.");
+
+        var fineModel = new GEffectsLogicInstance().PhysModel;
+        var fineState = fineModel.CaptureIntervalState();
+        for (var step = 0; step < 25; step++)
+        {
+            var fine = fineModel.AdvanceInterval(in fineState, 0.01, 0.0, 0.0, -5.0,
+                settings);
+            Assert.True(fine.Converged,
+                $"10ms redout update {step + 1} rejected: " +
+                $"crossings [{string.Join("; ", fine.ModeCrossings)}] " +
+                $"violations [{string.Join("; ", fine.StateViolations)}].");
+            AssertVisualRedoutBounds(fine);
+            fineState = fine.Final;
+        }
+
+        Assert.True(fineState.VisualRedoutLevel > 0.0,
+            "10ms negative-five-Gz redout must have a positive endpoint.");
+        Assert.True(Math.Abs(whole.Final.VisualRedoutLevel - fineState.VisualRedoutLevel) <=
+                    StateSpreadTolerance,
+            $"redout spread {Math.Abs(whole.Final.VisualRedoutLevel - fineState.VisualRedoutLevel):R} " +
+            $"at 0.25s: dt=0.25 {whole.Final.VisualRedoutLevel:R}, " +
+            $"dt=0.01 {fineState.VisualRedoutLevel:R}.");
+    }
+
+    [Fact]
+    public void FullIntervalHeadOxygenAtFloorRemainsBoundedUnderLoad()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        var initial = model.CaptureIntervalState() with
+        {
+            BloodHead = settings.MinHeadBloodFraction,
+            HeartRateMultiplier = 0.0,
+            BloodO2Head = settings.BrainO2Floor,
+            BloodO2Core = 0.0,
+            BloodO2Lower = 0.0
+        };
+
+        foreach (var dt in new[] { 0.01, 0.25, 1.0 })
+        {
+            var result = model.AdvanceInterval(in initial, dt, 0.0, 0.0, 5.0, settings);
+            Assert.True(result.Converged,
+                $"head oxygen floor update rejected at dt {dt:R}: " +
+                $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+                $"violations [{string.Join("; ", result.StateViolations)}].");
+            AssertAcceptedCoverage(result, dt);
+            AssertPhysicalStages(result);
+            Assert.Equal(settings.BrainO2Floor,
+                result.Segments[0].Stages[0].BloodO2Head);
+            Assert.All(result.Stages,
+                stage => Assert.InRange(stage.BloodO2Head, settings.BrainO2Floor, 1.0));
+            Assert.InRange(result.Final.BloodO2Head, settings.BrainO2Floor, 1.0);
+        }
+    }
+
+    [Fact]
+    public void FullIntervalHeadOxygenFloorEntryMatchesPartitionedPathAndEndpoint()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        var initial = model.CaptureIntervalState() with
+        {
+            BloodHead = settings.MinHeadBloodFraction,
+            HeartRateMultiplier = 0.0,
+            BloodO2Head = settings.BrainO2Floor + 3.0040120864119715e-4,
+            BloodO2Core = 0.0,
+            BloodO2Lower = 0.0
+        };
+        void AssertHeadOxygenBound(PhysiologicalModel.IntegrationResult result)
+        {
+            Assert.All(result.Stages,
+                stage => Assert.InRange(stage.BloodO2Head, settings.BrainO2Floor, 1.0));
+            Assert.InRange(result.Final.BloodO2Head, settings.BrainO2Floor, 1.0);
+        }
+        const double duration = 0.25;
+
+        var whole = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 5.0,
+            settings);
+        Assert.True(whole.Converged,
+            $"whole head-O2 entry rejected: " +
+            $"crossings [{string.Join("; ", whole.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", whole.StateViolations)}].");
+        AssertAcceptedCoverage(whole, duration);
+        AssertPhysicalStages(whole);
+        var wholeEntries = whole.Events.Where(
+            item => item.Kind == "OxygenBoundEntryHead").ToArray();
+        var wholeEntry = Assert.Single(wholeEntries);
+        Assert.Equal(settings.BrainO2Floor, wholeEntry.State.BloodO2Head);
+        AssertHeadOxygenBound(whole);
+
+        var partitionedModel = new GEffectsLogicInstance().PhysModel;
+        var partitionedState = initial;
+        var partitionedEntryTimes = new List<double>();
+        var elapsed = 0.0;
+        for (var step = 0; step < 25; step++)
+        {
+            var part = partitionedModel.AdvanceInterval(in partitionedState, 0.01,
+                0.0, 0.0, 5.0, settings);
+            Assert.True(part.Converged,
+                $"10ms head-O2 entry path step {step + 1} rejected: " +
+                $"crossings [{string.Join("; ", part.ModeCrossings)}] " +
+                $"violations [{string.Join("; ", part.StateViolations)}].");
+            AssertAcceptedCoverage(part, 0.01);
+            AssertPhysicalStages(part);
+            AssertHeadOxygenBound(part);
+            foreach (var entry in part.Events.Where(
+                         item => item.Kind == "OxygenBoundEntryHead"))
+            {
+                Assert.Equal(settings.BrainO2Floor, entry.State.BloodO2Head);
+                partitionedEntryTimes.Add(elapsed + entry.Offset);
+            }
+            partitionedState = part.Final;
+            elapsed += 0.01;
+        }
+
+        var partitionedEntryTime = Assert.Single(partitionedEntryTimes);
+        Assert.True(Math.Abs(wholeEntry.Offset - partitionedEntryTime) <= 0.001,
+            $"head-O2 entry spread {Math.Abs(wholeEntry.Offset - partitionedEntryTime):R}: " +
+            $"whole={wholeEntry.Offset:R}, partitioned={partitionedEntryTime:R}.");
+        Assert.True(Math.Abs(whole.Final.BloodO2Head -
+                             partitionedState.BloodO2Head) <= 0.001,
+            $"head-O2 endpoint spread {Math.Abs(whole.Final.BloodO2Head - partitionedState.BloodO2Head):R}: " +
+            $"whole={whole.Final.BloodO2Head:R}, partitioned={partitionedState.BloodO2Head:R}.");
+
+        var endpointModel = new GEffectsLogicInstance().PhysModel;
+        var lo = 0.01;
+        var lowCandidate = endpointModel.AdvanceInterval(in initial, lo, 0.0, 0.0,
+            5.0, settings);
+        Assert.True(lowCandidate.Converged);
+        AssertAcceptedCoverage(lowCandidate, lo);
+        AssertPhysicalStages(lowCandidate);
+        AssertHeadOxygenBound(lowCandidate);
+        var endpointEntry = Assert.Single(lowCandidate.Events,
+            item => item.Kind == "OxygenBoundEntryHead");
+        Assert.True(Math.Abs(endpointEntry.Offset - lo) <=
+                    PhysiologicalModel.PressureBoundRootToleranceSeconds,
+            $"head-O2 entry {endpointEntry.Offset:R} was not at caller endpoint {lo:R}.");
+        Assert.Equal(settings.BrainO2Floor, endpointEntry.State.BloodO2Head);
+        Assert.Equal(settings.BrainO2Floor, lowCandidate.Final.BloodO2Head);
+    }
+
+    [Fact]
+    public void FullIntervalLocContactEntryProjectsAcceptedCeiling()
+    {
+        var settings = LogicSettings.Default;
+        var initial = new PhysiologicalModel.IntegrationState(
+            0.18526366340815686, 0.46225205869644553, 1.3660669610460265,
+            0.5922563896029277, 0.0013332345817441914, 0.0)
+        {
+            StrainingLevel = 8.230030063828039e-5,
+            StrainingFatigue = 0.9685068041168222,
+            GSuitFatigue = 0.6793242407149919,
+            BloodO2Head = 0.8827803303915214,
+            BloodO2Core = 0.9788609336493237,
+            BloodO2Lower = 0.9755043536999678,
+            ArterialOxygenation = 1.0,
+            ConsciousnessLevel = 0.396272332536663,
+            LungCompressionLevel = 0.0,
+            PainLevel = 0.0,
+            GyNeckFatigue = 0.0,
+            GyNeckFatigueDeathDwell = 0.0,
+            SuddenLoCAccumulator = 0.0,
+            VisualGrayscaleLevel = 0.01228695353421653,
+            VisualTunnelVisionLevel = 0.2773005776505957,
+            VisualRedoutLevel = 0.0,
+            VisualLoCLevel = 0.05178623811146388
+        };
+        const double duration = 0.20789884425180144;
+        const double gz = -0.8537793413370298;
+        var model = new GEffectsLogicInstance(settings: settings).PhysModel;
+        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
+            settings);
+        Assert.True(result.Converged,
+            $"LoC contact update rejected: crossings " +
+            $"[{string.Join("; ", result.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, duration);
+        AssertPhysicalStages(result);
+        var entry = Assert.Single(result.Events,
+            item => item.Kind == "LoCContactEntry");
+        Assert.Equal(0.0, entry.State.VisualLoCLevel);
+        var expectedContact = initial.VisualLoCLevel / settings.VisualLoCDecreaseRate;
+        var contactTolerance =
+            PhysiologicalModel.PressureBoundRootToleranceSeconds + 1e-12;
+        Assert.True(Math.Abs(entry.Offset - expectedContact) <= contactTolerance,
+            $"LoC contact {entry.Offset:R} vs analytic contact {expectedContact:R} " +
+            $"exceeds {contactTolerance:R}.");
+
+        var fallbackInitial = initial with
+        {
+            ConsciousnessLevel = settings.ConsciousnessRecoveryThreshold + 1e-7
+        };
+        var fallback = model.AdvanceInterval(in fallbackInitial, duration, 0.0, 0.0,
+            gz, settings);
+        Assert.True(fallback.Converged,
+            $"LoC fallback update rejected: crossings " +
+            $"[{string.Join("; ", fallback.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", fallback.StateViolations)}].");
+        AssertAcceptedCoverage(fallback, duration);
+        AssertPhysicalStages(fallback);
+        Assert.Single(fallback.Events, item => item.Kind == "LoCContactEntry");
+
+        var partitioned = RunFullPath(0.0, 0.0, gz,
+            [0.5 * duration, 0.5 * duration], settings, initial);
+        var visualLoCSpread =
+            Math.Abs(result.Final.VisualLoCLevel - partitioned.VisualLoCLevel);
+        Assert.True(visualLoCSpread <= StateSpreadTolerance,
+            $"visual LoC spread {visualLoCSpread:R} across whole and half-step paths.");
+    }
+
+    [Fact]
+    public void FullIntervalRecoverySwitchesWhenTargetFallsThroughConsciousness()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        var initial = model.CaptureIntervalState() with { ConsciousnessLevel = 0.9999 };
+        var result = model.AdvanceInterval(in initial, 1.0, 0.0, 0.0, 5.0, settings);
+
+        Assert.True(result.Converged,
+            $"falling-target recovery update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        var transitions = result.Events.Where(
+            item => item.Kind == "ConsciousnessModeTransition").ToArray();
+        Assert.NotEmpty(transitions);
+        var transition = transitions[transitions.Length - 1];
+        Assert.True(transition.Offset is > 0.0 and < 1.0,
+            $"consciousness mode transition {transition.Offset:R} not inside interval.");
+        var recoveringPiece = Assert.Single(result.Segments,
+            segment => Math.Abs(segment.StartOffset + segment.Duration - transition.Offset) <=
+                       1e-12);
+        var losingPiece = Assert.Single(result.Segments,
+            segment => Math.Abs(segment.StartOffset - transition.Offset) <= 1e-12);
+        Assert.True(losingPiece.Final.ConsciousnessLevel <
+                    losingPiece.Initial.ConsciousnessLevel,
+            $"consciousness did not enter loss mode after transition at " +
+            $"{transition.Offset:R}; preceding endpoint " +
+            $"{recoveringPiece.Final.ConsciousnessLevel:R}, following endpoint " +
+            $"{losingPiece.Final.ConsciousnessLevel:R}.");
+    }
+
+    [Fact]
+    public void FullIntervalConsciousnessNearZeroRisingTargetProjectsOnceAtCursor()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        var initial = model.CaptureIntervalState() with
+        {
+            BloodO2Head = settings.BrainO2Full - 1e-4,
+            BloodO2Core = settings.CoreBloodO2Resting,
+            BloodO2Lower = settings.LowerBloodO2Resting
+        };
+        var target = PhysiologicalModel.ConsciousnessTargetAndTau(
+            PhysiologicalModel.O2Normalized(initial.BloodO2Head, settings),
+            PhysiologicalModel.PerfusionNormalized(initial.BloodHead, settings),
+            initial.CerebralPressureImpairment, settings).Target;
+        initial = initial with { ConsciousnessLevel = target + 1e-13 };
+
+        var result = model.AdvanceInterval(in initial, 0.01, 0.0, 0.0, 1.0, settings);
+        Assert.True(result.Converged,
+            $"near-zero rising-target update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, 0.01);
+        AssertPhysicalStages(result);
+        var transition = Assert.Single(result.Events,
+            item => item.Kind == "ConsciousnessModeTransition");
+        Assert.Equal(0.0, transition.Offset);
+        Assert.Equal(target, transition.State.ConsciousnessLevel);
+        Assert.All(result.Stages,
+            stage => Assert.InRange(stage.ConsciousnessLevel, 0.0, 1.0));
+        Assert.InRange(result.Final.ConsciousnessLevel, 0.0, 1.0);
+        Assert.DoesNotContain(result.Events, item =>
+            item.Kind is "ConsciousnessLost" or "ConsciousnessRecovered");
+    }
+
+    [Fact]
+    public void FullIntervalConsciousnessZeroTargetBranchPrecedesModeTransition()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        var initial = model.CaptureIntervalState() with
+        {
+            BloodO2Head = 0.316,
+            ConsciousnessLevel = 1e-6
+        };
+        var startO2 = PhysiologicalModel.O2Normalized(initial.BloodO2Head, settings);
+        var startPerfusion = PhysiologicalModel.PerfusionNormalized(initial.BloodHead,
+            settings);
+        var rawReserve = PhysiologicalModel.ConsciousnessRawReserve(
+            startO2, startPerfusion, settings);
+        var target = PhysiologicalModel.ConsciousnessTargetAndTau(startO2,
+            startPerfusion, initial.CerebralPressureImpairment, settings).Target;
+        Assert.True(rawReserve < 0.0, $"fixture raw reserve {rawReserve:R} is not clamped.");
+        Assert.Equal(0.0, target);
+
+        const double duration = 0.1;
+        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
+            settings);
+        Assert.True(result.Converged,
+            $"target-zero branch update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, duration);
+        AssertPhysicalStages(result);
+        var branch = Assert.Single(result.Events,
+            item => item.Kind == "ConsciousnessTargetZeroBranch");
+        var branchO2 = PhysiologicalModel.O2Normalized(branch.State.BloodO2Head, settings);
+        var branchPerfusion = PhysiologicalModel.PerfusionNormalized(
+            branch.State.BloodHead, settings);
+        var branchTarget = PhysiologicalModel.ConsciousnessTargetAndTau(branchO2,
+            branchPerfusion, branch.State.CerebralPressureImpairment, settings).Target;
+        Assert.True(branchTarget > 0.0,
+            $"zero-branch event target {branchTarget:R} remained clamped.");
+        var modeEvents = result.Events.Where(
+            item => item.Kind == "ConsciousnessModeTransition").ToArray();
+        Assert.NotEmpty(modeEvents);
+        Assert.All(modeEvents,
+            item => Assert.True(item.Offset > branch.Offset,
+                $"mode transition {item.Offset:R} preceded target-zero branch " +
+                $"{branch.Offset:R}."));
+        Assert.All(result.Stages,
+            stage => Assert.InRange(stage.ConsciousnessLevel, 0.0, 1.0));
+        Assert.InRange(result.Final.ConsciousnessLevel, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void FullIntervalConsciousnessZeroTargetPlateauCrossesPositivelyNearEndpoint()
+    {
+        var settings = LogicSettings.Default;
+        var initial = new GEffectsLogicInstance().PhysModel.CaptureIntervalState() with
+        {
+            BloodO2Head = 0.316,
+            ConsciousnessLevel = 1e-6
+        };
+        var initialO2 = PhysiologicalModel.O2Normalized(initial.BloodO2Head, settings);
+        var initialPerfusion = PhysiologicalModel.PerfusionNormalized(initial.BloodHead,
+            settings);
+        var initialRawReserve = PhysiologicalModel.ConsciousnessRawReserve(
+            initialO2, initialPerfusion, settings);
+        Assert.True(initialRawReserve < 0.0);
+        Assert.Equal(0.0, PhysiologicalModel.ConsciousnessTargetAndTau(
+            initialO2, initialPerfusion, initial.CerebralPressureImpairment, settings).Target);
+
+        var probeModel = new GEffectsLogicInstance().PhysModel;
+        var probe = probeModel.AdvanceInterval(in initial, 0.1, 0.0, 0.0, 1.0,
+            settings);
+        Assert.True(probe.Converged,
+            $"target-zero branch probe rejected: crossings " +
+            $"[{string.Join("; ", probe.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", probe.StateViolations)}].");
+        var probeBranch = Assert.Single(probe.Events,
+            item => item.Kind == "ConsciousnessTargetZeroBranch");
+        var duration = probeBranch.Offset + 1e-6;
+
+        var nearEndModel = new GEffectsLogicInstance().PhysModel;
+        var nearEnd = nearEndModel.AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
+            settings);
+        Assert.True(nearEnd.Converged,
+            $"near-end target-zero branch rejected: crossings " +
+            $"[{string.Join("; ", nearEnd.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", nearEnd.StateViolations)}].");
+        var branch = Assert.Single(nearEnd.Events,
+            item => item.Kind == "ConsciousnessTargetZeroBranch");
+        Assert.True(duration - branch.Offset is >= 0.0 and <= 2e-6,
+            $"positive raw-reserve crossing at {branch.Offset:R} was not near " +
+            $"endpoint {duration:R}.");
+        var firstConsciousnessEvent = nearEnd.Events
+            .Where(item => item.Kind is "ConsciousnessTargetZeroBranch" or
+                "ConsciousnessModeTransition")
+            .OrderBy(item => item.Offset)
+            .First();
+        Assert.Equal("ConsciousnessTargetZeroBranch", firstConsciousnessEvent.Kind);
+        var branchRawReserve = PhysiologicalModel.ConsciousnessRawReserve(
+            PhysiologicalModel.O2Normalized(branch.State.BloodO2Head, settings),
+            PhysiologicalModel.PerfusionNormalized(branch.State.BloodHead, settings),
+            settings);
+        Assert.True(branchRawReserve > 0.0,
+            $"positive-direction crossing ended on nonpositive side: {branchRawReserve:R}.");
+    }
+
+    [Fact]
+    public void FullIntervalIdenticalVisualTransitionsRemainSimultaneousAndOrdered()
+    {
+        var defaults = LogicSettings.Default;
+        var settings = defaults with
+        {
+            VisualGrayscaleInTau = defaults.VisualTunnelVisionInTau,
+            VisualGrayscaleOutTau = defaults.VisualTunnelVisionOutTau
+        };
+        var initial = new GEffectsLogicInstance().PhysModel.CaptureIntervalState() with
+        {
+            VisualTunnelVisionLevel = 1e-6,
+            VisualGrayscaleLevel = 1e-6
+        };
+        var result = new GEffectsLogicInstance().PhysModel.AdvanceInterval(in initial, 1.0,
+            0.0, 0.0, 5.0, settings);
+
+        Assert.True(result.Converged,
+            $"coincident visual transition update rejected: crossings " +
+            $"[{string.Join("; ", result.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", result.StateViolations)}].");
+        var transitions = result.Events.Where(item =>
+            item.Kind is "VisualGrayscaleTransition" or "VisualTunnelTransition").ToArray();
+        Assert.True(transitions.Length >= 2 && transitions.Length % 2 == 0,
+            $"visual transition events were not paired: " +
+            $"[{string.Join(", ", transitions.Select(item => $"{item.Offset:R}:{item.Kind}"))}].");
+        for (var index = 0; index < transitions.Length; index += 2)
+        {
+            Assert.Equal(SimultaneousVisualTransitionOrder,
+                transitions.Skip(index).Take(2).Select(item => item.Kind));
+            Assert.Equal(transitions[index].Offset, transitions[index + 1].Offset);
+        }
+    }
+
+    [Fact]
+    public void FullIntervalNoConsciousnessModeTransitionWhileTargetStaysZero()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        var initial = model.CaptureIntervalState() with
+        {
+            BloodHead = settings.MinHeadBloodFraction,
+            HeartRateMultiplier = 0.0,
+            BloodO2Head = settings.BrainO2Blackout,
+            BloodO2Core = settings.BrainO2Floor,
+            BloodO2Lower = settings.BrainO2Floor,
+            ConsciousnessLevel = 1e-6
+        };
+        var target = PhysiologicalModel.ConsciousnessTargetAndTau(
+            PhysiologicalModel.O2Normalized(initial.BloodO2Head, settings),
+            PhysiologicalModel.PerfusionNormalized(initial.BloodHead, settings),
+            initial.CerebralPressureImpairment, settings).Target;
+        Assert.Equal(0.0, target);
+
+        var result = model.AdvanceInterval(in initial, 0.01, 0.0, 0.0, 5.0, settings);
+        Assert.True(result.Converged,
+            $"zero-target update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        AssertAcceptedCoverage(result, 0.01);
+        AssertPhysicalStages(result);
+        Assert.DoesNotContain(result.Events,
+            item => item.Kind == "ConsciousnessTargetZeroBranch");
+        Assert.DoesNotContain(result.Events,
+            item => item.Kind == "ConsciousnessModeTransition");
+        Assert.All(result.Stages,
+            stage => Assert.True(stage.ConsciousnessLevel is > 0.0 and <= 1.0));
+        Assert.InRange(result.Final.ConsciousnessLevel, 0.0, 1.0);
+    }
+
+    private static PhysiologicalModel.IntegrationState RunFullPath(double gx, double gy,
+        double gz, double[] dts, LogicSettings settings,
+        PhysiologicalModel.IntegrationState? initialState = null)
+    {
+        var model = new GEffectsLogicInstance(settings: settings).PhysModel;
+        var state = initialState ?? model.CaptureIntervalState();
         foreach (var dt in dts)
         {
             var result = model.AdvanceInterval(in state, dt, gx, gy, gz, settings);
@@ -3020,6 +4507,19 @@ public class PhysiologicalIntegrationTests
         }
 
         return state;
+    }
+
+    private static void AssertVisualRedoutBounds(
+        PhysiologicalModel.IntegrationResult result)
+    {
+        Assert.InRange(result.Final.VisualRedoutLevel, 0.0, 1.0);
+        foreach (var segment in result.Segments)
+        {
+            Assert.InRange(segment.Initial.VisualRedoutLevel, 0.0, 1.0);
+            Assert.InRange(segment.Final.VisualRedoutLevel, 0.0, 1.0);
+            Assert.All(segment.Stages,
+                stage => Assert.InRange(stage.VisualRedoutLevel, 0.0, 1.0));
+        }
     }
 
     [Fact]
@@ -3082,10 +4582,20 @@ public class PhysiologicalIntegrationTests
             $"death precondition rejected: " +
             $"crossings [{string.Join("; ", loaded.ModeCrossings)}] " +
             $"violations [{string.Join("; ", loaded.StateViolations)}].");
+        var deathEvents = string.Join("; ", loaded.Events.Select(e =>
+            $"{e.Offset:R}:{e.Kind}:dead={e.State.IsDead}:dwell={e.State.GyNeckFatigueDeathDwell:R}"));
+        var deathSegments = string.Join("; ", loaded.Segments.Select(segment =>
+            $"{segment.StartOffset:R}+{segment.Duration:R}:dead={segment.Final.IsDead}:" +
+            $"neck={segment.Final.GyNeckFatigue:R}:dwell={segment.Final.GyNeckFatigueDeathDwell:R}"));
         Assert.True(loaded.Final.IsDead,
-            "partial dwell at the death level under gy 10 must complete within 1s.");
+            $"partial dwell at the death level under gy 10 must complete within 1s; " +
+            $"events [{deathEvents}], segments [{deathSegments}], " +
+            $"final neck={loaded.Final.GyNeckFatigue:R} " +
+            $"dwell={loaded.Final.GyNeckFatigueDeathDwell:R}.");
+        Assert.Single(loaded.Events, e => e.Kind == "Death");
 
-        var unloaded = model.AdvanceInterval(in loaded.Final, 1.0, 0.0, 0.0, 1.0, settings);
+        var loadedFinal = loaded.Final;
+        var unloaded = model.AdvanceInterval(in loadedFinal, 1.0, 0.0, 0.0, 1.0, settings);
         Assert.True(unloaded.Converged,
             $"dead unload rejected: " +
             $"crossings [{string.Join("; ", unloaded.ModeCrossings)}] " +
@@ -3094,6 +4604,38 @@ public class PhysiologicalIntegrationTests
         Assert.Equal(0.0, unloaded.Final.ConsciousnessLevel);
         Assert.True(unloaded.Final.IsUnconscious);
         Assert.Equal(1.0, unloaded.Final.VisualLoCLevel);
+        Assert.Equal(1.0, unloaded.Final.GyNeckFatigueDeathDwell);
+    }
+
+    [Fact]
+    public void FullIntervalDeathCompletesAtExactEndpoint()
+    {
+        var settings = LogicSettings.Default;
+        var model = new GEffectsLogicInstance().PhysModel;
+        const double initialDwell = 0.8;
+        var state = model.CaptureIntervalState() with
+        {
+            GyNeckFatigue = settings.GyNeckFatigueDeathLevel,
+            GyNeckFatigueDeathDwell = initialDwell
+        };
+        var dt = (1.0 - initialDwell) * settings.GyNeckFatigueDeathDelay;
+        var result = model.AdvanceInterval(in state, dt, 0.0, 10.0, 1.0, settings);
+
+        Assert.True(result.Converged,
+            $"endpoint death update rejected: " +
+            $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
+            $"violations [{string.Join("; ", result.StateViolations)}].");
+        Assert.True(result.Final.IsDead,
+            $"endpoint death was not applied; events " +
+            $"[{string.Join("; ", result.Events.Select(e => $"{e.Offset:R}:{e.Kind}"))}], " +
+            $"final dwell={result.Final.GyNeckFatigueDeathDwell:R}.");
+        var death = Assert.Single(result.Events, e => e.Kind == "Death");
+        Assert.Equal(dt, death.Offset);
+        Assert.True(result.Final.IsDead);
+        Assert.Equal(1.0, result.Final.GyNeckFatigueDeathDwell);
+        Assert.Equal(0.0, result.Final.ConsciousnessLevel);
+        Assert.True(result.Final.IsUnconscious);
+        Assert.Equal(1.0, result.Final.VisualLoCLevel);
     }
 
     [Fact]
@@ -3106,6 +4648,34 @@ public class PhysiologicalIntegrationTests
         Assert.False(result.Converged,
             "out-of-bounds initial head O2 must not silently converge.");
         Assert.NotEmpty(result.StateViolations);
+        Assert.Equal(0, result.Iterations);
+        Assert.Empty(result.Segments);
+        Assert.Empty(result.Events);
+        Assert.Contains(result.StateViolations,
+            violation => violation.Contains("initial state", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FullIntervalRejectsInvalidInitialBloodMassBeforeCirculation()
+    {
+        var model = new GEffectsLogicInstance().PhysModel;
+        var state = model.CaptureIntervalState() with
+        {
+            BloodHead = 0.6,
+            BloodLower = 0.5
+        };
+        var result = model.AdvanceInterval(in state, 0.25, 0.0, 0.0, 1.0,
+            LogicSettings.Default);
+
+        Assert.False(result.Converged,
+            "initial blood compartments with negative core volume must be rejected.");
+        Assert.Equal(0, result.Iterations);
+        Assert.Empty(result.Segments);
+        Assert.Empty(result.Events);
+        Assert.Contains(result.StateViolations,
+            violation => violation.Contains("initial state", StringComparison.Ordinal));
+        Assert.Contains(result.StateViolations,
+            violation => violation.Contains("blood", StringComparison.Ordinal));
     }
 
     private static double IndependentFreePressure(double startPressure, double from, double to,

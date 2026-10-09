@@ -25,20 +25,9 @@ namespace GEffectsLogic;
 public class GEffectsLogicInstance
 {
     protected double stabilizationTime;
-    protected double stabilizedBloodCore;
-    protected double stabilizedBloodHead;
-    protected double stabilizedBloodLower;
-    protected double stabilizedBrainO2;
-    protected double stabilizedConsciousnessLevel;
-    protected double stabilizedVisualGrayscaleLevel;
-    protected double stabilizedVisualTunnelVisionLevel;
-    protected double stabilizedVisualRedoutLevel;
-    protected double stabilizedVisualLoCLevel;
     protected double stabilizedGx;
     protected double stabilizedGy;
     protected double stabilizedGz;
-    protected double stabilizedHeartRateMultiplier;
-    protected double stabilizedPerfusionLevel;
 
     // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
     // Stabilized conditions:
@@ -47,7 +36,7 @@ public class GEffectsLogicInstance
     // Stabilization is lost if any force component changes from the recorded vector
     protected bool stable;
     protected bool stableRecorded;
-    private const double StabilizationStateError = 0.025;
+    private const double StabilizationStateError = 0.00025;
 
     private readonly Logger? logger;
     public Logger? Logger => logger;
@@ -139,17 +128,6 @@ public class GEffectsLogicInstance
                 stabilizedGx = currentGx;
                 stabilizedGy = currentGy;
                 stabilizedGz = currentGz;
-                stabilizedBloodHead = PhysModel.BloodHead;
-                stabilizedBloodCore = PhysModel.BloodCore;
-                stabilizedBloodLower = PhysModel.BloodLower;
-                stabilizedBrainO2 = PhysModel.BloodO2Head;
-                stabilizedHeartRateMultiplier = PhysModel.HeartRateMultiplier;
-                stabilizedPerfusionLevel = PhysModel.PerfusionLevel;
-                stabilizedConsciousnessLevel = PhysModel.ConsciousnessLevel;
-                stabilizedVisualGrayscaleLevel = PhysModel.VisualGrayscaleLevel;
-                stabilizedVisualTunnelVisionLevel = PhysModel.VisualTunnelVisionLevel;
-                stabilizedVisualRedoutLevel = PhysModel.VisualRedoutLevel;
-                stabilizedVisualLoCLevel = PhysModel.VisualLoCLevel;
                 Logger.Log(
                     $"Instance has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
                     this, Logger.LogLevel.Info);

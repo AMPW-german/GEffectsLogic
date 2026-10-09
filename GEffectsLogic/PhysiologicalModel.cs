@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using System.Globalization;
 using GEffectsLogic.Logging;
 
 namespace GEffectsLogic;
@@ -385,7 +386,7 @@ public class PhysiologicalModel
         if (bloodHead != settings.RestingBloodHead ||
             bloodLower != settings.RestingBloodLower ||
             heartRateMultiplier != 1.0 ||
-            cardioFatigue != 0.0 ||
+            hrFatigue != 0.0 ||
             strainingLevel != 0.0 ||
             strainingFatigue != 0.0 ||
             gSuitFatigue != 0.0 ||
@@ -499,7 +500,7 @@ public class PhysiologicalModel
     private const int CirculationSolvedDimensions = 4;
     private const int MaxNewtonIterations = 12;
     private const int MaxDampingHalvings = 8;
-    private const double PressureBoundRootToleranceSeconds = 1e-8;
+    internal const double PressureBoundRootToleranceSeconds = 1e-8;
     private const double ScaledResidualTolerance = 1e-10;
 
     internal readonly record struct IntegrationState(
@@ -592,7 +593,8 @@ public class PhysiologicalModel
         double[] RateCoefficients,
         double[] CardioCoefficients,
         bool CoreRootSearchValid,
-        BloodBounds BoundViolations);
+        BloodBounds BoundViolations,
+        Func<IntegrationState[], double> RecomputeResidual);
 
     [Flags]
     internal enum CirculationMode
@@ -766,7 +768,7 @@ public class PhysiologicalModel
     private static CirculationMode EvaluateCirculation(
         in IntegrationState state, double gx, double gy, double gz,
         LogicSettings settings, double[] rates, double[][]? jacobian,
-        bool includePressure)
+        bool includePressure, bool? headwardOverride = null)
     {
         var suit = SuitActivation(in state, gz, settings);
         var shiftRate = HydrostaticShiftRate(gx, gy, gz, settings) *
@@ -797,7 +799,8 @@ public class PhysiologicalModel
         var qLower = shiftRate * coreLowerFraction + lowerReturnRate * (restLower - lower);
         var qTotal = qHead + qCore + qLower;
         var fHead = qHead - head * qTotal;
-        var headward = overfill > 0.0 || (head == restHead && fHead > 0.0);
+        var headward = headwardOverride ??
+            (overfill > 0.0 || (head == restHead && fHead > 0.0));
 
         double baroTarget;
         double baroDerivative;
@@ -1301,17 +1304,92 @@ public class PhysiologicalModel
                 var acceptedStages = completed.Stages.ToArray();
                 if (kind == IntervalEventKind.BoundEntry)
                 {
-                    var snapped = SnapToBounds(in final, bounds | eventBound, settings,
-                        out var snapError);
-                    if (!IsFiniteNumber(snapError) || snapError > 1e-10)
+                    var rawEventState = final;
+                    var headCoefficients = completed.HeadCoefficients;
+                    var lowerCoefficients = completed.LowerCoefficients;
+                    var headSlope = headCoefficients[1] +
+                        2.0 * headCoefficients[2] * eventTime +
+                        3.0 * headCoefficients[3] * eventTime * eventTime;
+                    var lowerSlope = lowerCoefficients[1] +
+                        2.0 * lowerCoefficients[2] * eventTime +
+                        3.0 * lowerCoefficients[3] * eventTime * eventTime;
+                    var eventSlope = eventBound switch
                     {
-                        violations.Add($"bound entry snap volume error {snapError:R} " +
-                                       $"at offset {eventTime:R}");
+                        BloodBounds.Head => headSlope,
+                        BloodBounds.Lower => lowerSlope,
+                        BloodBounds.Core => -headSlope - lowerSlope,
+                        _ => double.NaN
+                    };
+                    var rawCoordinate = BloodBoundCoordinate(in final, eventBound);
+                    var allowedEventCorrection =
+                        Math.Abs(eventSlope) * PressureBoundRootToleranceSeconds + 1e-12;
+                    if (!IsFiniteNumber(eventSlope) ||
+                        !IsFiniteNumber(allowedEventCorrection))
+                    {
+                        violations.Add(
+                            $"bound entry {eventBound} rawCoordinate={rawCoordinate.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"correction=unavailable " +
+                            $"allowed={allowedEventCorrection.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"slope={eventSlope.ToString("R", CultureInfo.InvariantCulture)}");
+                        break;
+                    }
+                    if (!TryProjectActiveBloodState(in final, bounds | eventBound,
+                            settings, allowedEventCorrection, out var snapped,
+                            out var snapError))
+                    {
+                        var coordinateCorrection = Math.Abs(
+                            BloodBoundCoordinate(in snapped, eventBound) - rawCoordinate);
+                        violations.Add(
+                            $"bound entry {eventBound} rawCoordinate={rawCoordinate.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"correction={coordinateCorrection.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"maxCorrection={snapError.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"allowed={allowedEventCorrection.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"slope={eventSlope.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"at offset {eventTime:R}");
                         break;
                     }
 
                     final = snapped;
                     acceptedStages[acceptedStages.Length - 1] = final;
+                    var heldCorrection = 0.0;
+                    foreach (var heldBound in HeldBounds(bounds))
+                        heldCorrection = Math.Max(heldCorrection, Math.Abs(
+                            BloodBoundCoordinate(in snapped, heldBound) -
+                            BloodBoundCoordinate(in rawEventState, heldBound)));
+                    if (!IsFiniteNumber(heldCorrection) ||
+                        heldCorrection > ActiveManifoldCorrectionTolerance)
+                    {
+                        var coordinateCorrection = Math.Abs(
+                            BloodBoundCoordinate(in snapped, eventBound) - rawCoordinate);
+                        violations.Add(
+                            $"bound entry {eventBound} rawCoordinate={rawCoordinate.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"correction={coordinateCorrection.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"allowed={allowedEventCorrection.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"slope={eventSlope.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"heldCorrection={heldCorrection.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"exceeded {ActiveManifoldCorrectionTolerance:R}");
+                        break;
+                    }
+                    var boundStageViolations = new List<string>();
+                    CheckStageValidity(final, acceptedStages.Length - 1, settings,
+                        bounds | eventBound, boundStageViolations, boundStageViolations);
+                    if (boundStageViolations.Count != 0)
+                    {
+                        violations.AddRange(boundStageViolations);
+                        break;
+                    }
+                    var projectedResidual =
+                        completed.RecomputeResidual(acceptedStages);
+                    var maxResidual = Math.Max(completed.MaxScaledResidual, projectedResidual);
+                    if (!IsFiniteNumber(projectedResidual) ||
+                        maxResidual > ScaledResidualTolerance)
+                    {
+                        violations.Add(
+                            $"bound entry residual {projectedResidual:R} " +
+                            $"outside {ScaledResidualTolerance:R} at offset {eventTime:R}");
+                        break;
+                    }
+                    completed = completed with { MaxScaledResidual = maxResidual };
                     if (eventBound == BloodBounds.Core) coreEntries.Add(offset + eventTime);
                     else if (eventBound == BloodBounds.Head) headEntries.Add(offset + eventTime);
                     else lowerEntries.Add(offset + eventTime);
@@ -1637,27 +1715,80 @@ public class PhysiologicalModel
             : state with { CardioFatigue = level };
     }
 
-    private static IntegrationState SnapToBounds(in IntegrationState state,
-        BloodBounds bounds, LogicSettings settings, out double snapError)
+    private const double ActiveManifoldCorrectionTolerance = 1e-12;
+
+    private static double BloodBoundCoordinate(in IntegrationState state, BloodBounds bound) =>
+        bound switch
+        {
+            BloodBounds.Head => state.BloodHead,
+            BloodBounds.Lower => state.BloodLower,
+            BloodBounds.Core => state.BloodCore,
+            _ => double.NaN
+        };
+
+    private static bool TryProjectActiveBloodState(in IntegrationState state,
+        BloodBounds bounds, LogicSettings settings, double maximumAllowedCorrection,
+        out IntegrationState projected, out double maximumCorrection)
     {
-        var boundSum = (bounds & BloodBounds.Head) != 0
-            ? settings.MinHeadBloodFraction
-            : 0.0;
-        var freeSum = ((bounds & BloodBounds.Head) == 0 ? state.BloodHead : 0.0) +
-                      ((bounds & BloodBounds.Lower) == 0 ? state.BloodLower : 0.0) +
-                      ((bounds & BloodBounds.Core) == 0 ? state.BloodCore : 0.0);
-        var scale = freeSum > 0.0 ? (1.0 - boundSum) / freeSum : 0.0;
+        projected = state;
+        maximumCorrection = double.PositiveInfinity;
+        if (!IsFiniteNumber(maximumAllowedCorrection) ||
+            maximumAllowedCorrection < 0.0)
+            return false;
+        if (!IsFiniteNumber(state.BloodHead) || !IsFiniteNumber(state.BloodLower) ||
+            !IsFiniteNumber(state.BloodCore))
+            return false;
+
         var head = (bounds & BloodBounds.Head) != 0
             ? settings.MinHeadBloodFraction
-            : state.BloodHead * scale;
-        var lower = (bounds & BloodBounds.Lower) != 0
-            ? 0.0
-            : state.BloodLower * scale;
-        var core = 1.0 - head - lower;
-        snapError = Math.Max(Math.Abs(head - state.BloodHead),
+            : state.BloodHead;
+        var lower = (bounds & BloodBounds.Lower) != 0 ? 0.0 : state.BloodLower;
+        if ((bounds & BloodBounds.Core) != 0)
+        {
+            if ((bounds & BloodBounds.Lower) != 0)
+            {
+                if ((bounds & BloodBounds.Head) != 0 || head != 1.0) return false;
+                lower = 0.0;
+            }
+            else
+            {
+                lower = 1.0 - head;
+                var core = 1.0 - head - lower;
+                if (core < 0.0)
+                {
+                    if (lower <= 0.0) return false;
+                    lower = BitConverter.Int64BitsToDouble(
+                        BitConverter.DoubleToInt64Bits(lower) - 1L);
+                    core = 1.0 - head - lower;
+                    if (core < 0.0) return false;
+                }
+                else if (core > 0.0 && lower > 0.0)
+                {
+                    var nextLower = BitConverter.Int64BitsToDouble(
+                        BitConverter.DoubleToInt64Bits(lower) + 1L);
+                    var nextCore = 1.0 - head - nextLower;
+                    if (nextCore >= 0.0 && nextCore < core)
+                    {
+                        lower = nextLower;
+                        core = nextCore;
+                    }
+                }
+            }
+        }
+
+        projected = state with { BloodHead = head, BloodLower = lower };
+        var coreVolume = projected.BloodCore;
+        maximumCorrection = Math.Max(Math.Abs(head - state.BloodHead),
             Math.Max(Math.Abs(lower - state.BloodLower),
-                Math.Abs(core - state.BloodCore)));
-        return state with { BloodHead = head, BloodLower = lower };
+                Math.Abs(coreVolume - state.BloodCore)));
+        var bloodSumError = Math.Abs(head + coreVolume + lower - 1.0);
+        return IsFiniteNumber(maximumCorrection) &&
+               maximumCorrection <= maximumAllowedCorrection &&
+               IsFiniteNumber(bloodSumError) &&
+               bloodSumError <= ActiveManifoldCorrectionTolerance &&
+               head >= settings.MinHeadBloodFraction && head <= 1.0 &&
+               lower >= 0.0 && lower <= 1.0 &&
+               coreVolume >= 0.0 && coreVolume <= 1.0;
     }
 
     private static SegmentSolve AdvanceCirculationSegment(
@@ -1667,7 +1798,7 @@ public class PhysiologicalModel
         double gy,
         double gz,
         LogicSettings settings,
-        BloodBounds bounds)
+        BloodBounds bounds, bool? headwardOverride = null)
     {
         const int stageCount = NumericalMath.RadauStageCount;
         const int dimensions = CirculationSolvedDimensions;
@@ -1691,6 +1822,10 @@ public class PhysiologicalModel
         var boundViolations = new List<string>();
         var boundFlags = BloodBounds.None;
         var initialState = initial;
+        var independentStageStates = new IntegrationState[stageCount];
+        for (var stage = 0; stage < stageCount; stage++)
+            independentStageStates[stage] = IndependentCirculationStateAt(in initialState,
+                NumericalMath.RadauC[stage] * dt, gx, gz, settings);
 
         var initialMode = Evaluate(in initialState, rateBuffer, null);
         if ((initialMode & CirculationMode.UnsupportedCoreBound) != 0)
@@ -1710,12 +1845,11 @@ public class PhysiologicalModel
                     : initialValues[k] + NumericalMath.RadauC[stage] * dt * rateBuffer[k];
 
         var iterations = 0;
-        var maxScaledResidual = double.MaxValue;
+        var maxScaledResidual = ComputeResidual(stages);
         var converged = false;
 
         while (iterations < MaxNewtonIterations)
         {
-            maxScaledResidual = ComputeResidual(stages);
             if (maxScaledResidual <= ScaledResidualTolerance || double.IsNaN(maxScaledResidual)) break;
 
             for (var j = 0; j < stageCount; j++)
@@ -1747,10 +1881,11 @@ public class PhysiologicalModel
             for (var halving = 0; halving <= MaxDampingHalvings; halving++)
             {
                 for (var u = 0; u < unknowns; u++) trialStages[u] = stages[u] - lambda * newtonStep[u];
-                if (ComputeResidual(trialStages) < maxScaledResidual)
+                var trialResidual = ComputeResidual(trialStages);
+                if (trialResidual < maxScaledResidual)
                 {
                     (stages, trialStages) = (trialStages, stages);
-                    maxScaledResidual = ComputeResidual(stages);
+                    maxScaledResidual = trialResidual;
                     accepted = true;
                     break;
                 }
@@ -1769,41 +1904,19 @@ public class PhysiologicalModel
         {
             for (var stage = 0; stage < stageCount; stage++)
             {
-                var head = stages[stage * dimensions];
-                var lower = stages[stage * dimensions + 1];
-                if ((bounds & BloodBounds.Head) != 0)
+                var stageState = StageState(stages, stage);
+                if (!TryProjectActiveBloodState(in stageState, bounds, settings,
+                        ActiveManifoldCorrectionTolerance, out var projected,
+                        out var correction))
                 {
-                    var headCorrection = settings.MinHeadBloodFraction - head;
-                    if (Math.Abs(headCorrection) > ScaledResidualTolerance)
-                        generalViolations.Add(
-                            $"held stage {stage + 1} head off floor by {headCorrection:R}");
-                    head = settings.MinHeadBloodFraction;
+                    generalViolations.Add(
+                        $"held stage {stage + 1} blood correction {correction:R} " +
+                        $"outside active manifold tolerance " +
+                        $"{ActiveManifoldCorrectionTolerance:R}");
+                    continue;
                 }
-
-                if ((bounds & BloodBounds.Lower) != 0)
-                {
-                    if (Math.Abs(lower) > ScaledResidualTolerance)
-                        generalViolations.Add(
-                            $"held stage {stage + 1} lower off zero by {lower:R}");
-                    lower = 0.0;
-                }
-
-                if ((bounds & BloodBounds.Core) != 0)
-                {
-                    var correction = 1.0 - head - lower;
-                    if (Math.Abs(correction) > ScaledResidualTolerance)
-                        generalViolations.Add(
-                            $"held stage {stage + 1} off blood manifold by {correction:R}");
-                    if ((bounds & BloodBounds.Head) != 0)
-                        lower = 1.0 - head;
-                    else if ((bounds & BloodBounds.Lower) != 0)
-                        head = 1.0;
-                    else
-                        lower = 1.0 - head;
-                }
-
-                stages[stage * dimensions] = head;
-                stages[stage * dimensions + 1] = lower;
+                stages[stage * dimensions] = projected.BloodHead;
+                stages[stage * dimensions + 1] = projected.BloodLower;
             }
 
             var substitutedResidual = ComputeResidual(stages);
@@ -1878,20 +1991,19 @@ public class PhysiologicalModel
             maxScaledResidual, converged, crossings.ToArray(), violations,
             [], [], headCoefficients,
             lowerCoefficients, rateCoefficients, cardioCoefficients, rootSearchValid,
-            boundFlags);
+            boundFlags, RecomputeResidual);
 
         CirculationMode Evaluate(in IntegrationState candidate, double[] rates,
             double[][]? jacobian) =>
             bounds == BloodBounds.None
-                ? EvaluateCirculation(in candidate, gx, gy, gz, settings, rates, jacobian, false)
+                ? EvaluateCirculation(in candidate, gx, gy, gz, settings, rates, jacobian,
+                    false, headwardOverride)
                 : EvaluateBoundConstrainedCirculation(in candidate, gx, gy, gz, settings,
                     rates, jacobian, false, bounds);
 
         IntegrationState StageState(double[] vector, int stage)
         {
-            var independent = IndependentCirculationStateAt(in initialState,
-                NumericalMath.RadauC[stage] * dt, gx, gz, settings);
-            return independent with
+            return independentStageStates[stage] with
             {
                 BloodHead = vector[stage * dimensions],
                 BloodLower = vector[stage * dimensions + 1],
@@ -1937,6 +2049,20 @@ public class PhysiologicalModel
                 }
 
             return maximum;
+        }
+
+        double RecomputeResidual(IntegrationState[] acceptedStages)
+        {
+            var vector = new double[unknowns];
+            for (var stage = 0; stage < stageCount; stage++)
+            {
+                var offset = stage * dimensions;
+                vector[offset] = acceptedStages[stage].BloodHead;
+                vector[offset + 1] = acceptedStages[stage].BloodLower;
+                vector[offset + 2] = acceptedStages[stage].HeartRateMultiplier;
+                vector[offset + 3] = acceptedStages[stage].CardioFatigue;
+            }
+            return ComputeResidual(vector);
         }
     }
 #pragma warning restore CA1822
@@ -2070,14 +2196,73 @@ public class PhysiologicalModel
 
     private static List<double> MonotoneBounds(double[] coefficients, double duration)
     {
+        return MonotoneBounds(coefficients, 0.0, duration);
+    }
+
+    private static List<double> MonotoneBounds(double[] coefficients, double start,
+        double end)
+    {
         var criticalBuffer = new double[2];
         var criticalCount = NumericalMath.QuadraticRootsInInterval(
             3.0 * coefficients[3], 2.0 * coefficients[2], coefficients[1],
-            0.0, duration, criticalBuffer);
-        var bounds = new List<double>(criticalCount + 2) { 0.0 };
+            start, end, criticalBuffer);
+        var bounds = new List<double>(criticalCount + 2) { start };
         for (var root = 0; root < criticalCount; root++) bounds.Add(criticalBuffer[root]);
-        bounds.Add(duration);
+        bounds.Add(end);
         return bounds;
+    }
+
+    internal static bool TryHeadRange(IntegrationSegment[] segments, double from,
+        double to, out double minimum, out double maximum)
+    {
+        minimum = double.PositiveInfinity;
+        maximum = double.NegativeInfinity;
+        if (!IsFiniteNumber(from) || !IsFiniteNumber(to) || to < from ||
+            segments.Length == 0)
+            return false;
+
+        var coveredTo = from;
+        var found = false;
+        foreach (var segment in segments)
+        {
+            var segmentStart = segment.StartOffset;
+            var segmentEnd = segmentStart + segment.Duration;
+            if (!IsFiniteNumber(segmentStart) || !IsFiniteNumber(segmentEnd) ||
+                !IsFiniteNumber(segment.CoefficientStart) ||
+                !IsFiniteNumber(segment.Duration) || segment.Duration < 0.0)
+                return false;
+            if (segmentEnd < from || segmentStart > to) continue;
+
+            var overlapStart = Math.Max(from, segmentStart);
+            var overlapEnd = Math.Min(to, segmentEnd);
+            if (overlapEnd < overlapStart) continue;
+            if (overlapStart != coveredTo) return false;
+
+            var localStart = overlapStart - segment.CoefficientStart;
+            var localEnd = overlapEnd - segment.CoefficientStart;
+            if (!IsFiniteNumber(localStart) || !IsFiniteNumber(localEnd) ||
+                localEnd < localStart || segment.HeadCoefficients.Length < 4)
+                return false;
+            for (var coefficient = 0; coefficient < 4; coefficient++)
+                if (!IsFiniteNumber(segment.HeadCoefficients[coefficient]))
+                    return false;
+
+            foreach (var localTime in MonotoneBounds(segment.HeadCoefficients,
+                         localStart, localEnd))
+            {
+                var head = NumericalMath.EvaluateCubic(
+                    segment.HeadCoefficients, localTime);
+                if (!IsFiniteNumber(head) || head < 0.0 || head > 1.0)
+                    return false;
+                if (head < minimum) minimum = head;
+                if (head > maximum) maximum = head;
+            }
+            coveredTo = overlapEnd;
+            found = true;
+        }
+
+        return found && coveredTo == to &&
+               IsFiniteNumber(minimum) && IsFiniteNumber(maximum);
     }
 
     private static double BisectCubicLevel(
@@ -2474,6 +2659,7 @@ public class PhysiologicalModel
         out double transitionTime,
         out SegmentSolve? prefix)
     {
+        var initialState = state;
         var coefficients = coordinate switch
         {
             0 => fullSolve.HeadCoefficients,
@@ -2497,6 +2683,7 @@ public class PhysiologicalModel
         SegmentSolve? best = null;
         var bestTime = 0.0;
         var bestSlope = 0.0;
+        var nextUnilateralProbe = 0;
 
         var fullFinal = fullSolve.Final;
         var fullResidual = ModeCoordinateValue(in fullFinal, coordinate) - level;
@@ -2511,6 +2698,73 @@ public class PhysiologicalModel
         var localized = false;
         var invalidBound = double.NaN;
         double? rootCandidate = null;
+        var firstHeadwardCorrectionAttempted = false;
+
+        bool TryUnilateralHeadward(bool requireMonotone, out double time,
+            out SegmentSolve? result)
+        {
+            time = 0.0;
+            result = null;
+            var eventTime = bestTime - lowerResidual / bestSlope;
+            for (var probeIndex = 0; probeIndex < 12 &&
+                 eventTime > bestTime && eventTime < duration; probeIndex++)
+            {
+                var unilateral = AdvanceCirculationSegment(in initialState, eventTime,
+                    gx, gy, gz, settings, bounds, headwardOverride: false);
+                var unilateralValid = unilateral.Converged &&
+                    unilateral.StateViolations.Length == 0 &&
+                    unilateral.ModeCrossings.Length == 0;
+                if (!unilateralValid)
+                    break;
+                var headError = unilateral.Final.BloodHead - level;
+                var headCoefficients = unilateral.HeadCoefficients;
+                var slope = headCoefficients[1] +
+                    2.0 * headCoefficients[2] * eventTime +
+                    3.0 * headCoefficients[3] * eventTime * eventTime;
+                if (!IsFiniteNumber(headError) || !IsFiniteNumber(slope) ||
+                    slope <= 0.0)
+                    break;
+                if (requireMonotone)
+                {
+                    var denseEnd = NumericalMath.EvaluateCubic(
+                        headCoefficients, eventTime);
+                    var monotone = IsFiniteNumber(headCoefficients[1]) &&
+                        headCoefficients[1] > 0.0 && IsFiniteNumber(slope) &&
+                        slope > 0.0 && IsFiniteNumber(denseEnd) &&
+                        denseEnd <= level;
+                    if (monotone && headCoefficients[3] > 0.0)
+                    {
+                        var vertex = -headCoefficients[2] /
+                                     (3.0 * headCoefficients[3]);
+                        if (vertex > 0.0 && vertex < eventTime)
+                        {
+                            var vertexSlope = headCoefficients[1] +
+                                2.0 * headCoefficients[2] * vertex +
+                                3.0 * headCoefficients[3] * vertex * vertex;
+                            monotone = IsFiniteNumber(vertexSlope) &&
+                                       vertexSlope > 0.0;
+                        }
+                    }
+
+                    if (!monotone) return false;
+                }
+
+                if (headError <= 0.0 &&
+                    Math.Abs(headError) <=
+                    slope * PressureBoundRootToleranceSeconds + 1e-12 &&
+                    unilateral.Stages.All(stage => stage.BloodHead <= level))
+                {
+                    time = eventTime;
+                    result = unilateral;
+                    return true;
+                }
+                if (headError >= 0.0) break;
+                eventTime -= headError / slope;
+            }
+
+            return false;
+        }
+
         for (var iteration = 0; iteration < 60 && !localized; iteration++)
         {
             var hiSearch = IsFiniteNumber(upperBound) && IsFiniteNumber(invalidBound)
@@ -2554,15 +2808,52 @@ public class PhysiologicalModel
             {
                 if (!IsFiniteNumber(invalidBound) || candidate < invalidBound)
                     invalidBound = candidate;
-                if (candidate - lowerBound <= 1e-12)
+                var gap = candidate - lowerBound;
+                var terminalGap = gap <= 1e-12;
+                var headwardCorrectionEligible =
+                    coordinate == 0 && level == settings.RestingBloodHead &&
+                    bounds == BloodBounds.None && side < 0 && best != null &&
+                    bestSlope > 0.0;
+                var earlyUnilateralThreshold = nextUnilateralProbe switch
+                {
+                    0 => 1e-4,
+                    1 => 1e-6,
+                    2 => PressureBoundRootToleranceSeconds,
+                    _ => double.PositiveInfinity
+                };
+                var earlyUnilateralAttempt =
+                    headwardCorrectionEligible && nextUnilateralProbe < 3 &&
+                    gap <= earlyUnilateralThreshold && !terminalGap;
+                if (earlyUnilateralAttempt) nextUnilateralProbe++;
+                if (earlyUnilateralAttempt ||
+                    headwardCorrectionEligible && terminalGap)
+                {
+                    if (TryUnilateralHeadward(false, out var correctionTime,
+                            out var correction))
+                    {
+                        transitionTime = correctionTime;
+                        prefix = correction;
+                        return true;
+                    }
+                }
+
+                if (terminalGap)
                 {
                     var invalidFinal = trial.Final;
+                    var bestFinal = best?.Final ?? default;
                     diagnostics.Add(
                         $"mode transition trial {candidate:R}s invalid: " +
                         $"converged {trial.Converged}, violations " +
                         $"[{string.Join("; ", trial.StateViolations)}] " +
                         $"crossings [{string.Join("; ", trial.ModeCrossings)}] " +
-                        $"endcoord {ModeCoordinateValue(in invalidFinal, coordinate):R}");
+                        $"endcoord {ModeCoordinateValue(in invalidFinal, coordinate):R}; " +
+                        $"coordinate={coordinate}, level={level:R}, " +
+                        $"lower={lowerBound:R}, upper={upperBound:R}, " +
+                        $"invalid={invalidBound:R}, best={bestTime:R}, " +
+                        $"lowerResidual={lowerResidual:R}, bestSlope={bestSlope:R}, " +
+                        $"bestEnd={(best == null ? double.NaN : ModeCoordinateValue(in bestFinal, coordinate)):R}, " +
+                        $"trialResidual={trial.MaxScaledResidual:R}, " +
+                        $"bestResidual={(best == null ? double.NaN : best.MaxScaledResidual):R}");
                     transitionTime = 0.0;
                     prefix = null;
                     return false;
@@ -2588,6 +2879,21 @@ public class PhysiologicalModel
                 };
                 bestSlope = bestCoefficients[1] + 2.0 * bestCoefficients[2] * candidate +
                     3.0 * bestCoefficients[3] * candidate * candidate;
+                var headwardCorrectionEligible =
+                    coordinate == 0 && level == settings.RestingBloodHead &&
+                    bounds == BloodBounds.None && side < 0 && bestSlope > 0.0;
+                if (!firstHeadwardCorrectionAttempted && headwardCorrectionEligible)
+                {
+                    firstHeadwardCorrectionAttempted = true;
+                    if (TryUnilateralHeadward(true, out var correctionTime,
+                            out var correction))
+                    {
+                        transitionTime = correctionTime;
+                        prefix = correction;
+                        return true;
+                    }
+                }
+
                 if (bestSlope * side < 0.0)
                 {
                     var root = bestTime - endResidual / bestSlope;
@@ -2859,27 +3165,9 @@ public class PhysiologicalModel
         LogicSettings settings,
         List<string> diagnostics)
     {
-        var span = to - from;
-        if (span <= 0.0) return pressureStart;
-
-        var x = decayRate * span;
-        var w = -NumericalMath.ExpMinusOne(-x);
-        var mass = decayRate == 0.0 ? span : w / decayRate;
-        var nodes = NumericalMath.GaussLegendre16Nodes;
-        var weights = NumericalMath.GaussLegendre16Weights;
-        var sum = 0.0;
-        for (var node = 0; node < nodes.Length; node++)
-        {
-            var offset = decayRate == 0.0
-                ? from + nodes[node] * span
-                : to + (x >= 1.0
-                    ? Math.Log(Math.Exp(-x) + w * nodes[node])
-                    : NumericalMath.LogOnePlus(-w * (1.0 - nodes[node]))) / decayRate;
-            sum += weights[node] * PressureSource(
-                EvaluateDenseHead(headCoefficients, offset, diagnostics), gz, settings);
-        }
-
-        return pressureStart * Math.Exp(-x) + mass * sum;
+        return NumericalMath.ExponentialConvolution(pressureStart, from, to, decayRate,
+            offset => PressureSource(
+                EvaluateDenseHead(headCoefficients, offset, diagnostics), gz, settings));
     }
 
     private static double EvaluateDenseHead(double[] headCoefficients, double offset,
@@ -2931,7 +3219,7 @@ public class PhysiologicalModel
         }
     }
 
-    private static bool IsFiniteNumber(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+    private static bool IsFiniteNumber(double value) => NumericalMath.IsFinite(value);
 
     #endregion
 
@@ -2939,7 +3227,7 @@ public class PhysiologicalModel
 
     private const double FullIntervalEventScanTolerance = 1e-9;
 
-    private sealed class IntervalTrialState
+    private struct IntervalTrialState
     {
         internal double Head;
         internal double Lower;
@@ -2950,6 +3238,102 @@ public class PhysiologicalModel
         internal double Arterial;
         internal double Compression;
         internal double Core => 1.0 - Head - Lower;
+    }
+
+    private enum FullIntervalEventProbeNeeds
+    {
+        None = 0,
+        Head = 1,
+        Trial = 2,
+        Oxygen = 4,
+        Consciousness = 8,
+        Pressure = 16,
+        Compression = 32,
+        Respiratory = 64,
+        TunnelVision = 128,
+        Redout = 256,
+        Grayscale = 512,
+        NaturalOxygenDerivative = 1024
+    }
+
+    private struct FullIntervalEventProbe
+    {
+        internal double Time;
+        internal double Head;
+        internal IntervalTrialState Trial;
+        internal double HeadOxygen;
+        internal double LowerOxygen;
+        internal double CoreOxygen;
+        internal double Consciousness;
+        internal double Pressure;
+        internal double Compression;
+        internal double Respiratory;
+        internal double TunnelVision;
+        internal double Redout;
+        internal double Grayscale;
+        internal double TunnelVisionTarget;
+        internal double RedoutTarget;
+        internal double GrayscaleTarget;
+        internal double NaturalOxygenDerivative;
+
+        internal double OxygenAt(int coordinate) => coordinate switch
+        {
+            0 => HeadOxygen,
+            1 => LowerOxygen,
+            2 => CoreOxygen,
+            _ => double.NaN
+        };
+
+        internal double VisualValue(int channel) => channel switch
+        {
+            0 => TunnelVision,
+            1 => Redout,
+            2 => Grayscale,
+            _ => double.NaN
+        };
+
+        internal double VisualTarget(int channel) => channel switch
+        {
+            0 => TunnelVisionTarget,
+            1 => RedoutTarget,
+            2 => GrayscaleTarget,
+            _ => double.NaN
+        };
+    }
+
+    private readonly struct CrossingSamples
+    {
+        private readonly double start;
+        private readonly double probe0;
+        private readonly double probe1;
+        private readonly double probe2;
+        private readonly double probe3;
+        private readonly double probe4;
+        private readonly double end;
+
+        internal CrossingSamples(double start, double probe0, double probe1, double probe2,
+            double probe3, double probe4, double end)
+        {
+            this.start = start;
+            this.probe0 = probe0;
+            this.probe1 = probe1;
+            this.probe2 = probe2;
+            this.probe3 = probe3;
+            this.probe4 = probe4;
+            this.end = end;
+        }
+
+        internal double ValueAt(int index) => index switch
+        {
+            0 => start,
+            1 => probe0,
+            2 => probe1,
+            3 => probe2,
+            4 => probe3,
+            5 => probe4,
+            6 => end,
+            _ => double.NaN
+        };
     }
 
     private readonly struct ExponentialChannel
@@ -2970,9 +3354,11 @@ public class PhysiologicalModel
         private bool Instant => inverseTau >= 1e9;
 
         internal double At(double t) =>
-            Instant
-                ? (t <= 0.0 ? initial : equilibrium)
-                : equilibrium + (initial - equilibrium) * Math.Exp(-inverseTau * t);
+            t == 0.0
+                ? initial
+                : Instant
+                    ? (t < 0.0 ? initial : equilibrium)
+                    : equilibrium + (initial - equilibrium) * Math.Exp(-inverseTau * t);
 
         internal double RateAt(double t) => Instant ? 0.0 : (equilibrium - At(t)) * inverseTau;
 
@@ -3187,6 +3573,7 @@ public class PhysiologicalModel
 
         internal double NeckAt(double t)
         {
+            if (t == 0.0) return neckInitial;
             if (t >= neckClampTime) return neckCeiling;
             return neckEquilibrium +
                    (neckInitial - neckEquilibrium) * Math.Exp(-neckInverseTau * t);
@@ -3246,6 +3633,10 @@ public class PhysiologicalModel
             return NumericalMath.EvaluateCubic(segment.HeadCoefficients,
                 t - segment.CoefficientStart);
         }
+
+        internal bool TryHeadRange(double from, double to, out double minimum,
+            out double maximum) =>
+            PhysiologicalModel.TryHeadRange(segments, from, to, out minimum, out maximum);
 
         internal IntegrationState CirculationStateAt(double t)
         {
@@ -3369,11 +3760,11 @@ public class PhysiologicalModel
             (gxMagnitude - settings.GxLungOxygenationImpairmentThreshold) / 4.0, 2.0), 0.0, 1.0);
     }
 
-    private static double O2Normalized(double headO2, LogicSettings settings) => Clamp(
+    internal static double O2Normalized(double headO2, LogicSettings settings) => Clamp(
         (headO2 - settings.BrainO2Blackout) /
         (settings.BrainO2Full - settings.BrainO2Blackout), 0.0, 1.0);
 
-    private static double PerfusionNormalized(double headBlood, LogicSettings settings)
+    internal static double PerfusionNormalized(double headBlood, LogicSettings settings)
     {
         var ratio = Clamp(headBlood / settings.RestingBloodHead, 0.0, 1.0);
         return Clamp(
@@ -3381,12 +3772,21 @@ public class PhysiologicalModel
             (1.0 - settings.ConsciousnessPerfusionSoftMinRatio), 0.0, 1.0);
     }
 
-    private static (double Target, double LossTau) ConsciousnessTargetAndTau(
-        double o2Normalized, double perfNorm, double pressure, LogicSettings settings)
+    internal static double ConsciousnessRawReserve(double o2Normalized, double perfNorm,
+        LogicSettings settings)
     {
         var o2Term = Math.Pow(o2Normalized, settings.ConsciousnessO2Exponent);
         var perfTerm = Math.Pow(SmoothStep(perfNorm), settings.ConsciousnessPerfusionExponent);
-        var target = o2Term * perfTerm;
+        var combinedDeficit = 1.0 - (0.5 * o2Normalized + 0.5 * perfNorm);
+        return o2Term * perfTerm -
+               settings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit;
+    }
+
+    internal static (double Target, double LossTau) ConsciousnessTargetAndTau(
+        double o2Normalized, double perfNorm, double pressure, LogicSettings settings)
+    {
+        var rawReserve = ConsciousnessRawReserve(o2Normalized, perfNorm, settings);
+        var target = Math.Max(0.0, rawReserve);
 
         var effectivePressure = Clamp(
             (pressure - settings.CerebralPressureImpairmentDeadband) /
@@ -3394,9 +3794,6 @@ public class PhysiologicalModel
         var pressureReserve = Math.Pow(Clamp(1.0 - effectivePressure, 0.0, 1.0),
             settings.CerebralPressureConsciousnessExponent);
 
-        var combinedDeficit = 1.0 - (0.5 * o2Normalized + 0.5 * perfNorm);
-        target = Math.Max(0.0,
-            target - settings.ConsciousnessDeficitBias * combinedDeficit * combinedDeficit);
         if (perfNorm < 0.25) target = Math.Min(target, perfNorm * 0.75);
         target = Math.Min(target, pressureReserve);
 
@@ -3450,7 +3847,7 @@ public class PhysiologicalModel
     // constrained algebraically to a time-varying target (instantaneous tau
     // limit). Instant coordinates carry a zero row/column in M; their target is
     // folded into B of the free rows by the builder.
-    private sealed class AffineSystemSpec
+    internal sealed class AffineSystemSpec
     {
         internal double[][] M = [];
         internal double[] B = [];
@@ -3458,17 +3855,25 @@ public class PhysiologicalModel
         internal Func<double, double>?[] InstantTargets = [];
     }
 
-    private sealed class AffineSolution
+    internal sealed class AffineSolution
     {
         internal bool Valid;
         internal double[][] M0 = [];
         internal double[] B0 = [];
         internal double[] BaseSource = [];
         internal double[] Y0 = [];
+        internal double[][] ResidualBasis = [];
         internal double Duration;
+        internal NumericalMath.MomentPowerCache? MomentPowers;
+        internal double[][]? DenseMomentCoefficients;
+        internal double DenseMomentExtent;
+        internal double DenseMomentNorm;
+        internal int DenseMomentDegree;
         internal double[][] Stages = [];
         internal double[][] Residuals = [];
         internal Func<double, double>?[] InstantTargets = [];
+        internal bool LoCCeilingZeroOnPiece;
+        internal ScalarLagSolution? ScalarOverride;
         private readonly Dictionary<double, double[]> cache = new();
 
         internal double[] Evaluate(double c)
@@ -3476,14 +3881,22 @@ public class PhysiologicalModel
             if (cache.TryGetValue(c, out var cached)) return cached;
             var n = Y0.Length;
             var y = new double[n];
-            var allInstant = InstantTargets.Length == n;
-            for (var i = 0; i < n && allInstant; i++)
-                allInstant &= InstantTargets[i] != null;
-            if (!allInstant && !EvaluateFree(c, y))
-                for (var i = 0; i < n; i++) y[i] = double.NaN;
-            for (var i = 0; i < n; i++)
-                if (i < InstantTargets.Length && InstantTargets[i] != null)
-                    y[i] = InstantTargets[i]!(c);
+            if (ScalarOverride != null)
+            {
+                y[0] = ScalarOverride.Evaluate(c);
+            }
+            else
+            {
+                var allInstant = InstantTargets.Length == n;
+                for (var i = 0; i < n && allInstant; i++)
+                    allInstant &= InstantTargets[i] != null;
+                if (!allInstant && !EvaluateFree(c, y))
+                    for (var i = 0; i < n; i++)
+                        y[i] = double.NaN;
+                for (var i = 0; i < n; i++)
+                    if (i < InstantTargets.Length && InstantTargets[i] != null)
+                        y[i] = InstantTargets[i]!(c);
+            }
             cache[c] = y;
             return y;
         }
@@ -3501,34 +3914,63 @@ public class PhysiologicalModel
                 for (var j = 0; j < stageCount; j++)
                 {
                     var basis = LagrangePolynomialBasis[j];
-                    var w = basis[0] * scalar[0] + basis[1] * scalar[1] +
-                            basis[2] * scalar[2];
-                    value += Duration * w * Residuals[j][0];
+                    var weight = basis[0] * scalar[0] + basis[1] * scalar[1] +
+                                 basis[2] * scalar[2];
+                    value += Duration * weight * Residuals[j][0];
                 }
                 y[0] = value;
                 return true;
             }
 
-            var a = NumericalMath.CreateMatrix(n);
-            for (var i = 0; i < n; i++)
-                for (var k = 0; k < n; k++)
-                    a[i][k] = M0[i][k] * Duration;
-            var moments = NumericalMath.MomentMatrices(a, c);
-            if (moments is null) return false;
-            for (var i = 0; i < n; i++)
+            var denseMomentCoefficients = DenseMomentCoefficients;
+            if (n == 3 && denseMomentCoefficients != null && c >= 0.0 &&
+                c <= DenseMomentExtent && DenseMomentNorm * c <= 1.0)
             {
-                var value = Y0[i];
-                for (var k = 0; k < n; k++)
-                    value += Duration * moments[0][i][k] * BaseSource[k];
-                for (var j = 0; j < stageCount; j++)
-                    for (var k = 0; k < n; k++)
+                var finite = true;
+                for (var row = 0; row < 3; row++)
+                {
+                    var polynomial = denseMomentCoefficients[DenseMomentDegree - 1][row];
+                    for (var coefficient = DenseMomentDegree - 2;
+                         coefficient >= 0; coefficient--)
+                        polynomial = denseMomentCoefficients[coefficient][row] +
+                                     c * polynomial;
+                    var value = Y0[row] + c * polynomial;
+                    if (!IsFiniteNumber(value))
                     {
-                        var w = 0.0;
-                        for (var m = 0; m < 3; m++)
-                            w += LagrangePolynomialBasis[j][m] * moments[m][i][k];
-                        value += Duration * w * Residuals[j][k];
+                        finite = false;
+                        break;
                     }
-                y[i] = value;
+                    y[row] = value;
+                }
+                if (finite)
+                    return true;
+            }
+
+            var momentPowers = MomentPowers;
+            NumericalMath.MatrixMoments moments;
+            var momentsValid = momentPowers != null && c >= 0.0 && c <= 1.0
+                ? NumericalMath.TryMomentMatrices(momentPowers, c, out moments)
+                : NumericalMath.TryMomentMatrices(M0, Duration, c, out moments);
+            if (!momentsValid)
+                return false;
+            if (n > 1)
+            {
+                if (ResidualBasis.Length != 3) return false;
+                for (var moment = 0; moment < 3; moment++)
+                    if (ResidualBasis[moment] == null || ResidualBasis[moment].Length < n)
+                        return false;
+            }
+            for (var row = 0; row < n; row++)
+            {
+                var value = Y0[row];
+                for (var k = 0; k < n; k++)
+                    value += Duration * moments[0, row, k] * BaseSource[k];
+                if (n > 1)
+                    for (var moment = 0; moment < 3; moment++)
+                        for (var k = 0; k < n; k++)
+                            value += Duration * moments[moment, row, k] *
+                                     ResidualBasis[moment][k];
+                y[row] = value;
             }
             return true;
         }
@@ -3538,22 +3980,32 @@ public class PhysiologicalModel
             var n = Y0.Length;
             var y = Evaluate(c);
             var f = new double[n];
+            if (ScalarOverride != null)
+            {
+                f[0] = ScalarOverride.Derivative(c);
+                return f;
+            }
+
             for (var i = 0; i < n; i++)
             {
+                double value;
                 if (i < InstantTargets.Length && InstantTargets[i] != null)
                 {
                     var delta = Math.Min(1e-6, Math.Max(1e-9, 0.5 * (1.0 - c)));
                     var slope = (InstantTargets[i]!(c + delta) - y[i]) / delta;
-                    f[i] = double.IsFinite(slope) ? slope / Duration : 0.0;
-                    continue;
+                    value = IsFiniteNumber(slope) ? slope / Duration : 0.0;
                 }
-                var value = B0[i];
-                for (var k = 0; k < n; k++) value += M0[i][k] * y[k];
-                for (var j = 0; j < NumericalMath.RadauStageCount; j++)
+                else
                 {
-                    var basis = LagrangePolynomialBasis[j];
-                    var l = basis[0] + c * (basis.Length > 1 ? basis[1] + c * basis[2] : 0.0);
-                    value += l * Residuals[j][i];
+                    value = B0[i];
+                    for (var k = 0; k < n; k++) value += M0[i][k] * y[k];
+                    for (var j = 0; j < NumericalMath.RadauStageCount; j++)
+                    {
+                        var basis = LagrangePolynomialBasis[j];
+                        var l = basis[0] +
+                            c * (basis.Length > 1 ? basis[1] + c * basis[2] : 0.0);
+                        value += l * Residuals[j][i];
+                    }
                 }
                 f[i] = value;
             }
@@ -3563,7 +4015,136 @@ public class PhysiologicalModel
 
     private static readonly double[][] LagrangePolynomialBasis = NumericalMath.LagrangeBasis();
 
-    private static AffineSolution SolveAffineCollocation(double[] y0, double h,
+    internal sealed class ScalarLagSolution
+    {
+        private readonly double initial;
+        private readonly double duration;
+        private readonly double tau;
+        private readonly Func<double, double>? targetAt;
+        private readonly Func<double, double>? decayRateAt;
+        private readonly bool hasConstantTarget;
+        private readonly double constantTarget;
+        private readonly Dictionary<double, double> cache = new();
+
+        internal ScalarLagSolution(double initial, double duration, double tau,
+            Func<double, double> targetAt)
+        {
+            this.initial = initial;
+            this.duration = duration;
+            this.tau = tau;
+            this.targetAt = targetAt;
+            decayRateAt = null;
+            hasConstantTarget = false;
+            constantTarget = 0.0;
+        }
+
+        internal ScalarLagSolution(double initial, double duration, double tau,
+            double constantTarget)
+        {
+            if (constantTarget is not (0.0 or 1.0))
+                throw new ArgumentOutOfRangeException(nameof(constantTarget));
+            this.initial = initial;
+            this.duration = duration;
+            this.tau = tau;
+            targetAt = null;
+            decayRateAt = null;
+            hasConstantTarget = true;
+            this.constantTarget = constantTarget;
+        }
+
+        internal ScalarLagSolution(double initial, double duration,
+            Func<double, double> targetAt, Func<double, double> decayRateAt)
+        {
+            this.initial = initial;
+            this.duration = duration;
+            tau = double.NaN;
+            this.targetAt = targetAt;
+            this.decayRateAt = decayRateAt;
+            hasConstantTarget = false;
+            constantTarget = 0.0;
+        }
+
+        internal double Evaluate(double c)
+        {
+            if (cache.TryGetValue(c, out var cached)) return cached;
+            double value;
+            if (hasConstantTarget)
+            {
+                value = tau <= 1e-9
+                    ? constantTarget
+                    : c == 0.0
+                        ? initial
+                        : constantTarget + (initial - constantTarget) *
+                          Math.Exp(-duration * c / tau);
+            }
+            else if (decayRateAt != null)
+            {
+                if (c == 0.0)
+                {
+                    value = initial;
+                }
+                else
+                {
+                    var span = duration * c;
+                    var weightedRate = 0.0;
+                    var valid = IsFiniteNumber(span) && span > 0.0;
+                    for (var node = 0;
+                         node < NumericalMath.GaussLegendre16Nodes.Length && valid;
+                         node++)
+                    {
+                        var sample = c * NumericalMath.GaussLegendre16Nodes[node];
+                        var target = targetAt!(sample);
+                        var rate = decayRateAt(sample);
+                        if (!IsFiniteNumber(target) || target != 0.0 ||
+                            !IsFiniteNumber(rate) || rate <= 0.0)
+                        {
+                            valid = false;
+                            break;
+                        }
+                        weightedRate += NumericalMath.GaussLegendre16Weights[node] * rate;
+                    }
+                    value = valid
+                        ? initial * Math.Exp(-span * weightedRate)
+                        : double.NaN;
+                }
+            }
+            else
+            {
+                value = tau <= 1e-9
+                    ? targetAt!(c)
+                    : c == 0.0
+                        ? initial
+                        : initial + NumericalMath.ExponentialConvolution(0.0, 0.0,
+                            duration * c, 1.0 / tau,
+                            time => (targetAt!(time / duration) - initial) / tau);
+            }
+            cache[c] = value;
+            return value;
+        }
+
+        internal double Derivative(double c)
+        {
+            var value = Evaluate(c);
+            if (hasConstantTarget)
+                return tau <= 1e-9 ? 0.0 : (constantTarget - value) / tau;
+            if (decayRateAt != null)
+            {
+                var rate = decayRateAt(c);
+                return IsFiniteNumber(rate) && rate > 0.0
+                    ? -rate * value
+                    : double.NaN;
+            }
+            if (tau <= 1e-9)
+            {
+                var delta = Math.Min(1e-6, Math.Max(1e-9, 0.5 * (1.0 - c)));
+                var slope = (targetAt!(c + delta) - value) / delta;
+                return IsFiniteNumber(slope) ? slope / duration : 0.0;
+            }
+            return (targetAt!(c) - value) / tau;
+        }
+    }
+
+    internal static AffineSolution SolveAffineCollocation(double[] y0, double h,
         AffineSystemSpec s0,
         Func<double, AffineSystemSpec> stageSystem)
     {
@@ -3594,52 +4175,46 @@ public class PhysiologicalModel
         }
         solution.BaseSource = baseSource;
 
-        var scalarMoments = new double[stageCount][];
-        var matrixMoments = new double[stageCount][][][];
         var p = new double[stageCount][];
         var w = new double[stageCount][][][];
         var dm = new double[stageCount][][];
-        var db = new double[stageCount][];
+        var deltaF = new double[stageCount][];
         for (var i = 0; i < stageCount; i++)
         {
             var c = NumericalMath.RadauC[i];
+            var moments = default(NumericalMath.MatrixMoments);
             if (n == 1)
             {
                 var scalar = new double[3];
                 if (!NumericalMath.ScalarMoments(m0[0][0] * h, c, scalar))
                     return solution;
-                scalarMoments[i] = scalar;
+                for (var moment = 0; moment < 3; moment++)
+                    moments[moment, 0, 0] = scalar[moment];
             }
-            else
+            else if (!NumericalMath.TryMomentMatrices(m0, h, c, out moments))
             {
-                var a = NumericalMath.CreateMatrix(n);
-                for (var row = 0; row < n; row++)
-                    for (var k = 0; k < n; k++)
-                        a[row][k] = m0[row][k] * h;
-                var moments = NumericalMath.MomentMatrices(a, c);
-                if (moments is null) return solution;
-                matrixMoments[i] = moments;
+                return solution;
             }
 
             p[i] = new double[n];
             for (var row = 0; row < n; row++)
             {
-                var value = initial[row];
-                if (n == 1)
-                    value += h * scalarMoments[i][0] * baseSource[0];
-                else
-                    for (var k = 0; k < n; k++)
-                        value += h * matrixMoments[i][0][row][k] * baseSource[k];
+                var value = 0.0;
+                for (var k = 0; k < n; k++)
+                    value += h * moments[0, row, k] * baseSource[k];
                 p[i][row] = value;
             }
 
             var specJ = stageSystem(c);
             dm[i] = NumericalMath.CreateMatrix(n);
-            db[i] = new double[n];
+            deltaF[i] = new double[n];
             for (var row = 0; row < n; row++)
             {
                 for (var k = 0; k < n; k++) dm[i][row][k] = specJ.M[row][k] - m0[row][k];
-                db[i][row] = specJ.B[row] - b0[row];
+                var initialStageRate = specJ.B[row];
+                for (var k = 0; k < n; k++)
+                    initialStageRate += specJ.M[row][k] * initial[k];
+                deltaF[i][row] = initialStageRate - baseSource[row];
             }
 
             w[i] = new double[stageCount][][];
@@ -3652,9 +4227,7 @@ public class PhysiologicalModel
                     for (var row = 0; row < n; row++)
                         for (var k = 0; k < n; k++)
                             w[i][j][row][k] += coefficient *
-                                (n == 1
-                                    ? (row == 0 && k == 0 ? scalarMoments[i][m] : 0.0)
-                                    : matrixMoments[i][m][row][k]);
+                                moments[m, row, k];
                 }
             }
         }
@@ -3672,7 +4245,7 @@ public class PhysiologicalModel
                     for (var k = 0; k < n; k++)
                     {
                         var wij = w[i][j][row][k];
-                        rhs[blockRow] += h * wij * db[j][k];
+                        rhs[blockRow] += h * wij * deltaF[j][k];
                         for (var l = 0; l < n; l++)
                             lhs[blockRow][j * n + l] -= h * wij * dm[j][k][l];
                     }
@@ -3685,7 +4258,8 @@ public class PhysiologicalModel
                 var blockRow = i * n + row;
                 for (var column = 0; column < size; column++) lhs[blockRow][column] = 0.0;
                 lhs[blockRow][blockRow] = 1.0;
-                rhs[blockRow] = s0.InstantTargets[row]!(NumericalMath.RadauC[i]);
+                rhs[blockRow] =
+                    s0.InstantTargets[row]!(NumericalMath.RadauC[i]) - initial[row];
             }
 
         var flat = new double[size];
@@ -3707,7 +4281,8 @@ public class PhysiologicalModel
         for (var i = 0; i < stageCount; i++)
         {
             solution.Stages[i] = new double[n];
-            for (var row = 0; row < n; row++) solution.Stages[i][row] = flat[i * n + row];
+            for (var row = 0; row < n; row++)
+                solution.Stages[i][row] = initial[row] + flat[i * n + row];
         }
 
         solution.Residuals = new double[stageCount][];
@@ -3716,18 +4291,162 @@ public class PhysiologicalModel
             solution.Residuals[j] = new double[n];
             for (var row = 0; row < n; row++)
             {
-                var value = db[j][row];
+                var value = deltaF[j][row];
                 for (var k = 0; k < n; k++)
-                    value += dm[j][row][k] * solution.Stages[j][k];
+                    value += dm[j][row][k] * flat[j * n + k];
                 solution.Residuals[j][row] = value;
             }
+        }
+
+        if (n > 1)
+        {
+            var residualBasis = new double[3][];
+            for (var moment = 0; moment < 3; moment++)
+            {
+                residualBasis[moment] = new double[n];
+                for (var k = 0; k < n; k++)
+                {
+                    var value = 0.0;
+                    for (var j = 0; j < stageCount; j++)
+                        value += LagrangePolynomialBasis[j][moment] *
+                                 solution.Residuals[j][k];
+                    if (!IsFiniteNumber(value)) return solution;
+                    residualBasis[moment][k] = value;
+                }
+            }
+            solution.ResidualBasis = residualBasis;
         }
 
         solution.Valid = true;
         foreach (var stage in solution.Stages)
             foreach (var value in stage)
                 if (!IsFiniteNumber(value)) solution.Valid = false;
+        if (solution.Valid && n == 3)
+        {
+            solution.MomentPowers =
+                NumericalMath.CreateMomentPowerCache(solution.M0, h);
+            if (solution.MomentPowers != null)
+                PrepareDenseMomentTaylor(solution);
+        }
         return solution;
+    }
+
+    private static void PrepareDenseMomentTaylor(AffineSolution solution)
+    {
+        const int coefficientCount = 32;
+        var powerCache = solution.MomentPowers;
+        if (powerCache == null || solution.Y0.Length != 3 ||
+            solution.BaseSource.Length < 3 || solution.ResidualBasis.Length != 3)
+            return;
+        for (var moment = 0; moment < 3; moment++)
+            if (solution.ResidualBasis[moment] == null ||
+                solution.ResidualBasis[moment].Length < 3)
+                return;
+
+        var norm = powerCache.Norm;
+        var h = solution.Duration;
+        if (!IsFiniteNumber(norm) || norm <= 0.0 || !IsFiniteNumber(h)) return;
+        var extent = Math.Min(1.0, 1.0 / norm);
+        if (!IsFiniteNumber(extent) || extent <= 0.0) return;
+
+        double InfinityNorm(double[] values)
+        {
+            var maximum = 0.0;
+            for (var i = 0; i < 3; i++)
+            {
+                if (!IsFiniteNumber(values[i])) return double.NaN;
+                maximum = Math.Max(maximum, Math.Abs(values[i]));
+            }
+            return maximum;
+        }
+
+        var source0 = new double[3];
+        for (var coordinate = 0; coordinate < 3; coordinate++)
+        {
+            source0[coordinate] = solution.BaseSource[coordinate] +
+                                  solution.ResidualBasis[0][coordinate];
+            if (!IsFiniteNumber(source0[coordinate])) return;
+        }
+        var u0 = Math.Abs(h) * InfinityNorm(source0);
+        var u1 = Math.Abs(h) * InfinityNorm(solution.ResidualBasis[1]);
+        var u2 = Math.Abs(h) * InfinityNorm(solution.ResidualBasis[2]);
+        if (!IsFiniteNumber(u0) || !IsFiniteNumber(u1) || !IsFiniteNumber(u2))
+            return;
+
+        var coefficients = new double[coefficientCount][];
+        coefficients[0] = new double[3];
+        for (var coordinate = 0; coordinate < 3; coordinate++)
+        {
+            coefficients[0][coordinate] = h * source0[coordinate];
+            if (!IsFiniteNumber(coefficients[0][coordinate])) return;
+        }
+
+        var scaledA = powerCache.ScaledA;
+        for (var degree = 2; degree <= 3; degree++)
+        {
+            var previous = coefficients[degree - 2];
+            var current = new double[3];
+            for (var row = 0; row < 3; row++)
+            {
+                var value = 0.0;
+                for (var column = 0; column < 3; column++)
+                    value += scaledA[row, column] * previous[column];
+                value += h * solution.ResidualBasis[degree - 1][row];
+                current[row] = value / degree;
+                if (!IsFiniteNumber(current[row])) return;
+            }
+            coefficients[degree - 1] = current;
+        }
+
+        var bound1 = u0;
+        var bound2 = (norm * bound1 + u1) / 2.0;
+        var bound3 = (norm * bound2 + u2) / 3.0;
+        if (!IsFiniteNumber(bound1) || !IsFiniteNumber(bound2) ||
+            !IsFiniteNumber(bound3))
+            return;
+
+        var exponential = Math.Exp(norm * extent);
+        var cPower = extent * extent * extent * extent;
+        if (!IsFiniteNumber(exponential) || !IsFiniteNumber(cPower)) return;
+
+        var currentDegree = 3;
+        var bound = bound3;
+        var certifiedDegree = 0;
+        while (currentDegree <= coefficientCount)
+        {
+            var nextDegree = currentDegree + 1;
+            var nextBound = norm * bound / nextDegree;
+            var tail = nextBound * cPower * exponential;
+            if (!IsFiniteNumber(nextBound) || !IsFiniteNumber(tail)) return;
+            if (tail <= 1e-15)
+            {
+                certifiedDegree = currentDegree;
+                break;
+            }
+            if (currentDegree == coefficientCount) return;
+
+            var previous = coefficients[currentDegree - 1];
+            var current = new double[3];
+            for (var row = 0; row < 3; row++)
+            {
+                var value = 0.0;
+                for (var column = 0; column < 3; column++)
+                    value += scaledA[row, column] * previous[column];
+                current[row] = value / nextDegree;
+                if (!IsFiniteNumber(current[row])) return;
+            }
+            coefficients[nextDegree - 1] = current;
+            bound = nextBound;
+            cPower *= extent;
+            if (!IsFiniteNumber(cPower)) return;
+            currentDegree = nextDegree;
+        }
+        if (certifiedDegree == 0) return;
+
+        solution.DenseMomentCoefficients = coefficients;
+        solution.DenseMomentExtent = extent;
+        solution.DenseMomentNorm = norm;
+        solution.DenseMomentDegree = certifiedDegree;
     }
 
     private struct DownstreamHold
@@ -3737,16 +4456,36 @@ public class PhysiologicalModel
         internal bool LowerPinned;
         internal bool CorePinned;
         internal bool ConsciousnessLosing;
+        internal double ConsciousnessTarget;
+        internal double ConsciousnessMargin;
+        internal double ConsciousnessMarginRightSlope;
+        internal double ConsciousnessTau;
         internal bool[] Increasing;
     }
 
     private sealed class DownstreamSolution
     {
         internal bool Valid;
+        internal string Failure = "";
         internal AffineSolution Oxygen = new();
         internal AffineSolution Consciousness = new();
-        internal AffineSolution[] Visuals = [];
+        internal ScalarLagSolution[] Visuals = [];
+        internal Func<int, double, double>? VisualTargetAt;
+        internal bool HasHeadRange;
+        internal double MinimumHead;
+        internal double MaximumHead;
+        internal double? TunnelVisionConstantTarget;
+        internal double? RedoutConstantTarget;
+        internal double? GrayscaleConstantTarget;
         internal List<string> InitialEvents = [];
+
+        internal double? ConstantVisualTarget(int channel) => channel switch
+        {
+            0 => TunnelVisionConstantTarget,
+            1 => RedoutConstantTarget,
+            2 => GrayscaleConstantTarget,
+            _ => null
+        };
     }
 
     private sealed class LoCTrajectory
@@ -3762,7 +4501,8 @@ public class PhysiologicalModel
         internal bool Pinned;
 
         internal double CeilingAt(double t) =>
-            LoCCeiling(Consciousness.Evaluate((t - PieceStart) / Consciousness.Duration)[0],
+            LoCCeiling(Consciousness.Evaluate(
+                (t - PieceStart) / Consciousness.Duration)[0],
                 Settings);
 
         internal double ValueAt(double t)
@@ -3895,10 +4635,8 @@ public class PhysiologicalModel
         if (tau <= 1e-9)
         {
             spec.Instant[0] = true;
-            spec.InstantTargets[0] = node => ConsciousnessTargetAndTau(
-                O2Normalized(headO2At(node), settings),
-                PerfusionNormalized(trialAt(node).Head, settings),
-                trialAt(node).Pressure, settings).Target;
+            spec.InstantTargets[0] = node =>
+                ConsciousnessTargetAt(trialAt, headO2At, node, settings);
             return spec;
         }
         var k = 1.0 / tau;
@@ -3907,37 +4645,25 @@ public class PhysiologicalModel
         return spec;
     }
 
-    private static AffineSystemSpec BuildLagSystem(Func<double, double> targetAt,
-        double c, double tau)
+    private static double ConsciousnessTargetAt(
+        Func<double, IntervalTrialState> trialAt, Func<double, double> headO2At,
+        double c, LogicSettings settings)
     {
-        var spec = new AffineSystemSpec
-        {
-            M = NumericalMath.CreateMatrix(1),
-            B = new double[1],
-            Instant = new bool[1],
-            InstantTargets = new Func<double, double>?[1]
-        };
-        if (tau <= 1e-9)
-        {
-            spec.Instant[0] = true;
-            spec.InstantTargets[0] = targetAt;
-            return spec;
-        }
-        var k = 1.0 / tau;
-        spec.M[0][0] = -k;
-        spec.B[0] = targetAt(c) * k;
-        return spec;
+        var trial = trialAt(c);
+        return ConsciousnessTargetAndTau(O2Normalized(headO2At(c), settings),
+            PerfusionNormalized(trial.Head, settings), trial.Pressure, settings).Target;
     }
 
     private static double BisectSign(Func<double, double> f, double lo, double hi,
-        int loSign, out int direction)
+        int loSign, out int direction,
+        double toleranceSeconds = PressureBoundRootToleranceSeconds)
     {
         direction = -loSign;
-        for (var i = 0; i < 200 && hi - lo > PressureBoundRootToleranceSeconds; i++)
+        for (var i = 0; i < 200 && hi - lo > toleranceSeconds; i++)
         {
             var mid = 0.5 * (lo + hi);
             var fMid = f(mid);
-            if (!double.IsFinite(fMid)) return double.NaN;
+            if (!IsFiniteNumber(fMid)) return double.NaN;
             if (fMid == 0.0) return mid;
             if ((fMid > 0.0) == (loSign > 0)) lo = mid;
             else hi = mid;
@@ -3959,7 +4685,18 @@ public class PhysiologicalModel
     ];
 
     private static double ScanCrossing(Func<double, double> f, double lo, double hi,
-        out int direction)
+        out int direction) =>
+        ScanCrossing(f, lo, hi, (CrossingSamples?)null, out direction);
+
+    private static double ScanCrossing(Func<double, double> f, double lo, double hi,
+        CrossingSamples samples, out int direction,
+        double toleranceSeconds = PressureBoundRootToleranceSeconds) =>
+        ScanCrossing(f, lo, hi, (CrossingSamples?)samples, out direction,
+            toleranceSeconds);
+
+    private static double ScanCrossing(Func<double, double> f, double lo, double hi,
+        CrossingSamples? samples, out int direction,
+        double toleranceSeconds = PressureBoundRootToleranceSeconds)
     {
         direction = 0;
         var span = hi - lo;
@@ -3969,10 +4706,11 @@ public class PhysiologicalModel
         var lastT = lo;
         var zeroStart = double.NaN;
         var startZero = false;
+        var crossingDirection = 0;
 
         double? Process(double t, double value)
         {
-            if (!double.IsFinite(value))
+            if (!IsFiniteNumber(value))
             {
                 lastSign = 0;
                 zeroStart = double.NaN;
@@ -3993,36 +4731,52 @@ public class PhysiologicalModel
                 double? result = null;
                 if (startZero)
                 {
-                    direction = sign;
+                    crossingDirection = sign;
                     result = lo;
                 }
                 else if (lastSign != 0 && sign == -lastSign)
-                    result = BisectSign(f, lastT, t, lastSign, out direction);
+                    result = BisectSign(f, lastT, t, lastSign, out crossingDirection,
+                        toleranceSeconds);
                 zeroStart = double.NaN;
                 lastSign = sign;
                 lastT = t;
                 return result;
             }
             if (lastSign != 0 && sign == -lastSign)
-                return BisectSign(f, lastT, t, lastSign, out direction);
+                return BisectSign(f, lastT, t, lastSign, out crossingDirection,
+                    toleranceSeconds);
             lastSign = sign;
             lastT = t;
             return null;
         }
 
-        var first = Process(lo, f(lo));
+        var first = Process(lo, samples.HasValue ? samples.Value.ValueAt(0) : f(lo));
         if (first.HasValue)
+        {
+            direction = crossingDirection;
             return double.IsNaN(first.Value) ? double.PositiveInfinity : first.Value;
+        }
+        var sampleIndex = 1;
         foreach (var probe in ScanProbes)
         {
             var t = lo + probe * span;
-            var hit = Process(t, f(t));
+            var value = samples.HasValue
+                ? samples.Value.ValueAt(sampleIndex)
+                : f(t);
+            var hit = Process(t, value);
             if (hit.HasValue)
+            {
+                direction = crossingDirection;
                 return double.IsNaN(hit.Value) ? double.PositiveInfinity : hit.Value;
+            }
+            sampleIndex++;
         }
-        var endHit = Process(hi, f(hi));
+        var endHit = Process(hi, samples.HasValue ? samples.Value.ValueAt(6) : f(hi));
         if (endHit.HasValue)
+        {
+            direction = crossingDirection;
             return double.IsNaN(endHit.Value) ? double.PositiveInfinity : endHit.Value;
+        }
         if (!double.IsNaN(zeroStart) && lastSign != 0)
         {
             direction = -lastSign;
@@ -4036,7 +4790,7 @@ public class PhysiologicalModel
     private static double RightSlope(Func<double, double> f)
     {
         var slope = (f(RightProbeFraction) - f(0.0)) / RightProbeFraction;
-        return double.IsFinite(slope) ? slope : 0.0;
+        return IsFiniteNumber(slope) ? slope : 0.0;
     }
 
     private static bool TargetRises(double target0, double level,
@@ -4065,25 +4819,61 @@ public class PhysiologicalModel
             (margin0 == 0.0 && RightSlope(c => BrainO2Target(EffectiveDelivery(
                     ShapedPerfusion(trialAt(c).Head, settings), trialAt(c).HeartRate,
                     trialAt(c).Arterial, settings), settings)) - hDot * span < 0.0);
+        double NaturalOxygenRateAt(int coordinate, double c)
+        {
+            var spec = BuildOxygenSystem(trialAt, c, hold.BrainDepleting, false,
+                false, false, gxMagnitude, settings);
+            var values = new[]
+            {
+                headO2 + hDot * c * span,
+                state.BloodO2Lower + lDot * c * span,
+                state.BloodO2Core + cDot * c * span
+            };
+            var rate = spec.B[coordinate];
+            for (var i = 0; i < values.Length; i++)
+                rate += spec.M[coordinate][i] * values[i];
+            return rate;
+        }
+
+        var headRateSlope = hDot == 0.0 ? RightSlope(c => NaturalOxygenRateAt(0, c)) : 0.0;
+        var lowerRateSlope = lDot == 0.0 ? RightSlope(c => NaturalOxygenRateAt(1, c)) : 0.0;
+        var coreRateSlope = cDot == 0.0 ? RightSlope(c => NaturalOxygenRateAt(2, c)) : 0.0;
         hold.HeadPinned =
-            (headO2 <= settings.BrainO2Floor && hDot <= 0.0) ||
-            (headO2 >= 1.0 && hDot >= 0.0);
+            (headO2 <= settings.BrainO2Floor &&
+             (hDot < 0.0 || (hDot == 0.0 && headRateSlope <= 0.0))) ||
+            (headO2 >= 1.0 &&
+             (hDot > 0.0 || (hDot == 0.0 && headRateSlope >= 0.0)));
         hold.LowerPinned =
-            (state.BloodO2Lower <= 0.0 && lDot <= 0.0) ||
-            (state.BloodO2Lower >= 1.0 && lDot >= 0.0);
+            (state.BloodO2Lower <= 0.0 &&
+             (lDot < 0.0 || (lDot == 0.0 && lowerRateSlope <= 0.0))) ||
+            (state.BloodO2Lower >= 1.0 &&
+             (lDot > 0.0 || (lDot == 0.0 && lowerRateSlope >= 0.0)));
         hold.CorePinned =
-            (state.BloodO2Core <= 0.0 && cDot <= 0.0) ||
-            (state.BloodO2Core >= 1.0 && cDot >= 0.0);
+            (state.BloodO2Core <= 0.0 &&
+             (cDot < 0.0 || (cDot == 0.0 && coreRateSlope <= 0.0))) ||
+            (state.BloodO2Core >= 1.0 &&
+             (cDot > 0.0 || (cDot == 0.0 && coreRateSlope >= 0.0)));
 
         double HeadO2Probe(double c) => headO2 + hDot * c * span;
-        var cMargin = ConsciousnessTargetAndTau(O2Normalized(headO2, settings),
+        var consciousnessTarget = ConsciousnessTargetAndTau(
+            O2Normalized(headO2, settings),
             PerfusionNormalized(trial.Head, settings), trial.Pressure,
-            settings).Target - state.ConsciousnessLevel;
+            settings);
+        var cMargin = consciousnessTarget.Target - state.ConsciousnessLevel;
+        hold.ConsciousnessTarget = consciousnessTarget.Target;
+        hold.ConsciousnessMargin = cMargin;
+        double ConsciousnessTargetProbe(double c) => ConsciousnessTargetAt(trialAt,
+            cProbe => HeadO2Probe(cProbe), c, settings);
+        var targetSlope = RightSlope(ConsciousnessTargetProbe);
         hold.ConsciousnessLosing = cMargin < 0.0 ||
-            (cMargin == 0.0 && RightSlope(c => ConsciousnessTargetAndTau(
-                O2Normalized(HeadO2Probe(c), settings),
-                PerfusionNormalized(trialAt(c).Head, settings), trialAt(c).Pressure,
-                settings).Target) < 0.0);
+            (cMargin == 0.0 && targetSlope < 0.0);
+        var consciousnessTau = hold.ConsciousnessLosing
+            ? consciousnessTarget.LossTau
+            : settings.ConsciousnessRecoveryTau;
+        hold.ConsciousnessTau = consciousnessTau;
+        hold.ConsciousnessMarginRightSlope = consciousnessTau > 1e-9
+            ? targetSlope / span - cMargin / consciousnessTau
+            : double.NaN;
 
         double PhysTargetAt(double c) => PhysiologicalVisualTarget(trialAt(c).Head,
             O2Normalized(HeadO2Probe(c), settings), settings);
@@ -4099,9 +4889,133 @@ public class PhysiologicalModel
         return hold;
     }
 
+    private static bool TryCreateHomogeneousZeroTargetLoss(
+        IntegrationState state, IntervalUpstream upstream, double cursor, double span,
+        DownstreamSolution piece, bool zeroTargetBranchAtEnd, LogicSettings settings,
+        out AffineSolution? solution, out string failure)
+    {
+        solution = null;
+        failure = "";
+        if (state.IsDead) return false;
+        if (!(span > 0.0) || !IsFiniteNumber(span))
+        {
+            failure = $"invalid target-zero piece span {span:R}";
+            return false;
+        }
+
+        IntervalTrialState TrialAt(double c) => upstream.Evaluate(cursor + c * span);
+        double HeadO2At(double c) => piece.Oxygen.Evaluate(c)[0];
+        double TargetAt(double c) => ConsciousnessTargetAt(TrialAt, HeadO2At, c,
+            settings);
+        double LossRateAt(double c)
+        {
+            var trial = TrialAt(c);
+            var lossTau = ConsciousnessTargetAndTau(
+                O2Normalized(HeadO2At(c), settings),
+                PerfusionNormalized(trial.Head, settings), trial.Pressure,
+                settings).LossTau;
+            return IsFiniteNumber(lossTau) && lossTau > 0.0
+                ? 1.0 / lossTau
+                : double.NaN;
+        }
+
+        var startTarget = TargetAt(0.0);
+        if (!IsFiniteNumber(startTarget))
+        {
+            failure = $"nonfinite target at target-zero piece start: {startTarget:R}";
+            return false;
+        }
+        if (startTarget != 0.0)
+        {
+            if (zeroTargetBranchAtEnd)
+                failure = $"named target-zero branch prefix starts with target " +
+                    $"{startTarget:R}, not zero";
+            return false;
+        }
+        var startRate = LossRateAt(0.0);
+        if (!IsFiniteNumber(startRate) || startRate <= 0.0)
+        {
+            failure = $"invalid homogeneous loss rate {startRate:R} at piece start";
+            return false;
+        }
+        for (var i = 0; i < NumericalMath.GaussLegendre16Nodes.Length; i++)
+        {
+            var c = NumericalMath.GaussLegendre16Nodes[i];
+            var target = TargetAt(c);
+            var rate = LossRateAt(c);
+            if (!IsFiniteNumber(target) || target != 0.0)
+            {
+                failure = $"target-zero verification failed at quadrature node " +
+                    $"c={c:R}: target={target:R}";
+                return false;
+            }
+            if (!IsFiniteNumber(rate) || rate <= 0.0)
+            {
+                failure = $"invalid homogeneous loss rate {rate:R} at quadrature " +
+                    $"node c={c:R}";
+                return false;
+            }
+        }
+
+        var endpointTarget = TargetAt(1.0);
+        if (!IsFiniteNumber(endpointTarget) || endpointTarget < 0.0 ||
+            endpointTarget > 1.0)
+        {
+            failure = $"invalid target-zero piece endpoint target {endpointTarget:R}";
+            return false;
+        }
+        if (zeroTargetBranchAtEnd)
+        {
+            var bracketDuration = Math.Min(PressureBoundRootToleranceSeconds, span);
+            var beforeEndpoint = Math.Max(0.0, 1.0 - bracketDuration / span);
+            var beforeTarget = TargetAt(beforeEndpoint);
+            var endpointSlope = (endpointTarget - beforeTarget) / bracketDuration;
+            var endpointAllowance =
+                Math.Abs(endpointSlope) * PressureBoundRootToleranceSeconds + 1e-12;
+            if (beforeTarget != 0.0 || !IsFiniteNumber(endpointSlope) ||
+                !IsFiniteNumber(endpointAllowance) || endpointTarget > endpointAllowance)
+            {
+                failure = $"target-zero branch endpoint target {endpointTarget:R} " +
+                    $"outside root-bracket allowance {endpointAllowance:R}; " +
+                    $"preceding target={beforeTarget:R}, slope={endpointSlope:R}";
+                return false;
+            }
+        }
+        else if (endpointTarget != 0.0)
+        {
+            failure = $"target-zero piece endpoint target {endpointTarget:R} is not zero";
+            return false;
+        }
+
+        var scalar = new ScalarLagSolution(state.ConsciousnessLevel, span,
+            TargetAt, LossRateAt);
+        foreach (var c in (double[])[0.0, .. NumericalMath.RadauC, 1.0])
+        {
+            var value = scalar.Evaluate(c);
+            var derivative = scalar.Derivative(c);
+            if (!IsFiniteNumber(value) || value < 0.0 || value > 1.0 ||
+                !IsFiniteNumber(derivative))
+            {
+                failure = $"homogeneous consciousness invalid at c={c:R}: " +
+                    $"value={value:R}, derivative={derivative:R}";
+                return false;
+            }
+        }
+
+        solution = new AffineSolution
+        {
+            Valid = true,
+            Y0 = [state.ConsciousnessLevel],
+            Duration = span,
+            ScalarOverride = scalar
+        };
+        return true;
+    }
+
     private static DownstreamSolution SolveDownstream(IntegrationState state,
         IntervalUpstream upstream, double cursor, double span, DownstreamHold hold,
-        LogicSettings settings)
+        LogicSettings settings, bool allowHomogeneousZeroTargetLoss = false,
+        bool zeroTargetBranchAtEnd = false, bool oxygenOnly = false)
     {
         var piece = new DownstreamSolution();
         IntervalTrialState TrialAt(double c) => upstream.Evaluate(cursor + c * span);
@@ -4118,19 +5032,91 @@ public class PhysiologicalModel
             c => BuildOxygenSystem(TrialAt, c, hold.BrainDepleting, hold.HeadPinned,
                 hold.LowerPinned, hold.CorePinned, upstream.GxMagnitude, settings));
         if (!piece.Oxygen.Valid) return piece;
+        if (oxygenOnly)
+        {
+            piece.Valid = true;
+            return piece;
+        }
 
         var dead = state.IsDead;
-        var cSpec0 = BuildConsciousnessSystem(TrialAt,
-            c => piece.Oxygen.Evaluate(c)[0], 0.0, hold.ConsciousnessLosing, dead,
-            settings);
+        double HeadO2At(double c) => piece.Oxygen.Evaluate(c)[0];
+        var consciousnessInitial = dead ? 0.0 : state.ConsciousnessLevel;
+        var cSpec0 = BuildConsciousnessSystem(TrialAt, HeadO2At, 0.0,
+            hold.ConsciousnessLosing, dead, settings);
         if (!dead && cSpec0.Instant[0] &&
             state.ConsciousnessLevel != cSpec0.InstantTargets[0]!(0.0))
             piece.InitialEvents.Add("InstantaneousConsciousnessLimit");
-        piece.Consciousness = SolveAffineCollocation(
-            new[] { dead ? 0.0 : state.ConsciousnessLevel }, span, cSpec0,
-            c => BuildConsciousnessSystem(TrialAt,
-                c2 => piece.Oxygen.Evaluate(c2)[0], c, hold.ConsciousnessLosing,
-                dead, settings));
+
+        double ConsciousnessTargetAtNode(double c) =>
+            ConsciousnessTargetAt(TrialAt, HeadO2At, c, settings);
+
+        var homogeneousZeroTargetLoss = false;
+        if (!dead && hold.ConsciousnessLosing && allowHomogeneousZeroTargetLoss)
+        {
+            if (!TryCreateHomogeneousZeroTargetLoss(state, upstream, cursor, span,
+                    piece, zeroTargetBranchAtEnd, settings, out var homogeneous,
+                    out var homogeneousFailure))
+            {
+                if (homogeneousFailure.Length != 0)
+                {
+                    piece.Failure = $"homogeneous zero-target loss failed: " +
+                        homogeneousFailure;
+                    return piece;
+                }
+            }
+            else
+            {
+                homogeneousZeroTargetLoss = true;
+                piece.Consciousness = homogeneous!;
+            }
+        }
+        if (!homogeneousZeroTargetLoss)
+        {
+            if (!dead && !hold.ConsciousnessLosing &&
+                settings.ConsciousnessRecoveryTau > 1e-9)
+            {
+                piece.Consciousness = new AffineSolution
+                {
+                    Valid = true,
+                    Y0 = [consciousnessInitial],
+                    Duration = span,
+                    ScalarOverride = new ScalarLagSolution(consciousnessInitial, span,
+                        settings.ConsciousnessRecoveryTau,
+                        ConsciousnessTargetAtNode),
+                    LoCCeilingZeroOnPiece =
+                        IsFiniteNumber(consciousnessInitial) &&
+                        IsFiniteNumber(span) && span >= 0.0 &&
+                        IsFiniteNumber(settings.ConsciousnessRecoveryTau) &&
+                        IsFiniteNumber(settings.ConsciousnessRecoveryThreshold) &&
+                        IsFiniteNumber(settings.VisualLoCConsciousnessExponent) &&
+                        settings.VisualLoCConsciousnessExponent > 0.0 &&
+                        consciousnessInitial *
+                        Math.Exp(-span / settings.ConsciousnessRecoveryTau) >
+                        settings.ConsciousnessRecoveryThreshold + 1e-6
+                };
+            }
+            else
+            {
+                piece.Consciousness = SolveAffineCollocation(
+                    new[] { consciousnessInitial }, span, cSpec0,
+                    c => BuildConsciousnessSystem(TrialAt, HeadO2At, c,
+                        hold.ConsciousnessLosing, dead, settings));
+            }
+        }
+        if (piece.Consciousness.ScalarOverride != null &&
+            !homogeneousZeroTargetLoss)
+        {
+            if (!IsFiniteNumber(piece.Consciousness.Evaluate(0.0)[0]) ||
+                !IsFiniteNumber(piece.Consciousness.Evaluate(1.0)[0]))
+                piece.Consciousness.Valid = false;
+            for (var stage = 0; stage < NumericalMath.RadauStageCount; stage++)
+            {
+                var value = piece.Consciousness.Evaluate(
+                    NumericalMath.RadauC[stage])[0];
+                if (!IsFiniteNumber(value) || value < 0.0 || value > 1.0)
+                    piece.Consciousness.Valid = false;
+            }
+        }
         if (!piece.Consciousness.Valid) return piece;
 
         var visualTaus = new (double In, double Out)[]
@@ -4141,14 +5127,42 @@ public class PhysiologicalModel
         };
         Func<int, double, double> visualTarget = (channel, c) =>
         {
-            var trial = upstream.Evaluate(cursor + c * span);
+            var head = upstream.HeadAt(cursor + c * span);
             if (channel == 1)
                 return RedoutTarget(Math.Max(
-                    (trial.Head - settings.RestingBloodHead) / settings.RestingBloodHead,
+                    (head - settings.RestingBloodHead) / settings.RestingBloodHead,
                     0.0), settings);
-            return PhysiologicalVisualTarget(trial.Head,
+            if (head >= settings.RestingBloodHead) return 0.0;
+            return PhysiologicalVisualTarget(head,
                 O2Normalized(piece.Oxygen.Evaluate(c)[0], settings), settings);
         };
+        piece.VisualTargetAt = visualTarget;
+        piece.HasHeadRange = upstream.TryHeadRange(cursor, cursor + span,
+            out var minimumHead, out var maximumHead);
+        if (piece.HasHeadRange)
+        {
+            piece.MinimumHead = minimumHead;
+            piece.MaximumHead = maximumHead;
+            var restingHead = settings.RestingBloodHead;
+            if (minimumHead > restingHead)
+            {
+                piece.TunnelVisionConstantTarget = 0.0;
+                piece.GrayscaleConstantTarget = 0.0;
+            }
+
+            var redoutOnsetHead = restingHead *
+                (1.0 + settings.VisualRedoutOnsetHeadBloodOverfill);
+            var redoutFullHead = restingHead *
+                (1.0 + settings.VisualRedoutFullHeadBloodOverfill);
+            if (IsFiniteNumber(redoutOnsetHead) && IsFiniteNumber(redoutFullHead) &&
+                redoutFullHead > redoutOnsetHead)
+            {
+                if (maximumHead < redoutOnsetHead)
+                    piece.RedoutConstantTarget = 0.0;
+                else if (minimumHead > redoutFullHead)
+                    piece.RedoutConstantTarget = 1.0;
+            }
+        }
         var visualInitial = new[]
         {
             state.VisualTunnelVisionLevel, state.VisualRedoutLevel,
@@ -4159,20 +5173,40 @@ public class PhysiologicalModel
             "InstantaneousTunnelVisionLimit", "InstantaneousRedoutLimit",
             "InstantaneousGrayscaleLimit"
         };
-        piece.Visuals = new AffineSolution[3];
+        piece.Visuals = new ScalarLagSolution[3];
         for (var channel = 0; channel < 3; channel++)
         {
-            var tau = hold.Increasing[channel]
-                ? visualTaus[channel].In
-                : visualTaus[channel].Out;
-            var lagSpec0 = BuildLagSystem(c => visualTarget(channel, c), 0.0, tau);
-            if (lagSpec0.Instant[0] &&
-                visualInitial[channel] != lagSpec0.InstantTargets[0]!(0.0))
-                piece.InitialEvents.Add(visualInstantNames[channel]);
-            piece.Visuals[channel] = SolveAffineCollocation(
-                new[] { visualInitial[channel] }, span, lagSpec0,
-                c => BuildLagSystem(node => visualTarget(channel, node), c, tau));
-            if (!piece.Visuals[channel].Valid) return piece;
+            var index = channel;
+            var tau = hold.Increasing[index]
+                ? visualTaus[index].In
+                : visualTaus[index].Out;
+            var constantTarget = piece.ConstantVisualTarget(index);
+            if (constantTarget.HasValue)
+            {
+                if (tau <= 1e-9 && visualInitial[index] != constantTarget.Value)
+                    piece.InitialEvents.Add(visualInstantNames[index]);
+                piece.Visuals[index] = new ScalarLagSolution(visualInitial[index],
+                    span, tau, constantTarget.Value);
+            }
+            else
+            {
+                Func<double, double> targetAt = c => visualTarget(index, c);
+                if (tau <= 1e-9 && visualInitial[index] != targetAt(0.0))
+                    piece.InitialEvents.Add(visualInstantNames[index]);
+                piece.Visuals[index] = new ScalarLagSolution(
+                    visualInitial[index], span, tau, targetAt);
+            }
+            var initialValue = piece.Visuals[index].Evaluate(0.0);
+            if (!IsFiniteNumber(initialValue) || initialValue < 0.0 || initialValue > 1.0)
+                return piece;
+            for (var stage = 0; stage < NumericalMath.RadauStageCount; stage++)
+            {
+                var value = piece.Visuals[index].Evaluate(NumericalMath.RadauC[stage]);
+                if (!IsFiniteNumber(value) || value < 0.0 || value > 1.0) return piece;
+            }
+            var finalValue = piece.Visuals[index].Evaluate(1.0);
+            if (!IsFiniteNumber(finalValue) || finalValue < 0.0 || finalValue > 1.0)
+                return piece;
         }
 
         piece.Valid = true;
@@ -4196,8 +5230,12 @@ public class PhysiologicalModel
         }
 
         var end = cursor + span;
-        var ceiling0 = trajectory.CeilingAt(cursor);
-        var ceilingDerivative0 = CeilingDerivative(consciousness, 0.0, settings);
+        var ceiling0 = consciousness.LoCCeilingZeroOnPiece
+            ? 0.0
+            : trajectory.CeilingAt(cursor);
+        var ceilingDerivative0 = consciousness.LoCCeilingZeroOnPiece
+            ? 0.0
+            : CeilingDerivative(consciousness, 0.0, settings);
         var increase = settings.VisualLoCIncreaseRate;
         var decrease = settings.VisualLoCDecreaseRate;
         trajectory.Contact = Math.Abs(state.VisualLoCLevel - ceiling0) <= 1e-9 &&
@@ -4205,13 +5243,19 @@ public class PhysiologicalModel
                              ceilingDerivative0 >= -decrease;
         if (trajectory.Contact)
         {
-            var exitUp = ScanCrossing(
-                t => CeilingDerivative(consciousness, (t - cursor) / span, settings) - increase,
-                cursor, end, out _);
-            var exitDown = ScanCrossing(
-                t => -decrease -
-                     CeilingDerivative(consciousness, (t - cursor) / span, settings),
-                cursor, end, out _);
+            var exitUp = double.PositiveInfinity;
+            var exitDown = double.PositiveInfinity;
+            if (!consciousness.LoCCeilingZeroOnPiece)
+            {
+                exitUp = ScanCrossing(
+                    t => CeilingDerivative(consciousness, (t - cursor) / span, settings) -
+                         increase,
+                    cursor, end, out _);
+                exitDown = ScanCrossing(
+                    t => -decrease -
+                         CeilingDerivative(consciousness, (t - cursor) / span, settings),
+                    cursor, end, out _);
+            }
             var exit = Math.Min(exitUp, exitDown);
             if (exit <= end)
             {
@@ -4224,9 +5268,19 @@ public class PhysiologicalModel
             trajectory.Rate = state.VisualLoCLevel < ceiling0 ? increase : -decrease;
             var v0 = state.VisualLoCLevel;
             var rate = trajectory.Rate;
-            var contact = ScanCrossing(
-                t => v0 + rate * (t - cursor) - trajectory.CeilingAt(t), cursor, end,
-                out _);
+            var contact = double.PositiveInfinity;
+            var contactWithinPiece = false;
+            if (consciousness.LoCCeilingZeroOnPiece && rate < 0.0 &&
+                IsFiniteNumber(rate) && IsFiniteNumber(decrease) && decrease > 0.0)
+            {
+                contact = cursor + state.VisualLoCLevel / decrease;
+                contactWithinPiece = IsFiniteNumber(contact) &&
+                                     contact >= cursor && contact <= end;
+            }
+            if (!contactWithinPiece)
+                contact = ScanCrossing(
+                    t => v0 + rate * (t - cursor) - trajectory.CeilingAt(t), cursor, end,
+                    out _);
             if (contact <= end)
             {
                 trajectory.FirstEventTime = contact;
@@ -4236,9 +5290,10 @@ public class PhysiologicalModel
         return trajectory;
     }
 
-    private static IntegrationState FullStateAt(double t, IntegrationState baseState,
+    private static bool TryFullStateAt(double t, IntegrationState baseState,
         IntervalUpstream upstream, DownstreamSolution piece, LoCTrajectory loc,
-        double cursor, double span)
+        double cursor, double span, BloodBounds activeBloodBounds, LogicSettings settings,
+        out IntegrationState accepted, out double correction)
     {
         var circ = upstream.CirculationStateAt(t);
         var c = span > 0.0 ? (t - cursor) / span : 0.0;
@@ -4249,7 +5304,7 @@ public class PhysiologicalModel
         var locValue = baseState.IsUnconscious || baseState.IsDead
             ? 1.0
             : loc.ValueAt(t);
-        return new IntegrationState(circ.BloodHead, circ.BloodLower,
+        var candidate = new IntegrationState(circ.BloodHead, circ.BloodLower,
             circ.HeartRateMultiplier, circ.CardioFatigue, upstream.PressureAt(t),
             circ.RespiratoryFatigue)
         {
@@ -4266,14 +5321,16 @@ public class PhysiologicalModel
             GyNeckFatigue = upstream.NeckAt(t),
             GyNeckFatigueDeathDwell = upstream.NeckDwellAt(t),
             SuddenLoCAccumulator = upstream.SuddenAt(t),
-            VisualTunnelVisionLevel = piece.Visuals[0].Evaluate(c)[0],
-            VisualRedoutLevel = piece.Visuals[1].Evaluate(c)[0],
-            VisualGrayscaleLevel = piece.Visuals[2].Evaluate(c)[0],
+            VisualTunnelVisionLevel = piece.Visuals[0].Evaluate(c),
+            VisualRedoutLevel = piece.Visuals[1].Evaluate(c),
+            VisualGrayscaleLevel = piece.Visuals[2].Evaluate(c),
             VisualLoCLevel = locValue,
             IsUnconscious = baseState.IsUnconscious,
             InSuddenLoC = baseState.InSuddenLoC,
             IsDead = baseState.IsDead
         };
+        return TryProjectActiveBloodState(in candidate, activeBloodBounds, settings,
+            ActiveManifoldCorrectionTolerance, out accepted, out correction);
     }
 
     private static int EventRank(string kind) => kind switch
@@ -4288,9 +5345,8 @@ public class PhysiologicalModel
     };
 
     private static string DownstreamViolation(IntegrationState stage,
-        LogicSettings settings)
+        LogicSettings settings, BloodBounds activeBloodBounds = BloodBounds.None)
     {
-        const double tolerance = 1e-9;
         if (!IsFiniteNumber(stage.BloodHead) || !IsFiniteNumber(stage.BloodLower) ||
             !IsFiniteNumber(stage.BloodCore) || !IsFiniteNumber(stage.HeartRateMultiplier) ||
             !IsFiniteNumber(stage.CardioFatigue) ||
@@ -4312,25 +5368,94 @@ public class PhysiologicalModel
             !IsFiniteNumber(stage.VisualRedoutLevel) ||
             !IsFiniteNumber(stage.VisualGrayscaleLevel) ||
             !IsFiniteNumber(stage.VisualLoCLevel))
-            return "nonfinite downstream state";
-        if (stage.BloodO2Head < settings.BrainO2Floor - tolerance ||
-            stage.BloodO2Head > 1.0 + tolerance ||
-            stage.BloodO2Core is < -tolerance or > 1.0 + tolerance ||
-            stage.BloodO2Lower is < -tolerance or > 1.0 + tolerance ||
-            stage.ArterialOxygenation is < -tolerance or > 1.0 + tolerance ||
-            stage.ConsciousnessLevel is < -tolerance or > 1.0 + tolerance ||
-            stage.LungCompressionLevel is < -tolerance or > 1.0 + tolerance ||
-            stage.PainLevel is < -tolerance or > 1.0 + tolerance ||
-            stage.GyNeckFatigue is < -tolerance or > 1.0 + tolerance ||
-            stage.GyNeckFatigueDeathDwell is < -tolerance or > 1.0 + tolerance ||
-            stage.SuddenLoCAccumulator is < -tolerance or > 1.0 + tolerance ||
-            stage.VisualTunnelVisionLevel is < -tolerance or > 1.0 + tolerance ||
-            stage.VisualRedoutLevel is < -tolerance or > 1.0 + tolerance ||
-            stage.VisualGrayscaleLevel is < -tolerance or > 1.0 + tolerance ||
-            stage.VisualLoCLevel is < -tolerance or > 1.0 + tolerance)
-            return "downstream state outside bounds";
+            return "nonfinite full state";
+
+        const double activeManifoldTolerance = 1e-12;
+        var headTolerance = (activeBloodBounds & BloodBounds.Head) != 0
+            ? activeManifoldTolerance
+            : 0.0;
+        var lowerTolerance = (activeBloodBounds & BloodBounds.Lower) != 0
+            ? activeManifoldTolerance
+            : 0.0;
+        var coreTolerance = (activeBloodBounds & BloodBounds.Core) != 0
+            ? activeManifoldTolerance
+            : 0.0;
+        var bloodSumError = Math.Abs(
+            stage.BloodHead + stage.BloodCore + stage.BloodLower - 1.0);
+        if (bloodSumError > activeManifoldTolerance)
+            return $"blood sum error {bloodSumError:R}";
+        if (stage.BloodHead < settings.MinHeadBloodFraction - headTolerance ||
+            stage.BloodHead > 1.0 ||
+            stage.BloodLower < -lowerTolerance || stage.BloodLower > 1.0 ||
+            stage.BloodCore < -coreTolerance || stage.BloodCore > 1.0 ||
+            stage.HeartRateMultiplier < 0.0 ||
+            stage.HeartRateMultiplier > settings.MaxHeartRateMultiplier)
+            return string.Format(CultureInfo.InvariantCulture,
+                "blood or heart-rate state outside physical bounds: head={0:R}; core={1:R}; " +
+                "lower={2:R}; heartRateMultiplier={3:R}; headFloor={4:R}; " +
+                "maxHeartRateMultiplier={5:R}", stage.BloodHead, stage.BloodCore,
+                stage.BloodLower, stage.HeartRateMultiplier,
+                settings.MinHeadBloodFraction, settings.MaxHeartRateMultiplier);
+        if (stage.CardioFatigue is < 0.0 or > 1.0 ||
+            stage.CerebralPressureImpairment is < 0.0 or > 1.0 ||
+            stage.RespiratoryFatigue is < 0.0 or > 1.0 ||
+            stage.StrainingLevel is < 0.0 or > 1.0 ||
+            stage.StrainingFatigue is < 0.0 or > 1.0 ||
+            stage.GSuitFatigue is < 0.0 or > 1.0 ||
+            stage.BloodO2Head < settings.BrainO2Floor || stage.BloodO2Head > 1.0 ||
+            stage.BloodO2Core is < 0.0 or > 1.0 ||
+            stage.BloodO2Lower is < 0.0 or > 1.0 ||
+            stage.ArterialOxygenation is < 0.0 or > 1.0 ||
+            stage.ConsciousnessLevel is < 0.0 or > 1.0 ||
+            stage.LungCompressionLevel is < 0.0 or > 1.0 ||
+            stage.PainLevel is < 0.0 or > 1.0 ||
+            stage.GyNeckFatigue is < 0.0 or > 1.0 ||
+            stage.GyNeckFatigueDeathDwell is < 0.0 or > 1.0 ||
+            stage.SuddenLoCAccumulator is < 0.0 or > 1.0)
+            return $"full state outside physical bounds: " +
+                   $"cardio={stage.CardioFatigue:R}; pressure={stage.CerebralPressureImpairment:R}; " +
+                   $"respiratory={stage.RespiratoryFatigue:R}; straining={stage.StrainingLevel:R}; " +
+                   $"strainFatigue={stage.StrainingFatigue:R}; gSuitFatigue={stage.GSuitFatigue:R}; " +
+                   $"oxygen=[{stage.BloodO2Head:R},{stage.BloodO2Core:R},{stage.BloodO2Lower:R}]; " +
+                   $"arterial={stage.ArterialOxygenation:R}; consciousness={stage.ConsciousnessLevel:R}; " +
+                   $"compression={stage.LungCompressionLevel:R}; pain={stage.PainLevel:R}; " +
+                   $"neck={stage.GyNeckFatigue:R}; dwell={stage.GyNeckFatigueDeathDwell:R}; " +
+                   $"sudden={stage.SuddenLoCAccumulator:R}";
+        if (stage.VisualTunnelVisionLevel is < 0.0 or > 1.0 ||
+            stage.VisualRedoutLevel is < 0.0 or > 1.0 ||
+            stage.VisualGrayscaleLevel is < 0.0 or > 1.0 ||
+            stage.VisualLoCLevel is < 0.0 or > 1.0)
+            return $"visual state outside [0,1]: " +
+                   $"tunnel={stage.VisualTunnelVisionLevel:R}; " +
+                   $"redout={stage.VisualRedoutLevel:R}; " +
+                   $"grayscale={stage.VisualGrayscaleLevel:R}; " +
+                   $"loc={stage.VisualLoCLevel:R}";
+        if (stage.IsDead && (!stage.IsUnconscious ||
+                             stage.ConsciousnessLevel != 0.0 ||
+                             stage.VisualLoCLevel != 1.0 ||
+                             stage.GyNeckFatigueDeathDwell != 1.0))
+            return "dead state is not permanently pinned";
         return "";
     }
+
+    private static double OxygenCoordinateValue(in IntegrationState state, int coordinate) =>
+        coordinate switch
+        {
+            0 => state.BloodO2Head,
+            1 => state.BloodO2Lower,
+            2 => state.BloodO2Core,
+            _ => double.NaN
+        };
+
+    private static IntegrationState SetOxygenCoordinate(IntegrationState state,
+        int coordinate, double level) =>
+        coordinate switch
+        {
+            0 => state with { BloodO2Head = level },
+            1 => state with { BloodO2Lower = level },
+            2 => state with { BloodO2Core = level },
+            _ => state
+        };
 
     private static IntegrationState ApplyEvent(IntegrationState state, string kind,
         LogicSettings settings)
@@ -4347,22 +5472,22 @@ public class PhysiologicalModel
                     GyNeckFatigueDeathDwell = 1.0
                 };
             case "SuddenTrigger":
-            {
-                var dropped = Math.Max(0.0,
-                    state.ConsciousnessLevel - settings.SuddenLoCConsciousnessDrop);
-                var unconscious = state.IsUnconscious ||
-                                  dropped <= settings.ConsciousnessLossThreshold;
-                return state with
                 {
-                    InSuddenLoC = true,
-                    SuddenLoCAccumulator = Math.Abs(state.SuddenLoCAccumulator - 0.8) <= 1e-6
-                        ? 0.8
-                        : state.SuddenLoCAccumulator,
-                    ConsciousnessLevel = dropped,
-                    IsUnconscious = unconscious,
-                    VisualLoCLevel = unconscious ? 1.0 : state.VisualLoCLevel
-                };
-            }
+                    var dropped = Math.Max(0.0,
+                        state.ConsciousnessLevel - settings.SuddenLoCConsciousnessDrop);
+                    var unconscious = state.IsUnconscious ||
+                                      dropped <= settings.ConsciousnessLossThreshold;
+                    return state with
+                    {
+                        InSuddenLoC = true,
+                        SuddenLoCAccumulator = Math.Abs(state.SuddenLoCAccumulator - 0.8) <= 1e-6
+                            ? 0.8
+                            : state.SuddenLoCAccumulator,
+                        ConsciousnessLevel = dropped,
+                        IsUnconscious = unconscious,
+                        VisualLoCLevel = unconscious ? 1.0 : state.VisualLoCLevel
+                    };
+                }
             case "SuddenRecovery":
                 return state with
                 {
@@ -4394,18 +5519,6 @@ public class PhysiologicalModel
                 };
             case "NeckDeathExit":
                 return state with { GyNeckFatigueDeathDwell = 0.0 };
-            case "OxygenBoundEntryHead":
-                return state with
-                {
-                    BloodO2Head = Math.Abs(state.BloodO2Head - settings.BrainO2Floor) <
-                                  Math.Abs(state.BloodO2Head - 1.0)
-                        ? settings.BrainO2Floor
-                        : 1.0
-                };
-            case "OxygenBoundEntryLower":
-                return state with { BloodO2Lower = state.BloodO2Lower < 0.5 ? 0.0 : 1.0 };
-            case "OxygenBoundEntryCore":
-                return state with { BloodO2Core = state.BloodO2Core < 0.5 ? 0.0 : 1.0 };
             default:
                 return state;
         }
@@ -4419,6 +5532,14 @@ public class PhysiologicalModel
         double gz,
         LogicSettings settings)
     {
+        var initialViolation = DownstreamViolation(initial, settings);
+        if (initialViolation.Length != 0)
+        {
+            return new IntegrationResult(initial, initial, [], 0, 0.0, false, [],
+                [$"initial state: {initialViolation}"], [], [], [], [], [], [], [], [], [],
+                [], []);
+        }
+
         var circulation = AdvanceCirculationInterval(in initial, dt, gx, gy, gz, settings);
         if (!circulation.Converged || circulation.ModeCrossings.Length != 0 ||
             circulation.StateViolations.Length != 0 || circulation.Segments.Length == 0)
@@ -4434,34 +5555,121 @@ public class PhysiologicalModel
 
         var state = initial;
         var cursor = 0.0;
+        if (state.IsDead) upstream.PinDwell();
+
+        void ApplyAndRecordEvent(string kind, double offset)
+        {
+            state = ApplyEvent(state, kind, settings);
+            if (state.IsDead) upstream.PinDwell();
+            events.Add(new IntegrationEvent(kind, offset, state));
+        }
 
         if (upstream.NeckInitiallyClamped)
         {
             state = state with { GyNeckFatigue = upstream.NeckCeiling };
             events.Add(new IntegrationEvent("NeckCeilingClamp", 0.0, state));
         }
-        if (state.GyNeckFatigue < settings.GyNeckFatigueDeathLevel &&
+        if (!state.IsDead && state.GyNeckFatigue < settings.GyNeckFatigueDeathLevel &&
             state.GyNeckFatigueDeathDwell > 0.0)
         {
             state = state with { GyNeckFatigueDeathDwell = 0.0 };
             events.Add(new IntegrationEvent("NeckDeathExit", 0.0, state));
         }
 
-        void RecordPiece(DownstreamSolution piece, LoCTrajectory loc, double acceptEnd)
+        var lastO2RootEvidence = "none";
+        bool RecordPiece(DownstreamSolution piece, LoCTrajectory loc, double acceptEnd,
+            IReadOnlyList<(double Time, string Kind, int Coordinate, double Level,
+                int Direction)>? oxygenBoundEntries, out IntegrationState acceptedEnd,
+            bool locContactAtEnd = false)
         {
-            if (acceptEnd <= cursor + 1e-12) return;
+            acceptedEnd = state;
+            if (acceptEnd <= cursor + 1e-12) return true;
             var s = state;
             var pieceSpan = acceptEnd - cursor;
-            var stageStates = new IntegrationState[NumericalMath.RadauStageCount];
-            for (var i = 0; i < NumericalMath.RadauStageCount; i++)
-                stageStates[i] = FullStateAt(
-                    cursor + NumericalMath.RadauC[i] * pieceSpan, s, upstream, piece,
-                    loc, cursor, pieceSpan);
             IntegrationSegment bloodSegment = null!;
             foreach (var candidate in circulation.Segments)
                 if (candidate.StartOffset <= cursor) bloodSegment = candidate;
+
+            var stageStates = new IntegrationState[NumericalMath.RadauStageCount];
+            for (var i = 0; i < NumericalMath.RadauStageCount; i++)
+            {
+                var stageTime = i == NumericalMath.RadauStageCount - 1
+                    ? acceptEnd
+                    : cursor + NumericalMath.RadauC[i] * pieceSpan;
+                if (TryFullStateAt(stageTime, s, upstream, piece, loc, cursor,
+                        pieceSpan, bloodSegment.Bounds, settings, out stageStates[i],
+                        out var correction))
+                    continue;
+                violations.Add($"accepted downstream stage {i + 1} blood correction " +
+                    $"{correction:R} exceeded {ActiveManifoldCorrectionTolerance:R}");
+                return false;
+            }
+            if (!TryFullStateAt(acceptEnd, s, upstream, piece, loc, cursor, pieceSpan,
+                    bloodSegment.Bounds, settings, out acceptedEnd, out var finalCorrection))
+            {
+                violations.Add($"accepted downstream endpoint blood correction " +
+                    $"{finalCorrection:R} exceeded {ActiveManifoldCorrectionTolerance:R}");
+                return false;
+            }
+
+            if (locContactAtEnd && !s.IsUnconscious && !s.IsDead)
+            {
+                var ceiling = LoCCeiling(acceptedEnd.ConsciousnessLevel, settings);
+                var ceilingRate = CeilingDerivative(piece.Consciousness, 1.0, settings);
+                var allowed = Math.Abs(loc.Rate - ceilingRate) *
+                    PressureBoundRootToleranceSeconds + 1e-12;
+                var correction = Math.Abs(acceptedEnd.VisualLoCLevel - ceiling);
+                if (IsFiniteNumber(ceiling) && ceiling >= 0.0 && ceiling <= 1.0 &&
+                    IsFiniteNumber(ceilingRate) && IsFiniteNumber(allowed) &&
+                    IsFiniteNumber(correction) && correction <= allowed)
+                {
+                    acceptedEnd = acceptedEnd with { VisualLoCLevel = ceiling };
+                    var lastStage = stageStates.Length - 1;
+                    stageStates[lastStage] =
+                        stageStates[lastStage] with { VisualLoCLevel = ceiling };
+                }
+            }
+
+            if (oxygenBoundEntries != null)
+            {
+                foreach (var entry in oxygenBoundEntries)
+                {
+                    if (entry.Coordinate is < 0 or > 2 ||
+                        !IsFiniteNumber(entry.Level))
+                    {
+                        violations.Add($"invalid oxygen-bound event payload {entry.Kind}");
+                        return false;
+                    }
+                    acceptedEnd = SetOxygenCoordinate(acceptedEnd, entry.Coordinate,
+                        entry.Level);
+                    var lastStage = stageStates.Length - 1;
+                    stageStates[lastStage] = SetOxygenCoordinate(stageStates[lastStage],
+                        entry.Coordinate, entry.Level);
+                }
+            }
+            for (var i = 0; i < stageStates.Length; i++)
+            {
+                var violation = DownstreamViolation(stageStates[i], settings,
+                    bloodSegment.Bounds);
+                if (violation.Length == 0) continue;
+                violations.Add($"accepted downstream stage {i + 1} at " +
+                    $"{cursor + NumericalMath.RadauC[i] * pieceSpan:R} in " +
+                    $"[{cursor:R},{acceptEnd:R}], bounds={bloodSegment.Bounds}: " +
+                    $"{violation}; lastO2Root={lastO2RootEvidence}");
+                return false;
+            }
+            var endpointViolation = DownstreamViolation(acceptedEnd, settings,
+                bloodSegment.Bounds);
+            if (endpointViolation.Length != 0)
+            {
+                violations.Add($"accepted downstream endpoint at {acceptEnd:R} in " +
+                    $"[{cursor:R},{acceptEnd:R}], bounds={bloodSegment.Bounds}: " +
+                    $"{endpointViolation}; lastO2Root={lastO2RootEvidence}");
+                return false;
+            }
+
             segments.Add(new IntegrationSegment(cursor, pieceSpan, s,
-                FullStateAt(acceptEnd, s, upstream, piece, loc, cursor, pieceSpan),
+                acceptedEnd,
                 stageStates, bloodSegment.Bounds, bloodSegment.HeadCoefficients,
                 bloodSegment.LowerCoefficients, bloodSegment.RateCoefficients,
                 bloodSegment.CardioCoefficients)
@@ -4469,14 +5677,19 @@ public class PhysiologicalModel
                 CoefficientStart = bloodSegment.StartOffset
             });
             stages.AddRange(stageStates);
+            return true;
         }
 
         var guard = 0;
+        var eventProbes = new FullIntervalEventProbe[ScanProbes.Length + 2];
         while (cursor < dt - 1e-12)
         {
             if (++guard > 512)
             {
-                violations.Add("downstream event loop did not terminate");
+                violations.Add($"downstream event loop did not terminate at cursor={cursor:R}; " +
+                    $"headO2={state.BloodO2Head:R}; " +
+                    $"headFloorResidual={state.BloodO2Head - settings.BrainO2Floor:R}; " +
+                    $"lastO2Root={lastO2RootEvidence}");
                 break;
             }
 
@@ -4485,7 +5698,8 @@ public class PhysiologicalModel
                 immediate = "Death";
             else if (upstream.SuddenTriggerTime(state.InSuddenLoC, state.IsDead) <= cursor)
                 immediate = "SuddenTrigger";
-            else if (upstream.SuddenRecoveryTime(state.InSuddenLoC) <= cursor)
+            else if (!state.IsDead &&
+                     upstream.SuddenRecoveryTime(state.InSuddenLoC) <= cursor)
                 immediate = "SuddenRecovery";
             else if (!state.IsDead && !state.IsUnconscious &&
                      state.ConsciousnessLevel <= settings.ConsciousnessLossThreshold)
@@ -4495,15 +5709,86 @@ public class PhysiologicalModel
                 immediate = "ConsciousnessRecovered";
             if (immediate.Length != 0)
             {
-                state = ApplyEvent(state, immediate, settings);
-                events.Add(new IntegrationEvent(immediate, cursor, state));
+                ApplyAndRecordEvent(immediate, cursor);
                 continue;
             }
 
             var span = dt - cursor;
             var end = cursor + span;
-            var trial0 = upstream.Evaluate(cursor);
-            var hold = ComputeHold(state, trial0, upstream.GxMagnitude, settings);
+            var hold = ComputeHold(state,
+                c => upstream.Evaluate(cursor + c * span), span,
+                upstream.GxMagnitude, settings);
+            var margin = hold.ConsciousnessMargin;
+            var marginSlope = hold.ConsciousnessMarginRightSlope;
+            var correctionLimit = Math.Abs(marginSlope) *
+                PressureBoundRootToleranceSeconds + 1e-12;
+            var projectedRootTime = marginSlope != 0.0
+                ? -margin / marginSlope
+                : double.NaN;
+            var incomingModeCrossing =
+                (margin < 0.0 && marginSlope > 0.0) ||
+                (margin > 0.0 && marginSlope < 0.0);
+            if (!state.IsDead && incomingModeCrossing &&
+                IsFiniteNumber(hold.ConsciousnessTarget) &&
+                hold.ConsciousnessTarget is >= 0.0 and <= 1.0 &&
+                IsFiniteNumber(margin) && IsFiniteNumber(marginSlope) &&
+                IsFiniteNumber(hold.ConsciousnessTau) &&
+                hold.ConsciousnessTau > 1e-9 &&
+                IsFiniteNumber(correctionLimit) &&
+                Math.Abs(margin) <= correctionLimit &&
+                IsFiniteNumber(projectedRootTime) && projectedRootTime >= 0.0 &&
+                projectedRootTime <= PressureBoundRootToleranceSeconds)
+            {
+                var projectedState = state with
+                {
+                    ConsciousnessLevel = hold.ConsciousnessTarget
+                };
+                var activeBloodBounds = BloodBounds.None;
+                foreach (var blood in circulation.Segments)
+                    if (blood.StartOffset <= cursor)
+                        activeBloodBounds = blood.Bounds;
+                var projectionViolation = DownstreamViolation(projectedState, settings,
+                    activeBloodBounds);
+                if (projectionViolation.Length != 0)
+                {
+                    violations.Add($"immediate consciousness mode projection at " +
+                        $"{cursor:R}: {projectionViolation}");
+                    break;
+                }
+
+                state = projectedState;
+                if (segments.Count > 0)
+                {
+                    var lastSegmentIndex = segments.Count - 1;
+                    var lastSegment = segments[lastSegmentIndex];
+                    if (Math.Abs(lastSegment.StartOffset + lastSegment.Duration -
+                                 cursor) <= 1e-12)
+                    {
+                        var updatedStages = (IntegrationState[])lastSegment.Stages.Clone();
+                        if (updatedStages.Length > 0)
+                        {
+                            var lastStageIndex = updatedStages.Length - 1;
+                            updatedStages[lastStageIndex] = updatedStages[lastStageIndex] with
+                            {
+                                ConsciousnessLevel = state.ConsciousnessLevel
+                            };
+                            segments[lastSegmentIndex] = lastSegment with
+                            {
+                                Final = state,
+                                Stages = updatedStages
+                            };
+                            if (stages.Count > 0)
+                                stages[stages.Count - 1] = updatedStages[lastStageIndex];
+                        }
+                    }
+                }
+                events.Add(new IntegrationEvent("ConsciousnessModeTransition", cursor,
+                    state));
+                hold = ComputeHold(state,
+                    c => upstream.Evaluate(cursor + c * span), span,
+                    upstream.GxMagnitude, settings);
+            }
+
             var piece = SolveDownstream(state, upstream, cursor, span, hold, settings);
             if (!piece.Valid)
             {
@@ -4513,20 +5798,26 @@ public class PhysiologicalModel
 
             var loc = ChaseLoC(state, piece.Consciousness, cursor, span, settings);
 
-            var candidates = new List<(double Time, string Kind)>();
-            void Offer(double t, string eventKind)
+            var candidates = new List<
+                (double Time, string Kind, int Coordinate, double Level, int Direction)>();
+            void Offer(double t, string eventKind, int coordinate = -1, double level = 0.0,
+                int direction = 0)
             {
-                if (t > cursor + 1e-12 && t < end)
-                    candidates.Add((t, eventKind));
+                if (t > cursor + 1e-12 && t <= end)
+                    candidates.Add((t, eventKind, coordinate, level, direction));
             }
 
             Offer(upstream.NeckClampTime, "NeckCeilingClamp");
-            Offer(upstream.NeckDeathEntry, "NeckDeathEntry");
-            Offer(upstream.NeckDeathExit, "NeckDeathExit");
+            if (!state.IsDead)
+            {
+                Offer(upstream.NeckDeathEntry, "NeckDeathEntry");
+                Offer(upstream.NeckDeathExit, "NeckDeathExit");
+            }
             if (!state.IsDead) Offer(upstream.DeathCompletionTime(), "Death");
             Offer(upstream.SuddenTriggerTime(state.InSuddenLoC, state.IsDead),
                 "SuddenTrigger");
-            Offer(upstream.SuddenRecoveryTime(state.InSuddenLoC), "SuddenRecovery");
+            if (!state.IsDead)
+                Offer(upstream.SuddenRecoveryTime(state.InSuddenLoC), "SuddenRecovery");
             Offer(upstream.RespiratoryBoundTime, "RespiratoryCeiling");
             Offer(upstream.SuddenBoundTime, "SuddenAccumulatorBound");
             foreach (var blood in circulation.Segments)
@@ -4540,76 +5831,332 @@ public class PhysiologicalModel
             if (loc.FirstEventTime > cursor)
                 Offer(loc.FirstEventTime, loc.FirstEventKind);
 
-            double HeadO2(double t) => piece.Oxygen.Evaluate((t - cursor) / span)[0];
-            double Consciousness(double t) =>
-                piece.Consciousness.Evaluate((t - cursor) / span)[0];
+            var coordPins = new[] { hold.HeadPinned, hold.LowerPinned, hold.CorePinned };
+            var restHead = settings.RestingBloodHead;
+            var softMin = settings.ConsciousnessPerfusionSoftMinRatio;
 
-            double BrainMargin(double t)
+            eventProbes[0] = new FullIntervalEventProbe
             {
-                var trial = upstream.Evaluate(t);
-                return BrainO2Target(EffectiveDelivery(
-                    ShapedPerfusion(trial.Head, settings), trial.HeartRate,
-                    trial.Arterial, settings), settings) - HeadO2(t);
+                Time = cursor
+            };
+            for (var probe = 0; probe < ScanProbes.Length; probe++)
+            {
+                var time = cursor + ScanProbes[probe] * span;
+                eventProbes[probe + 1] = new FullIntervalEventProbe
+                {
+                    Time = time
+                };
+            }
+            eventProbes[ScanProbes.Length + 1] = new FullIntervalEventProbe
+            {
+                Time = end
+            };
+
+            var activeHeadLevel = 0.0;
+            Func<double, double>? activeHeadMarginAtHead = null;
+            double ActiveHeadMarginAtTime(double time)
+            {
+                var head = upstream.HeadAt(time);
+                return activeHeadMarginAtHead == null
+                    ? head - activeHeadLevel
+                    : activeHeadMarginAtHead(head);
+            }
+            Func<double, double> activeHeadMarginAtTime = ActiveHeadMarginAtTime;
+
+            double ScanHeadCrossing(double level, out int direction,
+                double toleranceSeconds = PressureBoundRootToleranceSeconds)
+            {
+                if (piece.HasHeadRange &&
+                    (piece.MinimumHead > level || piece.MaximumHead < level))
+                {
+                    direction = 0;
+                    return double.PositiveInfinity;
+                }
+
+                activeHeadLevel = level;
+                activeHeadMarginAtHead = null;
+                var samples = new CrossingSamples(
+                    eventProbes[0].Head - level,
+                    eventProbes[1].Head - level,
+                    eventProbes[2].Head - level,
+                    eventProbes[3].Head - level,
+                    eventProbes[4].Head - level,
+                    eventProbes[5].Head - level,
+                    eventProbes[6].Head - level);
+                return ScanCrossing(activeHeadMarginAtTime, cursor, end, samples,
+                    out direction, toleranceSeconds);
             }
 
-            Offer(ScanCrossing(BrainMargin, cursor, end, out _),
+            double ScanHeadDerivedCrossing(Func<double, double> marginAtHead,
+                out int direction,
+                double toleranceSeconds = PressureBoundRootToleranceSeconds)
+            {
+                activeHeadMarginAtHead = marginAtHead;
+                var samples = new CrossingSamples(
+                    marginAtHead(eventProbes[0].Head),
+                    marginAtHead(eventProbes[1].Head),
+                    marginAtHead(eventProbes[2].Head),
+                    marginAtHead(eventProbes[3].Head),
+                    marginAtHead(eventProbes[4].Head),
+                    marginAtHead(eventProbes[5].Head),
+                    marginAtHead(eventProbes[6].Head));
+                return ScanCrossing(activeHeadMarginAtTime, cursor, end, samples,
+                    out direction, toleranceSeconds);
+            }
+
+            double NaturalOxygenDerivative(FullIntervalEventProbe probe, int coordinate)
+            {
+                var trial = probe.Trial;
+                var natural = BuildOxygenSystem(_ => trial, 0.0,
+                    hold.BrainDepleting, false, false, false,
+                    upstream.GxMagnitude, settings);
+                var derivative = natural.B[coordinate];
+                for (var k = 0; k < 3; k++)
+                    derivative += natural.M[coordinate][k] * probe.OxygenAt(k);
+                return derivative;
+            }
+
+            FullIntervalEventProbe SampleAt(double time,
+                FullIntervalEventProbeNeeds needs, int coordinate)
+            {
+                var normalizedTime = (time - cursor) / span;
+                var probe = new FullIntervalEventProbe
+                {
+                    Time = time
+                };
+                if ((needs & FullIntervalEventProbeNeeds.NaturalOxygenDerivative) != 0)
+                    needs |= FullIntervalEventProbeNeeds.Trial |
+                             FullIntervalEventProbeNeeds.Oxygen;
+                if ((needs & FullIntervalEventProbeNeeds.Trial) != 0)
+                {
+                    probe.Trial = upstream.Evaluate(time);
+                    probe.Head = probe.Trial.Head;
+                }
+                else if ((needs & FullIntervalEventProbeNeeds.Head) != 0)
+                {
+                    probe.Head = upstream.HeadAt(time);
+                }
+
+                if ((needs & FullIntervalEventProbeNeeds.Oxygen) != 0)
+                {
+                    var oxygen = piece.Oxygen.Evaluate(normalizedTime);
+                    probe.HeadOxygen = oxygen[0];
+                    probe.LowerOxygen = oxygen[1];
+                    probe.CoreOxygen = oxygen[2];
+                }
+                if ((needs & FullIntervalEventProbeNeeds.Consciousness) != 0)
+                    probe.Consciousness = piece.Consciousness.Evaluate(normalizedTime)[0];
+                if ((needs & FullIntervalEventProbeNeeds.Pressure) != 0)
+                    probe.Pressure = (needs & FullIntervalEventProbeNeeds.Trial) != 0
+                        ? probe.Trial.Pressure
+                        : upstream.PressureAt(time);
+                if ((needs & FullIntervalEventProbeNeeds.Compression) != 0)
+                    probe.Compression = (needs & FullIntervalEventProbeNeeds.Trial) != 0
+                        ? probe.Trial.Compression
+                        : upstream.CompressionAt(time);
+                if ((needs & FullIntervalEventProbeNeeds.Respiratory) != 0)
+                    probe.Respiratory = (needs & FullIntervalEventProbeNeeds.Trial) != 0
+                        ? probe.Trial.Respiratory
+                        : upstream.RespiratoryAt(time);
+                if ((needs & FullIntervalEventProbeNeeds.TunnelVision) != 0)
+                {
+                    probe.TunnelVision = piece.Visuals[0].Evaluate(normalizedTime);
+                    probe.TunnelVisionTarget = piece.ConstantVisualTarget(0) ??
+                        piece.VisualTargetAt!(0, normalizedTime);
+                }
+                if ((needs & FullIntervalEventProbeNeeds.Redout) != 0)
+                {
+                    probe.Redout = piece.Visuals[1].Evaluate(normalizedTime);
+                    probe.RedoutTarget = piece.ConstantVisualTarget(1) ??
+                        piece.VisualTargetAt!(1, normalizedTime);
+                }
+                if ((needs & FullIntervalEventProbeNeeds.Grayscale) != 0)
+                {
+                    probe.Grayscale = piece.Visuals[2].Evaluate(normalizedTime);
+                    probe.GrayscaleTarget = piece.ConstantVisualTarget(2) ??
+                        piece.VisualTargetAt!(2, normalizedTime);
+                }
+                if ((needs & FullIntervalEventProbeNeeds.NaturalOxygenDerivative) != 0)
+                    probe.NaturalOxygenDerivative =
+                        NaturalOxygenDerivative(probe, coordinate);
+                return probe;
+            }
+
+            for (var probeIndex = 0; probeIndex < eventProbes.Length; probeIndex++)
+                eventProbes[probeIndex] = SampleAt(eventProbes[probeIndex].Time,
+                    FullIntervalEventProbeNeeds.Trial |
+                    FullIntervalEventProbeNeeds.Oxygen |
+                    FullIntervalEventProbeNeeds.Consciousness |
+                    FullIntervalEventProbeNeeds.Pressure |
+                    FullIntervalEventProbeNeeds.Compression |
+                    FullIntervalEventProbeNeeds.Respiratory |
+                    FullIntervalEventProbeNeeds.TunnelVision |
+                    FullIntervalEventProbeNeeds.Redout |
+                    FullIntervalEventProbeNeeds.Grayscale, -1);
+
+            var perfusionSoftMinTime = ScanHeadCrossing(softMin * restHead, out _);
+            var perfusionRangeTime = ScanHeadCrossing(restHead, out _,
+                toleranceSeconds: 1e-12);
+            var perfusionCapTime = ScanHeadCrossing(
+                (0.25 * (1.0 - softMin) + softMin) * restHead, out _);
+            var criticalPerfusionTime = ScanHeadCrossing(
+                (settings.ConsciousnessCriticalPerfusionNorm * (1.0 - softMin) +
+                 softMin) * restHead, out _);
+            var redoutOnsetTime = ScanHeadCrossing(
+                restHead * (1.0 + settings.VisualRedoutOnsetHeadBloodOverfill), out _);
+            var redoutFullTime = ScanHeadCrossing(
+                restHead * (1.0 + settings.VisualRedoutFullHeadBloodOverfill), out _);
+            var visualPerfusionTime = ScanHeadCrossing(0.45 * restHead, out _);
+            var hypoperfusionThreshold = Clamp(
+                settings.BrainO2HypoperfusionThreshold, 0.01, 1.0);
+            var hypoperfusionTime = ScanHeadDerivedCrossing(
+                head => ShapedPerfusion(head, settings) - hypoperfusionThreshold, out _,
+                toleranceSeconds: 1e-12);
+            var deliveryFloorTime = ScanHeadDerivedCrossing(
+                head => DeliveryCore(ShapedPerfusion(head, settings), settings), out _);
+            var deliveryCeilingTime = ScanHeadDerivedCrossing(
+                head => DeliveryCore(ShapedPerfusion(head, settings), settings) - 1.0,
+                out _);
+
+            var activeNeeds = FullIntervalEventProbeNeeds.None;
+            var activeCoordinate = -1;
+            Func<FullIntervalEventProbe, double> activeMargin = null!;
+            double ActiveEventMarginAt(double time) =>
+                activeMargin(SampleAt(time, activeNeeds, activeCoordinate));
+            Func<double, double> activeEventMarginAt = ActiveEventMarginAt;
+
+            FullIntervalEventProbe PrepareProbe(FullIntervalEventProbe probe,
+                FullIntervalEventProbeNeeds needs, int coordinate)
+            {
+                if ((needs & FullIntervalEventProbeNeeds.NaturalOxygenDerivative) != 0)
+                    probe.NaturalOxygenDerivative =
+                        NaturalOxygenDerivative(probe, coordinate);
+                return probe;
+            }
+
+            double ScanSurface(Func<FullIntervalEventProbe, double> margin,
+                FullIntervalEventProbeNeeds needs, out int direction, int coordinate = -1)
+            {
+                activeMargin = margin;
+                activeNeeds = needs;
+                activeCoordinate = coordinate;
+                var values = new CrossingSamples(
+                    margin(PrepareProbe(eventProbes[0], needs, coordinate)),
+                    margin(PrepareProbe(eventProbes[1], needs, coordinate)),
+                    margin(PrepareProbe(eventProbes[2], needs, coordinate)),
+                    margin(PrepareProbe(eventProbes[3], needs, coordinate)),
+                    margin(PrepareProbe(eventProbes[4], needs, coordinate)),
+                    margin(PrepareProbe(eventProbes[5], needs, coordinate)),
+                    margin(PrepareProbe(eventProbes[6], needs, coordinate)));
+                return ScanCrossing(activeEventMarginAt, cursor, end, values, out direction);
+            }
+
+            double OxygenBoundEntryMargin(double oxygenValue, double level) =>
+                oxygenValue - level;
+            double RawConsciousnessReserveMargin(double head, double headO2) =>
+                ConsciousnessRawReserve(O2Normalized(headO2, settings),
+                    PerfusionNormalized(head, settings), settings);
+            double RawConsciousnessReserveAt(double time, double headO2) =>
+                RawConsciousnessReserveMargin(upstream.HeadAt(time), headO2);
+
+            double BrainMargin(FullIntervalEventProbe probe)
+            {
+                var trial = probe.Trial;
+                return BrainO2Target(EffectiveDelivery(
+                    ShapedPerfusion(trial.Head, settings), trial.HeartRate,
+                    trial.Arterial, settings), settings) - probe.HeadOxygen;
+            }
+
+            Offer(ScanSurface(BrainMargin,
+                FullIntervalEventProbeNeeds.Trial | FullIntervalEventProbeNeeds.Oxygen,
+                out _),
                 "BrainO2ModeTransition");
 
-            var coordPins = new[] { hold.HeadPinned, hold.LowerPinned, hold.CorePinned };
             for (var coord = 0; coord < 3; coord++)
             {
                 var index = coord;
                 var lowBound = index == 0 ? settings.BrainO2Floor : 0.0;
-                double Value(double t) => piece.Oxygen.Evaluate((t - cursor) / span)[index];
                 if (!coordPins[index])
                 {
-                    var low = ScanCrossing(t => Value(t) - lowBound, cursor, end, out _);
-                    var high = ScanCrossing(t => 1.0 - Value(t), cursor, end, out _);
-                    Offer(Math.Min(low, high),
-                        $"OxygenBoundEntry{OxygenCoordinateNames[index]}");
+                    var low = ScanSurface(
+                        probe => OxygenBoundEntryMargin(probe.OxygenAt(index), lowBound),
+                        FullIntervalEventProbeNeeds.Oxygen, out var lowDirection);
+                    if (lowDirection < 0)
+                        Offer(low,
+                            $"OxygenBoundEntry{OxygenCoordinateNames[index]}", index,
+                            lowBound, lowDirection);
+                    var high = ScanSurface(
+                        probe => OxygenBoundEntryMargin(probe.OxygenAt(index), 1.0),
+                        FullIntervalEventProbeNeeds.Oxygen, out var highDirection);
+                    if (highDirection > 0)
+                        Offer(high,
+                            $"OxygenBoundEntry{OxygenCoordinateNames[index]}", index, 1.0,
+                            highDirection);
                 }
                 else
                 {
-                    var atLower = Math.Abs(Value(cursor) - lowBound) <
-                                  Math.Abs(Value(cursor) - 1.0);
-                    double NaturalDerivative(double t)
+                    var atLower = eventProbes[0].OxygenAt(index) <= lowBound;
+                    double NaturalDerivative(FullIntervalEventProbe probe)
                     {
-                        var trial = upstream.Evaluate(t);
-                        var natural = BuildOxygenSystem(_ => trial, 0.0,
-                            hold.BrainDepleting, false, false, false,
-                            upstream.GxMagnitude, settings);
-                        var y = piece.Oxygen.Evaluate((t - cursor) / span);
-                        var derivative = natural.B[index];
-                        for (var k = 0; k < 3; k++)
-                            derivative += natural.M[index][k] * y[k];
-                        return atLower ? derivative : -derivative;
+                        return atLower
+                            ? probe.NaturalOxygenDerivative
+                            : -probe.NaturalOxygenDerivative;
                     }
 
-                    Offer(ScanCrossing(NaturalDerivative, cursor, end, out _),
-                        $"OxygenBoundRelease{OxygenCoordinateNames[index]}");
+                    var naturalNeeds = FullIntervalEventProbeNeeds.Trial |
+                        FullIntervalEventProbeNeeds.Oxygen |
+                        FullIntervalEventProbeNeeds.NaturalOxygenDerivative;
+                    var release = ScanSurface(NaturalDerivative, naturalNeeds,
+                        out var releaseDirection, index);
+                    if (releaseDirection > 0)
+                    {
+                        lastO2RootEvidence =
+                            $"OxygenBoundRelease{OxygenCoordinateNames[index]} " +
+                            $"coordinate={index} level={(atLower ? lowBound : 1.0):R} " +
+                            $"direction={releaseDirection} time={release:R} " +
+                            $"naturalResidual={NaturalDerivative(
+                                SampleAt(release, naturalNeeds, index)):R}";
+                        Offer(release,
+                            $"OxygenBoundRelease{OxygenCoordinateNames[index]}", index,
+                            atLower ? lowBound : 1.0, releaseDirection);
+                    }
                 }
             }
 
             if (!state.IsDead)
             {
-                double ConsciousnessMargin(double t)
+                var zeroBranch = ScanSurface(
+                    probe => RawConsciousnessReserveMargin(probe.Head, probe.HeadOxygen),
+                    FullIntervalEventProbeNeeds.Head |
+                    FullIntervalEventProbeNeeds.Oxygen, out var zeroBranchDirection);
+                if (zeroBranchDirection > 0)
+                    Offer(zeroBranch, "ConsciousnessTargetZeroBranch",
+                        direction: zeroBranchDirection);
+
+                double ConsciousnessMargin(FullIntervalEventProbe probe)
                 {
-                    var trial = upstream.Evaluate(t);
                     var (target, _) = ConsciousnessTargetAndTau(
-                        O2Normalized(HeadO2(t), settings),
-                        PerfusionNormalized(trial.Head, settings), trial.Pressure,
+                        O2Normalized(probe.HeadOxygen, settings),
+                        PerfusionNormalized(probe.Head, settings), probe.Pressure,
                         settings);
-                    return target - Consciousness(t);
+                    return target - probe.Consciousness;
                 }
 
-                Offer(ScanCrossing(ConsciousnessMargin, cursor, end, out _),
-                    "ConsciousnessModeTransition");
+                var modeNeeds = FullIntervalEventProbeNeeds.Head |
+                    FullIntervalEventProbeNeeds.Pressure |
+                    FullIntervalEventProbeNeeds.Oxygen |
+                    FullIntervalEventProbeNeeds.Consciousness;
+                var modeTransition = ScanSurface(ConsciousnessMargin, modeNeeds,
+                    out var modeDirection);
+                Offer(modeTransition, "ConsciousnessModeTransition", direction: modeDirection);
 
                 var threshold = state.IsUnconscious
                     ? settings.ConsciousnessRecoveryThreshold
                     : settings.ConsciousnessLossThreshold;
-                var hysteresis = ScanCrossing(t => Consciousness(t) - threshold, cursor,
-                    end, out var hysteresisDirection);
+                var hysteresis = ScanSurface(
+                    probe => probe.Consciousness - threshold,
+                    FullIntervalEventProbeNeeds.Consciousness,
+                    out var hysteresisDirection);
                 var validCrossing = state.IsUnconscious
                     ? hysteresisDirection > 0
                     : hysteresisDirection < 0;
@@ -4623,101 +6170,397 @@ public class PhysiologicalModel
             for (var channel = 0; channel < 3; channel++)
             {
                 var index = channel;
-                double VisualTarget(double t)
+                var needs = index switch
                 {
-                    var trial = upstream.Evaluate(t);
-                    return index == 1
-                        ? RedoutTarget(Math.Max(
-                            (trial.Head - settings.RestingBloodHead) /
-                            settings.RestingBloodHead, 0.0), settings)
-                        : PhysiologicalVisualTarget(trial.Head,
-                            O2Normalized(HeadO2(t), settings), settings);
-                }
-
-                Offer(ScanCrossing(
-                    t => VisualTarget(t) -
-                         piece.Visuals[index].Evaluate((t - cursor) / span)[0],
-                    cursor, end, out _), VisualTransitionNames[index]);
+                    0 => FullIntervalEventProbeNeeds.TunnelVision,
+                    1 => FullIntervalEventProbeNeeds.Redout,
+                    _ => FullIntervalEventProbeNeeds.Grayscale
+                };
+                Offer(ScanSurface(
+                    probe => probe.VisualTarget(index) - probe.VisualValue(index),
+                    needs, out _), VisualTransitionNames[index]);
             }
 
-            var restHead = settings.RestingBloodHead;
-            var softMin = settings.ConsciousnessPerfusionSoftMinRatio;
-            double VisualReserve(double t)
+            double VisualReserve(FullIntervalEventProbe probe)
             {
-                var perf = Clamp(upstream.HeadAt(t) / restHead, 0.0, 1.0);
-                var o2n = O2Normalized(HeadO2(t), settings);
+                var perf = Clamp(probe.Head / restHead, 0.0, 1.0);
+                var o2n = O2Normalized(probe.HeadOxygen, settings);
                 return 0.7 * Clamp((perf - 0.45) / 0.55, 0.0, 1.0) +
                        0.3 * Clamp((o2n - 0.15) / 0.85, 0.0, 1.0);
             }
 
-            Offer(ScanCrossing(t => upstream.HeadAt(t) - softMin * restHead, cursor, end,
-                out _), "PerfusionSoftMinBound");
-            Offer(ScanCrossing(t => upstream.HeadAt(t) - restHead, cursor, end, out _),
+            Offer(perfusionSoftMinTime, "PerfusionSoftMinBound");
+            Offer(perfusionRangeTime,
                 "PerfusionRangeBound");
-            Offer(ScanCrossing(
-                t => upstream.HeadAt(t) - (0.25 * (1.0 - softMin) + softMin) * restHead,
-                cursor, end, out _), "PerfusionCapBranch");
-            Offer(ScanCrossing(
-                t => upstream.HeadAt(t) -
-                    (settings.ConsciousnessCriticalPerfusionNorm * (1.0 - softMin) +
-                     softMin) * restHead, cursor, end, out _), "CriticalPerfusionBranch");
-            Offer(ScanCrossing(t => HeadO2(t) - settings.BrainO2Blackout, cursor, end,
-                out _), "O2NormFloor");
-            Offer(ScanCrossing(t => HeadO2(t) - settings.BrainO2Full, cursor, end, out _),
+            Offer(perfusionCapTime,
+                "PerfusionCapBranch");
+            Offer(criticalPerfusionTime, "CriticalPerfusionBranch");
+            Offer(ScanSurface(
+                probe => probe.HeadOxygen - settings.BrainO2Blackout,
+                FullIntervalEventProbeNeeds.Oxygen, out _),
+                "O2NormFloor");
+            Offer(ScanSurface(probe => probe.HeadOxygen - settings.BrainO2Full,
+                FullIntervalEventProbeNeeds.Oxygen, out _),
                 "O2NormCeiling");
-            Offer(ScanCrossing(
-                t => HeadO2(t) - (settings.BrainO2Blackout +
-                    settings.ConsciousnessCriticalO2Norm *
-                    (settings.BrainO2Full - settings.BrainO2Blackout)),
-                cursor, end, out _), "CriticalO2Branch");
-            Offer(ScanCrossing(
-                t => upstream.PressureAt(t) - settings.CerebralPressureImpairmentDeadband,
-                cursor, end, out _), "PressureDeadbandBranch");
-            Offer(ScanCrossing(
-                t => upstream.PressureAt(t) -
-                    (settings.CerebralPressureImpairmentDeadband +
-                     settings.ConsciousnessCriticalPressureNorm *
-                     (1.0 - settings.CerebralPressureImpairmentDeadband)),
-                cursor, end, out _), "CriticalPressureBranch");
-            Offer(ScanCrossing(
-                t => upstream.HeadAt(t) -
-                    restHead * (1.0 + settings.VisualRedoutOnsetHeadBloodOverfill),
-                cursor, end, out _), "RedoutOnset");
-            Offer(ScanCrossing(
-                t => upstream.HeadAt(t) -
-                    restHead * (1.0 + settings.VisualRedoutFullHeadBloodOverfill),
-                cursor, end, out _), "RedoutFull");
-            Offer(ScanCrossing(t => upstream.HeadAt(t) - 0.45 * restHead, cursor, end,
-                out _), "VisualPerfBranch");
-            Offer(ScanCrossing(
-                t => HeadO2(t) - (settings.BrainO2Blackout +
-                    0.15 * (settings.BrainO2Full - settings.BrainO2Blackout)),
-                cursor, end, out _), "VisualO2Branch");
-            Offer(ScanCrossing(
-                t => 0.9 - upstream.CompressionAt(t) *
-                    settings.GyLungCompressionSeverity -
-                    GxLungImpairment(upstream.GxMagnitude, settings) -
-                    0.5 * upstream.RespiratoryAt(t),
-                cursor, end, out _), "LungEffectivenessFloor");
-            Offer(ScanCrossing(t => VisualReserve(t) - 0.82, cursor, end, out _),
+            Offer(ScanSurface(probe => probe.HeadOxygen - (settings.BrainO2Blackout +
+                settings.ConsciousnessCriticalO2Norm *
+                (settings.BrainO2Full - settings.BrainO2Blackout)),
+                FullIntervalEventProbeNeeds.Oxygen, out _),
+                "CriticalO2Branch");
+            Offer(ScanSurface(
+                probe => probe.Pressure -
+                         settings.CerebralPressureImpairmentDeadband,
+                FullIntervalEventProbeNeeds.Pressure, out _),
+                "PressureDeadbandBranch");
+            Offer(ScanSurface(probe => probe.Pressure -
+                (settings.CerebralPressureImpairmentDeadband +
+                 settings.ConsciousnessCriticalPressureNorm *
+                 (1.0 - settings.CerebralPressureImpairmentDeadband)),
+                FullIntervalEventProbeNeeds.Pressure, out _),
+                "CriticalPressureBranch");
+            Offer(redoutOnsetTime, "RedoutOnset");
+            Offer(redoutFullTime, "RedoutFull");
+            Offer(visualPerfusionTime, "VisualPerfBranch");
+            Offer(ScanSurface(probe => probe.HeadOxygen - (settings.BrainO2Blackout +
+                0.15 * (settings.BrainO2Full - settings.BrainO2Blackout)),
+                FullIntervalEventProbeNeeds.Oxygen, out _),
+                "VisualO2Branch");
+            Offer(ScanSurface(probe => 0.9 - probe.Compression *
+                settings.GyLungCompressionSeverity -
+                GxLungImpairment(upstream.GxMagnitude, settings) -
+                0.5 * probe.Respiratory,
+                FullIntervalEventProbeNeeds.Compression |
+                FullIntervalEventProbeNeeds.Respiratory, out _),
+                "LungEffectivenessFloor");
+            var visualReserveNeeds = FullIntervalEventProbeNeeds.Head |
+                FullIntervalEventProbeNeeds.Oxygen;
+            Offer(ScanSurface(probe => VisualReserve(probe) - 0.82,
+                visualReserveNeeds, out _),
                 "VisualDeficitRamp");
-            Offer(ScanCrossing(t => VisualReserve(t), cursor, end, out _),
+            Offer(ScanSurface(VisualReserve, visualReserveNeeds, out _),
                 "VisualDeficitCeiling");
-            Offer(ScanCrossing(
-                t => ShapedPerfusion(upstream.HeadAt(t), settings) -
-                    Clamp(settings.BrainO2HypoperfusionThreshold, 0.01, 1.0),
-                cursor, end, out _), "HypoperfusionThreshold");
-            Offer(ScanCrossing(
-                t => DeliveryCore(ShapedPerfusion(upstream.HeadAt(t), settings), settings),
-                cursor, end, out _), "DeliveryFloor");
-            Offer(ScanCrossing(
-                t => DeliveryCore(ShapedPerfusion(upstream.HeadAt(t), settings),
-                    settings) - 1.0, cursor, end, out _), "DeliveryCeiling");
+            Offer(hypoperfusionTime, "HypoperfusionThreshold");
+            Offer(deliveryFloorTime, "DeliveryFloor");
+            Offer(deliveryCeilingTime, "DeliveryCeiling");
+
+            bool IsOxygenBoundEntry(
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item) =>
+                item.Coordinate >= 0 &&
+                item.Kind.StartsWith("OxygenBoundEntry", StringComparison.Ordinal);
+
+            bool IsConsciousnessTargetZeroBranch(
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item) =>
+                item.Kind == "ConsciousnessTargetZeroBranch";
+
+            bool IsRootEvent(
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item) =>
+                IsOxygenBoundEntry(item) || IsConsciousnessTargetZeroBranch(item);
+
+            static bool DirectedBracket(double lower, double upper, int direction) =>
+                direction < 0
+                    ? lower >= 0.0 && upper <= 0.0 && (lower > 0.0 || upper < 0.0)
+                    : lower <= 0.0 && upper >= 0.0 && (lower < 0.0 || upper > 0.0);
+
+            double RootEventResidual(double time, double oxygenValue,
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item) =>
+                IsOxygenBoundEntry(item)
+                    ? OxygenBoundEntryMargin(oxygenValue, item.Level)
+                    : RawConsciousnessReserveAt(time, oxygenValue);
+
+            double WholeEventResidual(double time,
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item)
+            {
+                var oxygen = piece.Oxygen.Evaluate((time - cursor) / span);
+                var coordinate = IsOxygenBoundEntry(item) ? item.Coordinate : 0;
+                return RootEventResidual(time, oxygen[coordinate], item);
+            }
+
+            bool TryEventPrefixEndpoint(double time,
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item,
+                out DownstreamSolution? prefix, out double residual, out string failure)
+            {
+                prefix = null;
+                residual = double.NaN;
+                failure = "";
+                if (time == cursor)
+                {
+                    var initialOxygen = IsOxygenBoundEntry(item)
+                        ? OxygenCoordinateValue(in state, item.Coordinate)
+                        : state.BloodO2Head;
+                    residual = RootEventResidual(cursor, initialOxygen, item);
+                    if (IsFiniteNumber(residual)) return true;
+                    failure = $"nonfinite initial root residual {residual:R}";
+                    return false;
+                }
+
+                var prefixSpan = time - cursor;
+                if (!(prefixSpan > 0.0) || !IsFiniteNumber(prefixSpan))
+                {
+                    failure = $"invalid O2 prefix span {prefixSpan:R} at {time:R}";
+                    return false;
+                }
+                prefix = SolveDownstream(state, upstream, cursor, prefixSpan, hold,
+                    settings, oxygenOnly: true);
+                if (!prefix.Valid)
+                {
+                    failure = $"invalid re-solved O2 prefix at {time:R}";
+                    return false;
+                }
+                var endpoint = prefix.Oxygen.Evaluate(1.0);
+                var endpointValue = IsOxygenBoundEntry(item)
+                    ? endpoint[item.Coordinate]
+                    : endpoint[0];
+                residual = RootEventResidual(time, endpointValue, item);
+                if (IsFiniteNumber(endpointValue) && IsFiniteNumber(residual)) return true;
+                failure = $"nonfinite re-solved root endpoint at {time:R}: " +
+                    $"residual {residual:R}";
+                return false;
+            }
+
+            bool TryRefineRootEvent(
+                (double Time, string Kind, int Coordinate, double Level, int Direction) item,
+                out double refinedTime, out bool emitEvent, out string failure)
+            {
+                refinedTime = double.NaN;
+                emitEvent = false;
+                failure = "";
+                var sampleLo = cursor;
+                var sampleValue = WholeEventResidual(sampleLo, item);
+                var bracketLo = double.NaN;
+                var bracketHi = double.NaN;
+                for (var sample = 0; sample <= ScanProbes.Length; sample++)
+                {
+                    var sampleHi = sample == ScanProbes.Length
+                        ? end
+                        : cursor + ScanProbes[sample] * span;
+                    var valueHi = WholeEventResidual(sampleHi, item);
+                    if (item.Time >= sampleLo - 1e-12 &&
+                        item.Time <= sampleHi + 1e-12 &&
+                        DirectedBracket(sampleValue, valueHi, item.Direction))
+                    {
+                        bracketLo = sampleLo;
+                        bracketHi = sampleHi;
+                        break;
+                    }
+                    sampleLo = sampleHi;
+                    sampleValue = valueHi;
+                }
+
+                if (double.IsNaN(bracketLo))
+                {
+                    failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                        $"level {item.Level:R} direction {item.Direction} has no " +
+                        $"original bracket around {item.Time:R}";
+                    return false;
+                }
+
+                var lowerValid = TryEventPrefixEndpoint(bracketLo, item,
+                    out _, out var resolvedLo, out var lowerFailure);
+                var upperValid = TryEventPrefixEndpoint(bracketHi, item,
+                    out _, out var resolvedHi, out var upperFailure);
+                if (!lowerValid || !upperValid)
+                {
+                    failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                        $"level {item.Level:R} direction {item.Direction} invalid " +
+                        $"re-solved bracket [{bracketLo:R},{bracketHi:R}]: " +
+                        $"{lowerFailure}{upperFailure}";
+                    return false;
+                }
+                if (!DirectedBracket(resolvedLo, resolvedHi, item.Direction))
+                {
+                    failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                        $"level {item.Level:R} direction {item.Direction} re-solved " +
+                        $"prefix residuals [{resolvedLo:R},{resolvedHi:R}] do not " +
+                        $"bracket original interval [{bracketLo:R},{bracketHi:R}]";
+                    return false;
+                }
+
+                var lo = bracketLo;
+                var hi = bracketHi;
+                var fLo = resolvedLo;
+                var fHi = resolvedHi;
+                while (hi - lo > PressureBoundRootToleranceSeconds)
+                {
+                    var mid = 0.5 * (lo + hi);
+                    if (mid == lo || mid == hi) break;
+                    if (!TryEventPrefixEndpoint(mid, item,
+                            out _, out var fMid, out var midFailure))
+                    {
+                        failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                            $"level {item.Level:R} direction {item.Direction} invalid " +
+                            $"re-solved prefix at {mid:R}: {midFailure}";
+                        return false;
+                    }
+                    if (fMid == 0.0)
+                    {
+                        lo = mid;
+                        hi = mid;
+                        fLo = 0.0;
+                        fHi = 0.0;
+                        break;
+                    }
+                    if ((item.Direction < 0 && fMid > 0.0) ||
+                        (item.Direction > 0 && fMid < 0.0))
+                    {
+                        lo = mid;
+                        fLo = fMid;
+                    }
+                    else
+                    {
+                        hi = mid;
+                        fHi = fMid;
+                    }
+                }
+
+                refinedTime = hi;
+                if (!IsFiniteNumber(refinedTime) ||
+                    refinedTime < bracketLo || refinedTime > bracketHi)
+                {
+                    failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                        $"level {item.Level:R} direction {item.Direction} failed at " +
+                        $"refined time {refinedTime:R} outside original bracket " +
+                        $"[{bracketLo:R},{bracketHi:R}]";
+                    return false;
+                }
+                if (!TryEventPrefixEndpoint(refinedTime, item,
+                        out var finalPrefix, out var endpointResidual,
+                        out var finalFailure))
+                {
+                    failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                        $"level {item.Level:R} direction {item.Direction} invalid at " +
+                        $"refined time {refinedTime:R}: {finalFailure}";
+                    return false;
+                }
+
+                if (finalPrefix == null)
+                {
+                    failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
+                        $"has no positive re-solved prefix at {refinedTime:R}";
+                    return false;
+                }
+                if (IsConsciousnessTargetZeroBranch(item))
+                {
+                    if (item.Direction != 1 || endpointResidual < 0.0)
+                    {
+                        failure = $"ConsciousnessTargetZeroBranch raw reserve " +
+                            $"{endpointResidual:R} is not on its positive side at " +
+                            $"{refinedTime:R} within [{bracketLo:R},{bracketHi:R}]";
+                        return false;
+                    }
+                    var trial = upstream.Evaluate(refinedTime);
+                    var headO2 = finalPrefix.Oxygen.Evaluate(1.0)[0];
+                    var target = ConsciousnessTargetAndTau(
+                        O2Normalized(headO2, settings),
+                        PerfusionNormalized(trial.Head, settings), trial.Pressure,
+                        settings).Target;
+                    if (!IsFiniteNumber(target) || target < 0.0 || target > 1.0)
+                    {
+                        failure = $"ConsciousnessTargetZeroBranch final target " +
+                            $"{target:R} invalid at {refinedTime:R}";
+                        return false;
+                    }
+                    emitEvent = target > 0.0;
+                    return true;
+                }
+
+                var derivative = finalPrefix.Oxygen.Derivative(1.0)[
+                    item.Coordinate];
+                var allowedCorrection =
+                    Math.Abs(derivative) * PressureBoundRootToleranceSeconds + 1e-12;
+                lastO2RootEvidence =
+                    $"{item.Kind} coordinate={item.Coordinate} level={item.Level:R} " +
+                    $"direction={item.Direction} rootTime={refinedTime:R} " +
+                    $"originalBracket=[{bracketLo:R},{bracketHi:R}] " +
+                    $"endpointResidual={endpointResidual:R} derivative={derivative:R} " +
+                    $"allowed={allowedCorrection:R}";
+                if (!IsFiniteNumber(derivative) || !IsFiniteNumber(allowedCorrection) ||
+                    item.Direction * derivative <= 0.0 ||
+                    Math.Abs(endpointResidual) > allowedCorrection)
+                {
+                    failure = $"O2 bound {item.Kind} coordinate {item.Coordinate} " +
+                        $"level {item.Level:R} direction {item.Direction} residual " +
+                        $"{endpointResidual:R}, derivative {derivative:R}, allowed " +
+                        $"{allowedCorrection:R} at {refinedTime:R}; bracket " +
+                        $"[{bracketLo:R},{bracketHi:R}] endpoint residuals " +
+                        $"[{fLo:R},{fHi:R}]";
+                    return false;
+                }
+                emitEvent = true;
+                return true;
+            }
+
+            var candidatesValid = true;
+            for (var candidateIndex = 0; candidateIndex < candidates.Count;)
+            {
+                var candidate = candidates[candidateIndex];
+                if (!IsRootEvent(candidate))
+                {
+                    candidateIndex++;
+                    continue;
+                }
+                if (!TryRefineRootEvent(candidate, out var refinedTime, out var emitEvent,
+                        out var refinementFailure))
+                {
+                    violations.Add(refinementFailure);
+                    candidatesValid = false;
+                    break;
+                }
+                if (!emitEvent)
+                {
+                    candidates.RemoveAt(candidateIndex);
+                    continue;
+                }
+                candidates[candidateIndex] = (refinedTime, candidate.Kind,
+                    candidate.Coordinate, candidate.Level, candidate.Direction);
+                candidateIndex++;
+            }
+            if (!candidatesValid) break;
+
+            var currentTrial = upstream.Evaluate(cursor);
+            var currentTarget = ConsciousnessTargetAndTau(
+                O2Normalized(state.BloodO2Head, settings),
+                PerfusionNormalized(currentTrial.Head, settings),
+                currentTrial.Pressure, settings).Target;
+            if (currentTarget == 0.0 && state.ConsciousnessLevel > 0.0)
+            {
+                var targetZeroBranches = candidates.Where(
+                    IsConsciousnessTargetZeroBranch).ToArray();
+                if (targetZeroBranches.Length == 0)
+                {
+                    candidates.RemoveAll(candidate =>
+                        candidate.Kind == "ConsciousnessModeTransition");
+                }
+                else
+                {
+                    var firstTargetZeroBranch = targetZeroBranches.Min(
+                        candidate => candidate.Time);
+                    candidates.RemoveAll(candidate =>
+                        candidate.Kind == "ConsciousnessModeTransition" &&
+                        candidate.Time <= firstTargetZeroBranch);
+                }
+            }
 
             if (candidates.Count == 0)
             {
-                RecordPiece(piece, loc, end);
-                state = FullStateAt(end, state, upstream, piece, loc, cursor, span);
+                if (!state.IsDead && hold.ConsciousnessLosing && currentTarget == 0.0)
+                {
+                    if (TryCreateHomogeneousZeroTargetLoss(state, upstream, cursor, span,
+                            piece, false, settings, out var homogeneousConsciousness,
+                            out var homogeneousFailure))
+                    {
+                        piece.Consciousness = homogeneousConsciousness!;
+                    }
+                    else if (homogeneousFailure.Length != 0)
+                    {
+                        violations.Add($"target-zero downstream piece invalid at " +
+                            $"{cursor:R}: {homogeneousFailure}");
+                        break;
+                    }
+                }
+                loc = ChaseLoC(state, piece.Consciousness, cursor, span, settings);
+                var recorded = RecordPiece(piece, loc, end, null, out var acceptedNoEventEnd);
+                if (!recorded) break;
+                state = acceptedNoEventEnd;
                 cursor = end;
                 continue;
             }
@@ -4725,46 +6568,111 @@ public class PhysiologicalModel
             var bestTime = candidates[0].Time;
             foreach (var candidate in candidates)
                 if (candidate.Time < bestTime) bestTime = candidate.Time;
-            var due = new List<string>();
+            var due = new List<
+                (double Time, string Kind, int Coordinate, double Level, int Direction)>();
             foreach (var candidate in candidates)
             {
-                if (candidate.Time - bestTime > FullIntervalEventScanTolerance) continue;
-                if (!due.Contains(candidate.Kind)) due.Add(candidate.Kind);
+                var dueTolerance = IsOxygenBoundEntry(candidate)
+                    ? PressureBoundRootToleranceSeconds
+                    : FullIntervalEventScanTolerance;
+                if (IsConsciousnessTargetZeroBranch(candidate) &&
+                    candidate.Time > bestTime)
+                    continue;
+                if (candidate.Time - bestTime > dueTolerance) continue;
+                if (due.Any(item => item.Kind == candidate.Kind &&
+                                    (!IsOxygenBoundEntry(candidate) ||
+                                     (item.Coordinate == candidate.Coordinate &&
+                                      item.Level == candidate.Level &&
+                                      item.Direction == candidate.Direction))))
+                    continue;
+                due.Add(candidate);
             }
-            due.Sort((a, b) => EventRank(a).CompareTo(EventRank(b)));
+            due.Sort((a, b) =>
+            {
+                var rankComparison = EventRank(a.Kind).CompareTo(EventRank(b.Kind));
+                return rankComparison != 0
+                    ? rankComparison
+                    : string.CompareOrdinal(a.Kind, b.Kind);
+            });
 
             var prefixSpan = bestTime - cursor;
             var prefixPiece = SolveDownstream(state, upstream, cursor, prefixSpan,
-                hold, settings);
+                hold, settings, allowHomogeneousZeroTargetLoss: true,
+                zeroTargetBranchAtEnd: due.Any(IsConsciousnessTargetZeroBranch));
             if (!prefixPiece.Valid)
             {
-                violations.Add($"downstream prefix invalid at offset {cursor:R}");
+                violations.Add($"downstream prefix invalid at offset {cursor:R}: " +
+                    prefixPiece.Failure);
                 break;
             }
+            var oxygenBoundEntries = due.Where(IsOxygenBoundEntry).ToArray();
+            var oxygenEntryValid = true;
+            foreach (var oxygenEntry in oxygenBoundEntries)
+            {
+                var endpoint = prefixPiece.Oxygen.Evaluate(1.0);
+                var residual = endpoint[oxygenEntry.Coordinate] - oxygenEntry.Level;
+                var derivative = prefixPiece.Oxygen.Derivative(1.0)[
+                    oxygenEntry.Coordinate];
+                var allowedCorrection =
+                    Math.Abs(derivative) * PressureBoundRootToleranceSeconds + 1e-12;
+                lastO2RootEvidence =
+                    $"accepted {oxygenEntry.Kind} coordinate={oxygenEntry.Coordinate} " +
+                    $"level={oxygenEntry.Level:R} direction={oxygenEntry.Direction} " +
+                    $"time={bestTime:R} prefixResidual={residual:R} " +
+                    $"derivative={derivative:R} allowed={allowedCorrection:R}";
+                if (IsFiniteNumber(endpoint[oxygenEntry.Coordinate]) &&
+                    IsFiniteNumber(residual) && IsFiniteNumber(derivative) &&
+                    IsFiniteNumber(allowedCorrection) &&
+                    oxygenEntry.Direction * derivative > 0.0 &&
+                    Math.Abs(residual) <= allowedCorrection)
+                    continue;
+                violations.Add($"O2 bound {oxygenEntry.Kind} coordinate " +
+                    $"{oxygenEntry.Coordinate} level {oxygenEntry.Level:R} direction " +
+                    $"{oxygenEntry.Direction} prefix residual {residual:R}, derivative " +
+                    $"{derivative:R}, allowed {allowedCorrection:R} at {bestTime:R}");
+                oxygenEntryValid = false;
+                break;
+            }
+            if (!oxygenEntryValid) break;
             var prefixLoc = ChaseLoC(state, prefixPiece.Consciousness, cursor,
                 prefixSpan, settings);
-            RecordPiece(prefixPiece, prefixLoc, bestTime);
-            state = FullStateAt(bestTime, state, upstream, prefixPiece, prefixLoc,
-                cursor, prefixSpan);
+            var prefixRecorded = RecordPiece(prefixPiece, prefixLoc, bestTime,
+                oxygenBoundEntries, out var acceptedEventEnd,
+                locContactAtEnd: due.Any(item => item.Kind == "LoCContactEntry"));
+            if (!prefixRecorded)
+                break;
+            state = acceptedEventEnd;
             cursor = bestTime;
-            foreach (var kind in due)
+            foreach (var candidate in due)
             {
-                state = ApplyEvent(state, kind, settings);
-                events.Add(new IntegrationEvent(kind, bestTime, state));
+                var kind = candidate.Kind;
+                if (state.IsDead &&
+                    (kind is "NeckDeathExit" or "SuddenTrigger" or "SuddenRecovery" or
+                        "ConsciousnessLost" or "ConsciousnessRecovered"))
+                    continue;
+                if (IsOxygenBoundEntry(candidate))
+                    events.Add(new IntegrationEvent(kind, bestTime, state));
+                else
+                    ApplyAndRecordEvent(kind, bestTime);
             }
         }
 
         foreach (var diagnostic in upstream.Diagnostics) violations.Add(diagnostic);
-        var finalViolation = DownstreamViolation(state, settings);
+        var finalBounds = circulation.Segments[circulation.Segments.Length - 1].Bounds;
+        var finalViolation = DownstreamViolation(state, settings, finalBounds);
         if (finalViolation.Length != 0) violations.Add(finalViolation);
-        foreach (var stage in stages)
+        foreach (var segment in segments)
         {
-            var violation = DownstreamViolation(stage, settings);
-            if (violation.Length != 0)
+            foreach (var stage in segment.Stages)
             {
-                violations.Add(violation);
-                break;
+                var violation = DownstreamViolation(stage, settings, segment.Bounds);
+                if (violation.Length != 0)
+                {
+                    violations.Add(violation);
+                    break;
+                }
             }
+            if (violations.Count != 0) break;
         }
 
         var converged = violations.Count == 0 && cursor >= dt - 1e-12;
