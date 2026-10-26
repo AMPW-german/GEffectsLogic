@@ -14,12 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using System.Runtime.CompilerServices;
+
 namespace GEffectsLogic;
 
 internal static class NumericalMath
 {
     internal const int RadauStageCount = 3;
     private const int MomentPowerCacheSize = 32;
+
+    // MethodImplOptions.AggressiveOptimization is not exposed by the net481
+    // reference assemblies; the JIT reads the flag value from metadata on
+    // runtimes that support it.
+    private const MethodImplOptions AggressiveOptimization = (MethodImplOptions)512;
 
     internal static readonly double[] RadauC = CreateRadauC();
     internal static readonly double[][] RadauA = CreateRadauA();
@@ -128,6 +135,7 @@ internal static class NumericalMath
             }
         }
 
+        [MethodImpl(AggressiveOptimization)]
         internal void Set(int moment, Matrix3 value)
         {
             switch (moment)
@@ -155,11 +163,120 @@ internal static class NumericalMath
             this.powers = powers;
         }
 
+        [MethodImpl(AggressiveOptimization)]
         internal Matrix3 PowerAt(int exponent) => powers[exponent];
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static bool IsFinite(double value) =>
         !double.IsNaN(value) && !double.IsInfinity(value);
+
+    // Bracket-preserving Brent-Dekker root refinement for a true sign bracket
+    // [lo, hi] with opposite-sign endpoint values fLo/fHi already evaluated by
+    // the caller. Each iteration keeps b and c on opposite signs; secant or
+    // inverse-quadratic interpolation is accepted only when it stays inside
+    // the bracket and improves on the previous step, otherwise the midpoint
+    // bisects. Success requires the sign bracket width to fall to
+    // toleranceSeconds (an exact f==0 endpoint returns immediately), and the
+    // bracket midpoint is returned, matching bisection's contract. Nonfinite
+    // or unordered bounds, a nonpositive/nonfinite tolerance, a nonfinite
+    // evaluation, a non-bracket input, or iteration exhaustion before the
+    // tolerance is met all return double.NaN.
+    [MethodImpl(AggressiveOptimization)]
+    internal static double BrentDekkerSign(Func<double, double> f, double lo, double hi,
+        double fLo, double fHi, double toleranceSeconds)
+    {
+        if (!IsFinite(lo) || !IsFinite(hi) || lo >= hi) return double.NaN;
+        if (!IsFinite(toleranceSeconds) || toleranceSeconds <= 0.0)
+            return double.NaN;
+        if (!IsFinite(fLo) || !IsFinite(fHi)) return double.NaN;
+        if (fLo == 0.0) return lo;
+        if (fHi == 0.0) return hi;
+        if ((fLo > 0.0) == (fHi > 0.0)) return double.NaN;
+
+        var a = lo;
+        var fa = fLo;
+        var b = hi;
+        var fb = fHi;
+        var c = a;
+        var fc = fa;
+        var d = b - a;
+        var e = d;
+        var halfTolerance = 0.5 * toleranceSeconds;
+        for (var i = 0; i < 200; i++)
+        {
+            if ((fb > 0.0) == (fc > 0.0))
+            {
+                c = a;
+                fc = fa;
+                d = b - a;
+                e = d;
+            }
+            if (Math.Abs(fc) < Math.Abs(fb))
+            {
+                a = b;
+                b = c;
+                c = a;
+                fa = fb;
+                fb = fc;
+                fc = fa;
+            }
+            var halfBracket = 0.5 * (c - b);
+            if (fb == 0.0) return b;
+            if (Math.Abs(c - b) <= toleranceSeconds) return b + halfBracket;
+            if (Math.Abs(e) >= halfTolerance && Math.Abs(fa) > Math.Abs(fb))
+            {
+                var s = fb / fa;
+                double p;
+                double q;
+                if (a == c)
+                {
+                    p = 2.0 * halfBracket * s;
+                    q = 1.0 - s;
+                }
+                else
+                {
+                    q = fa / fc;
+                    var r = fb / fc;
+                    p = s * (2.0 * halfBracket * q * (q - r) -
+                        (b - a) * (r - 1.0));
+                    q = (q - 1.0) * (r - 1.0) * (s - 1.0);
+                }
+                if (p > 0.0) q = -q;
+                else p = -p;
+                var previousStep = e;
+                e = d;
+                if (2.0 * p < Math.Min(
+                        3.0 * halfBracket * q - Math.Abs(halfTolerance * q),
+                        Math.Abs(previousStep * q)))
+                {
+                    d = p / q;
+                }
+                else
+                {
+                    d = halfBracket;
+                    e = halfBracket;
+                }
+            }
+            else
+            {
+                d = halfBracket;
+                e = halfBracket;
+            }
+            a = b;
+            fa = fb;
+            b += Math.Abs(d) > halfTolerance
+                ? d
+                : halfBracket > 0.0 ? halfTolerance : -halfTolerance;
+            fb = f(b);
+            if (!IsFinite(fb)) return double.NaN;
+            if (fb == 0.0) return b;
+        }
+        // Exhaustion means the width check at loop top never succeeded; the
+        // final b update may leave c on the same side because the same-sign
+        // repair only runs at the top, so no converged bracket is verified.
+        return double.NaN;
+    }
 
     private static double[] CreateRadauC()
     {
@@ -178,6 +295,7 @@ internal static class NumericalMath
         ];
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double[][] CreateMatrix(int size)
     {
         var matrix = new double[size][];
@@ -185,21 +303,25 @@ internal static class NumericalMath
         return matrix;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double Sigmoid(double x) =>
         x >= 0.0
             ? 1.0 / (1.0 + Math.Exp(-x))
             : Math.Exp(x) / (1.0 + Math.Exp(x));
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double ExpMinusOne(double x) =>
         Math.Abs(x) < 1e-4
             ? x * (1.0 + x * (0.5 + x * (1.0 / 6.0 + x / 24.0)))
             : Math.Exp(x) - 1.0;
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double LogOnePlus(double x) =>
         Math.Abs(x) < 1e-4
             ? x * (1.0 + x * (-0.5 + x * (1.0 / 3.0 + x * (-0.25 + x / 5.0))))
             : Math.Log(1.0 + x);
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double ExponentialConvolution(double initial, double from, double to,
         double decayRate, Func<double, double> source)
     {
@@ -226,6 +348,34 @@ internal static class NumericalMath
         return initial * decay + mass * sum;
     }
 
+    [MethodImpl(AggressiveOptimization)]
+    internal static double ExponentialConvolution<TState>(double initial,
+        double from, double to, double decayRate, TState state,
+        Func<TState, double, double> source)
+    {
+        var span = to - from;
+        if (span <= 0.0) return initial;
+
+        var x = decayRate * span;
+        var decay = Math.Exp(-x);
+        var w = -ExpMinusOne(-x);
+        var mass = decayRate == 0.0 || x == 0.0 ? span : w / decayRate;
+        var nodes = GaussLegendre16Nodes;
+        var weights = GaussLegendre16Weights;
+        var sum = 0.0;
+        for (var node = 0; node < nodes.Length; node++)
+        {
+            var offset = decayRate == 0.0 || x == 0.0
+                ? from + nodes[node] * span
+                : to + (x >= 1.0
+                    ? Math.Log(decay + w * nodes[node])
+                    : LogOnePlus(-w * (1.0 - nodes[node]))) / decayRate;
+            sum += weights[node] * source(state, offset);
+        }
+
+        return initial * decay + mass * sum;
+    }
+
     internal static double[] GaussLegendre16Nodes { get; } =
     [
         0.005299532504175031, 0.0277124884633837, 0.06718439880608412, 0.1222977958224985,
@@ -242,6 +392,7 @@ internal static class NumericalMath
         0.06231448562776697, 0.04757925584124645, 0.031126761969323888, 0.013576229705877029
     ];
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double[] CubicCoefficients(double[] nodes, double[] values)
     {
         var matrix = CreateMatrix(4);
@@ -260,9 +411,11 @@ internal static class NumericalMath
         return coefficients;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static double EvaluateCubic(double[] coefficients, double t) =>
         coefficients[0] + t * (coefficients[1] + t * (coefficients[2] + t * coefficients[3]));
 
+    [MethodImpl(AggressiveOptimization)]
     internal static int QuadraticRootsInInterval(double a, double b, double c, double min, double max, double[] roots)
     {
         var count = 0;
@@ -290,6 +443,7 @@ internal static class NumericalMath
         return count;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static void TryAddRoot(double[] roots, ref int count, double root, double min, double max)
     {
         if (IsFinite(root) && root > min && root < max &&
@@ -299,6 +453,7 @@ internal static class NumericalMath
         }
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static bool TrySolveLinear(double[][] matrix, double[] rhs, double[] x)
     {
         var n = rhs.Length;
@@ -308,6 +463,7 @@ internal static class NumericalMath
         return TrySolveLinearInPlace(a, b, x);
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static bool TrySolveLinearInPlace(double[][] matrix, double[] rhs, double[] x)
     {
         var n = rhs.Length;
@@ -339,6 +495,7 @@ internal static class NumericalMath
             for (var row = column + 1; row < n; row++)
             {
                 var factor = a[row][column] / a[column][column];
+                if (factor == 0.0) continue;
                 for (var k = column; k < n; k++) a[row][k] -= factor * a[column][k];
                 b[row] -= factor * b[column];
             }
@@ -354,6 +511,7 @@ internal static class NumericalMath
         return true;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static Matrix3 IdentityMatrix(int size)
     {
         var matrix = default(Matrix3);
@@ -363,6 +521,7 @@ internal static class NumericalMath
         return matrix;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static Matrix3 MultiplyMatrices(in Matrix3 a, in Matrix3 b, int size)
     {
         var result = default(Matrix3);
@@ -392,6 +551,7 @@ internal static class NumericalMath
         return result;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static Matrix3 ScaleMatrix(in Matrix3 matrix, double scale, int size)
     {
         var result = default(Matrix3);
@@ -413,6 +573,7 @@ internal static class NumericalMath
         return result;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static Matrix3 AddMatrices(in Matrix3 left, in Matrix3 right, int size,
         double rightScale = 1.0)
     {
@@ -435,6 +596,7 @@ internal static class NumericalMath
         return result;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static double MaxAbsEntry(in Matrix3 matrix)
     {
         if (!IsFinite(matrix.M00) || !IsFinite(matrix.M01) ||
@@ -452,6 +614,7 @@ internal static class NumericalMath
                     Math.Abs(matrix.M22))));
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static double MaxRowSum(in Matrix3 matrix, int size)
     {
         if (size == 3)
@@ -484,6 +647,7 @@ internal static class NumericalMath
 
     // Scalar J_m(u*a) = integral_0^u exp((u - s) a) s^m ds for m = 0..2 in j.
     // Closed forms outside |a*u| < 0.5, Taylor series inside.
+    [MethodImpl(AggressiveOptimization)]
     internal static bool ScalarMoments(double a, double extent, double[] j)
     {
         if (!IsFinite(a) || !IsFinite(extent) || extent < 0.0) return false;
@@ -526,6 +690,7 @@ internal static class NumericalMath
         return IsFinite(j[0]) && IsFinite(j[1]) && IsFinite(j[2]);
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static double Factorial(int n)
     {
         var value = 1.0;
@@ -534,6 +699,7 @@ internal static class NumericalMath
     }
 
     // Test wrapper; production callers use the fixed-size value result directly.
+    [MethodImpl(AggressiveOptimization)]
     internal static double[][][]? MomentMatrices(double[][] a, double extent)
     {
         if (!TryMomentMatrices(a, 1.0, extent, out var moments)) return null;
@@ -548,6 +714,7 @@ internal static class NumericalMath
         return result;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private static bool TryScaleMatrix(double[][] baseMatrix, int size, double scale,
         out Matrix3 scaledMatrix)
     {
@@ -568,6 +735,7 @@ internal static class NumericalMath
         return true;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     internal static MomentPowerCache? CreateMomentPowerCache(double[][] baseMatrix,
         double scale)
     {
@@ -592,14 +760,17 @@ internal static class NumericalMath
     // J_m(u*A) = integral_0^u exp((u - s) A) s^m ds for m = 0..2, evaluated as a
     // series at extent u then doubled while ||u*A|| > 0.5 (max row sum norm);
     // arithmetic rescaling only, not physiological stepping.
+    [MethodImpl(AggressiveOptimization)]
     internal static bool TryMomentMatrices(double[][] baseMatrix, double scale,
         double extent, out MatrixMoments moments) =>
         TryMomentMatricesCore(baseMatrix, scale, extent, null, out moments);
 
+    [MethodImpl(AggressiveOptimization)]
     internal static bool TryMomentMatrices(MomentPowerCache cache, double extent,
         out MatrixMoments moments) =>
         TryMomentMatricesCore(null, 1.0, extent, cache, out moments);
 
+    [MethodImpl(AggressiveOptimization)]
     private static bool TryMomentMatricesCore(double[][]? baseMatrix, double scale,
         double extent, MomentPowerCache? cache, out MatrixMoments moments)
     {
@@ -749,6 +920,7 @@ internal static class NumericalMath
 
     // basis[s][m] is the degree-m coefficient of the Lagrange polynomial for Radau
     // node s on [0, 1]: l_s(tau) = sum_m basis[s][m] tau^m.
+    [MethodImpl(AggressiveOptimization)]
     internal static double[][] LagrangeBasis()
     {
         var count = RadauC.Length;

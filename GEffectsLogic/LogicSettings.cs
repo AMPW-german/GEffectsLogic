@@ -30,13 +30,13 @@ public sealed record class LogicSettings
     public double RestingBloodLower { get; init; } = 0.45;
 
     // Hydrostatic shift: make mid-G less aggressive, keep high-G strong
-    public double HydrostaticShiftRate { get; init; } = 0.0063;
+    public double HydrostaticShiftRate { get; init; } = 0.0277;
     public double HydrostaticShiftExponent { get; init; } = 2.0;
 
     public double CoreLowerShiftFraction { get; init; } = 0.55;
 
     // Passive return / compensation
-    public double PassiveReturnRate { get; init; } = 0.47;
+    public double PassiveReturnRate { get; init; } = 2.068;
     public double HeadPressureReturnRate { get; init; } = 0.25;
     public double HeadPressureReturnExponent { get; init; } = 11.0;
 
@@ -105,7 +105,7 @@ public sealed record class LogicSettings
 
     public double CerebralPressureImpairmentMaxBuildRate { get; init; } = 0.65;
     public double CerebralPressureImpairmentExponent { get; init; } = 150.0;
-    public double CerebralPressureImpairmentMidOverfill { get; init; } = 0.07;
+    public double CerebralPressureImpairmentMidOverfill { get; init; } = 0.097;
     // Sustained negative Gz causes cephalic venous congestion (redout headache): a mild extra
     // impairment build rate driven by the sustained -Gz load itself. Driving this off the input
     // rather than simulated head overfill keeps it exact across dt (the overfill equilibrium is
@@ -194,7 +194,7 @@ public sealed record class LogicSettings
     public double GxLungOxygenationImpairmentThreshold { get; init; } = 2.0; // Gx level where lung oxygenation begins to fail
     public double GxLungOxygenationImpairmentSeverity { get; init; } = 0.9; // Max lung oxygenation reduction at extreme Gx
     public double GxLungOxygenationImpairmentFullGx { get; init; } = 15.0; // Gx level where respiratory impairment saturates (~15G: chest wall can no longer be lifted)
-    public double GxHypoxiaDepletionTau { get; init; } = 150.0; // Arterial O2 reserve depletion time constant under respiratory failure (GLoC after ~1-2 min at >=15Gx)
+    public double GxHypoxiaDepletionTau { get; init; } = 165.0; // Arterial O2 reserve depletion time constant under respiratory failure (GLoC after ~1-2 min at >=15Gx)
     public double GxHypoxiaRecoveryTau { get; init; } = 8.0; // Arterial O2 reoxygenation time constant once the Gx load is relieved
     public double GxSuddenLoCThreshold { get; init; } = 4.0; // Gx level contributing to sudden G-LOC
     public double GxSuddenLoCSeverity { get; init; } = 0.2; // Severity of Gx contribution to sudden G-LOC

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using System.Runtime.CompilerServices;
 using GEffectsLogic.Logging;
 #if PERFDEBUG
 using System.Diagnostics;
@@ -24,6 +25,11 @@ namespace GEffectsLogic;
 // Main logic class for each vessel/kitten
 public class GEffectsLogicInstance
 {
+    // MethodImplOptions.AggressiveOptimization is not exposed by the net481
+    // reference assemblies; the JIT reads the flag value from metadata on
+    // runtimes that support it.
+    private const MethodImplOptions AggressiveOptimization = (MethodImplOptions)512;
+
     protected double stabilizationTime;
     protected double stabilizedGx;
     protected double stabilizedGy;
@@ -68,6 +74,7 @@ public class GEffectsLogicInstance
         InvalidateStabilization();
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private void InvalidateStabilization()
     {
         stable = false;
@@ -75,6 +82,7 @@ public class GEffectsLogicInstance
         stabilizationTime = 0.0;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     public virtual void Reset()
     {
         time = 0;
@@ -85,6 +93,7 @@ public class GEffectsLogicInstance
         PhysModel.Reset();
     }
 
+    [MethodImpl(AggressiveOptimization)]
     public virtual void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
     {
 #if PERFDEBUG
