@@ -65,20 +65,18 @@ public class PhysiologicalIntegrationTests
     [Theory]
     [MemberData(nameof(GateVectors))]
     public void CirculationEndpointsAgreeAcrossSupportedDt(double gz) =>
-        AssertCirculationEndpointsAgreeAcrossSupportedDt(gz, false);
+        AssertCirculationEndpointsAgreeAcrossSupportedDt(gz);
 
-    // Issue #22 deferred fast-transient accuracy debt; keeps the strict check
-    // executable in the non-blocking Experimental step. See the comment on
-    // DeferredBroadFirstSecondAccuracy for measurements and rationale.
+    // Issue #22 strict twins for the formerly deferred fast-transient loads;
+    // they keep the same assertions executable in the Experimental step.
     [Theory]
     [Trait("Category", "Experimental")]
     [InlineData(-3.0)]
     [InlineData(-5.0)]
     public void DeferredCirculationEndpointsAccuracy(double gz) =>
-        AssertCirculationEndpointsAgreeAcrossSupportedDt(gz, true);
+        AssertCirculationEndpointsAgreeAcrossSupportedDt(gz);
 
-    private void AssertCirculationEndpointsAgreeAcrossSupportedDt(double gz,
-        bool includeDeferredAccuracy)
+    private void AssertCirculationEndpointsAgreeAcrossSupportedDt(double gz)
     {
         var failures = new List<string>();
         var rows = new StringBuilder();
@@ -110,11 +108,7 @@ public class PhysiologicalIntegrationTests
                 var failure = $"gz {gz:R} {ChannelNames[channel]} at 1s: min {minimum:R} (dt {CandidateDt[minIndex]:R}), " +
                               $"max {maximum:R} (dt {CandidateDt[maxIndex]:R}), spread {maximum - minimum:R} exceeds {StateSpreadTolerance:R}; " +
                               $"minPathAccepted={pathAccepted[minIndex]}, maxPathAccepted={pathAccepted[maxIndex]}.";
-                if (!includeDeferredAccuracy &&
-                    IsDeferredAccuracyChannel(0.0, 0.0, gz, false, ChannelNames[channel]))
-                    _output.WriteLine("DEFERRED accuracy breach (non-blocking): " + failure);
-                else
-                    failures.Add(failure);
+                failures.Add(failure);
             }
         }
 
@@ -480,21 +474,19 @@ public class PhysiologicalIntegrationTests
 
     [Fact]
     public void PreconditionedNegativeLoadEndpointsAgreeAcrossDt() =>
-        RunPreconditionedGate(-5.0, false);
+        RunPreconditionedGate(-5.0);
 
     [Fact]
     public void PreconditionedRecoveryEndpointsAgreeAcrossDt() =>
-        RunPreconditionedGate(1.0, false);
+        RunPreconditionedGate(1.0);
 
-    // Issue #22 deferred fast-transient accuracy debt; keeps the strict check
-    // executable in the non-blocking Experimental step. See the comment on
-    // DeferredBroadFirstSecondAccuracy for measurements and rationale.
+    // Issue #22 strict twin for the formerly deferred recovery accuracy check.
     [Fact]
     [Trait("Category", "Experimental")]
     public void DeferredPreconditionedRecoveryAccuracy() =>
-        RunPreconditionedGate(1.0, true);
+        RunPreconditionedGate(1.0);
 
-    private void RunPreconditionedGate(double nextGz, bool includeDeferredAccuracy)
+    private void RunPreconditionedGate(double nextGz)
     {
         var failures = new List<string>();
         var rows = new StringBuilder();
@@ -538,11 +530,7 @@ public class PhysiologicalIntegrationTests
                               $"(dt {CandidateDt[minIndex]:R}), max {maximum:R} (dt {CandidateDt[maxIndex]:R}), " +
                               $"spread {maximum - minimum:R} exceeds {StateSpreadTolerance:R}; " +
                               $"minPathAccepted={pathAccepted[minIndex]}, maxPathAccepted={pathAccepted[maxIndex]}.";
-                if (!includeDeferredAccuracy && nextGz == 1.0 &&
-                    ChannelNames[channel] == "CerebralPressureImpairment")
-                    _output.WriteLine("DEFERRED accuracy breach (non-blocking): " + failure);
-                else
-                    failures.Add(failure);
+                failures.Add(failure);
             }
         }
 
@@ -2006,20 +1994,17 @@ public class PhysiologicalIntegrationTests
     [Theory]
     [MemberData(nameof(GateVectors))]
     public void ExtendedHistoryCirculationGate(double gz) =>
-        AssertExtendedHistoryCirculationGate(gz, false);
+        AssertExtendedHistoryCirculationGate(gz);
 
-    // Issue #22 deferred fast-transient accuracy debt; keeps the strict check
-    // executable in the non-blocking Experimental step. See the comment on
-    // DeferredBroadFirstSecondAccuracy for measurements and rationale.
+    // Issue #22 strict twins for the formerly deferred fast-transient loads.
     [Theory]
     [Trait("Category", "Experimental")]
     [InlineData(-3.0)]
     [InlineData(-5.0)]
     public void DeferredExtendedHistoryAccuracy(double gz) =>
-        AssertExtendedHistoryCirculationGate(gz, true);
+        AssertExtendedHistoryCirculationGate(gz);
 
-    private void AssertExtendedHistoryCirculationGate(double gz,
-        bool includeDeferredAccuracy)
+    private void AssertExtendedHistoryCirculationGate(double gz)
     {
         const int seconds = 30;
         var failures = new List<string>();
@@ -2167,11 +2152,7 @@ public class PhysiologicalIntegrationTests
                     var failure = $"extended gz {gz:R} {ChannelNames[channel]} at {second + 1}s: " +
                                   $"min {minimum:R}, max {maximum:R}, spread {maximum - minimum:R} " +
                                   $"exceeds {StateSpreadTolerance:R}.";
-                    if (!includeDeferredAccuracy && second == 0 &&
-                        IsDeferredAccuracyChannel(0.0, 0.0, gz, false, ChannelNames[channel]))
-                        _output.WriteLine("DEFERRED accuracy breach (non-blocking): " + failure);
-                    else
-                        failures.Add(failure);
+                    failures.Add(failure);
                 }
             }
         }
@@ -2652,10 +2633,10 @@ public class PhysiologicalIntegrationTests
     [MemberData(nameof(BroadSentinelVectors))]
     public void BroadFirstSecondCirculationGate(double gx, double gy, double gz,
         bool customResp) =>
-        AssertBroadFirstSecondCirculationGate(gx, gy, gz, customResp, false);
+        AssertBroadFirstSecondCirculationGate(gx, gy, gz, customResp);
 
     private void AssertBroadFirstSecondCirculationGate(double gx, double gy, double gz,
-        bool customResp, bool includeDeferredAccuracy)
+        bool customResp)
     {
         var settings = customResp
             ? LogicSettings.Default with { RespiratoryFatigueHrFloor = 0.8 }
@@ -2703,11 +2684,7 @@ public class PhysiologicalIntegrationTests
                               $"exceeds {StateSpreadTolerance:R}; " +
                               $"minPathAccepted={pathAccepted[minIndex]}, " +
                               $"maxPathAccepted={pathAccepted[maxIndex]}.";
-                if (!includeDeferredAccuracy &&
-                    IsDeferredAccuracyChannel(gx, gy, gz, customResp, ChannelNames[channel]))
-                    _output.WriteLine("DEFERRED accuracy breach (non-blocking): " + failure);
-                else
-                    failures.Add(failure);
+                failures.Add(failure);
             }
         }
 
@@ -2718,44 +2695,14 @@ public class PhysiologicalIntegrationTests
         foreach (var row in rows.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
             _output.WriteLine(row);
 
-        if (!includeDeferredAccuracy && IsDeferredAccuracyCase(gx, gy, gz, customResp))
-        {
-            foreach (var failure in failures)
-                _output.WriteLine("DEFERRED case breach (non-blocking): " + failure);
-            return;
-        }
-
         Assert.True(failures.Count == 0,
             $"{failures.Count} broad-gate breach(es) at gx {gx:R} gy {gy:R} gz {gz:R} " +
             $"resp {customResp}:{Environment.NewLine}" +
             string.Join(Environment.NewLine, failures));
     }
 
-    // Issue #22: the user explicitly deferred first-second accuracy breaches so
-    // legacy-behavior calibration can proceed before trajectory accuracy is solved.
-    // The three originally deferred cases were measured pre-calibration across
-    // dt=0.01/0.1/0.25/0.5/1.0 seconds:
-    // (0,0,-6) pressure impairment: 0.00712869466400845;
-    // (2,1,-5) pressure impairment: 0.00267874196503802;
-    // (0,0,-8) resting-relative head overfill: 0.0024599071499524505.
-    // After the physiological retune that restored legacy timings, the fast
-    // negative-G transient is no longer resolved by the 0.5/1.0-second collocation
-    // intervals: measured post-retune spreads of 0.001-0.017 now cover
-    // (0,0,-6), (2,1,-5) and (0,0,-8) end-to-end (coarse paths additionally reject
-    // with dense core-blood violations around -0.01 to -0.12), plus the named
-    // channels on otherwise-accepted paths at (0,0,-3), (0,0,-4), (0,0,-5), and
-    // (0,0,-3) under the custom respiratory profile. These are genuine numerical
-    // accuracy errors, not convergence failures, and parameter calibration does
-    // not itself establish timestep stability. The integrator fix is tracked as
-    // separate work in .agents/plans/issue-22-fast-transient-integrator.md.
-    // Experimental keeps these strict assertions executable in the existing
-    // non-blocking CI step; it does not skip them, increase tolerances, or pretend
-    // they pass. The blocking broad gate still runs these same loads and checks
-    // convergence, bounds, conservation, reference accuracy, and every other
-    // channel. Only the named case/channel combinations are deferred. All other
-    // stability and performance checks remain blocking. Remove this exception
-    // only after the revised trajectory passes the original accuracy requirement
-    // and expanded dense/representative verification.
+    // Issue #22 strict twins for the formerly deferred fast-transient loads;
+    // they keep the same assertions executable in the Experimental step.
     [Theory]
     [Trait("Category", "Experimental")]
     [InlineData(0.0, 0.0, -6.0, false)]
@@ -2767,34 +2714,14 @@ public class PhysiologicalIntegrationTests
     [InlineData(0.0, 0.0, -3.0, true)]
     public void DeferredBroadFirstSecondAccuracy(double gx, double gy, double gz,
         bool customResp) =>
-        AssertBroadFirstSecondCirculationGate(gx, gy, gz, customResp, true);
-
-    // Loads where the retuned first-second transient cannot be resolved by the
-    // coarse-dt paths at all: dt 0.5/1.0 either reject outright or spread across
-    // every channel, so the whole case is deferred rather than named channels.
-    private static bool IsDeferredAccuracyCase(double gx, double gy, double gz,
-        bool customResp) => !customResp &&
-        ((gx == 0.0 && gy == 0.0 && gz == -6.0) ||
-         (gx == 2.0 && gy == 1.0 && gz == -5.0) ||
-         (gx == 0.0 && gy == 0.0 && gz == -8.0));
-
-    private static bool IsDeferredAccuracyChannel(double gx, double gy, double gz,
-        bool customResp, string channel) =>
-        IsDeferredAccuracyCase(gx, gy, gz, customResp) ||
-        (!customResp && gx == 0.0 && gy == 0.0 &&
-         ((gz == -3.0 &&
-           (channel == "HeadOverfill" || channel == "CerebralPressureImpairment")) ||
-          (gz == -4.0 &&
-           (channel == "HeadOverfill" || channel == "CerebralPressureImpairment")) ||
-          (gz == -5.0 &&
-           (channel == "BloodHead" || channel == "BloodLower" ||
-            channel == "HeadOverfill" || channel == "HeartRateMultiplier" ||
-            channel == "CerebralPressureImpairment")))) ||
-        (customResp && gx == 0.0 && gy == 0.0 && gz == -3.0 &&
-         channel == "CerebralPressureImpairment");
+        AssertBroadFirstSecondCirculationGate(gx, gy, gz, customResp);
 
     [Theory]
     [InlineData(1.5e-4)]
+    // Releases at ~0.025s and ~0.042s under -5 Gz sit inside the first ~7% of a
+    // one-second span, which the collocation-node release scan cannot see.
+    [InlineData(2e-4)]
+    [InlineData(3e-4)]
     [InlineData(1e-6)]
     [InlineData(1e-12)]
     public void HeldReleaseLocalizationAcrossCallerDt(double rateOffset)
@@ -4241,14 +4168,21 @@ public class PhysiologicalIntegrationTests
             $"[{string.Join("; ", result.StateViolations)}].");
         AssertAcceptedCoverage(result, duration);
         AssertPhysicalStages(result);
-        Assert.Equal(3, result.Segments.Length);
+        // Resolution-driven subdivision adds a fourth segment whose
+        // BloodSegmentBoundary at ~0.0338s is an integration-internal split,
+        // not a coincident-mode event; the physical triad still localizes once
+        // at ~0.0362s.
+        Assert.Equal(4, result.Segments.Length);
+        var rootTolerance = PhysiologicalModel.PressureBoundRootToleranceSeconds;
         var modeTransition = Assert.Single(result.Events,
             item => item.Kind == "ModeTransition0");
         var perfusionRange = Assert.Single(result.Events,
             item => item.Kind == "PerfusionRangeBound");
-        var bloodSegmentBoundary = Assert.Single(result.Events,
-            item => item.Kind == "BloodSegmentBoundary");
-        var rootTolerance = PhysiologicalModel.PressureBoundRootToleranceSeconds;
+        var bloodSegmentBoundaries = result.Events
+            .Where(item => item.Kind == "BloodSegmentBoundary").ToArray();
+        Assert.Equal(2, bloodSegmentBoundaries.Length);
+        var bloodSegmentBoundary = Assert.Single(bloodSegmentBoundaries,
+            item => Math.Abs(item.Offset - modeTransition.Offset) <= rootTolerance);
         Assert.True(Math.Abs(perfusionRange.Offset - modeTransition.Offset) <= rootTolerance,
             $"perfusion range offset {perfusionRange.Offset:R} vs mode transition " +
             $"{modeTransition.Offset:R} exceeds {rootTolerance:R}.");
@@ -5372,8 +5306,11 @@ public class PhysiologicalIntegrationTests
         var settings = LogicSettings.Default;
         // Frame-77 pre-frame state of the benchmark workload: a +6.28 Gz
         // interval whose ceiling outruns the upward tracking rate. The retuned
-        // trajectory exits twice: a transient margin graze at ~0.056s where
+        // trajectory exits twice: a transient margin graze at ~0.057s where
         // contact is re-established, then the sustained crossing at ~0.062s.
+        // Exit times re-baselined after defect-driven resolution splitting:
+        // the previously recorded ~0.056/~0.062 values encoded the coarser
+        // under-resolved trajectory.
         var initial = new PhysiologicalModel.IntegrationState(
             0.04305829564336118, 0.48055852104943236, 2.769829647589408,
             0.03751104080073985, 0.0, 0.0)
@@ -5407,10 +5344,10 @@ public class PhysiologicalIntegrationTests
             .Select(item => item.Offset)
             .ToArray();
         Assert.Equal(2, exits.Length);
-        Assert.True(Math.Abs(exits[0] - 0.05618958154579935) <= 1e-6,
-            $"first LoC contact exit {exits[0]:R} vs recorded 0.05618958154579935.");
-        Assert.True(Math.Abs(exits[1] - 0.06229038426559685) <= 1e-6,
-            $"second LoC contact exit {exits[1]:R} vs recorded 0.06229038426559685.");
+        Assert.True(Math.Abs(exits[0] - 0.05736089757083686) <= 1e-6,
+            $"first LoC contact exit {exits[0]:R} vs recorded 0.05736089757083686.");
+        Assert.True(Math.Abs(exits[1] - 0.06159525897352559) <= 1e-6,
+            $"second LoC contact exit {exits[1]:R} vs recorded 0.06159525897352559.");
     }
 
     [Fact]

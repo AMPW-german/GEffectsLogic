@@ -410,6 +410,44 @@ public class PhysiologicalModel
         visualFilmGrainLevel = Clamp(Math.Pow(visualTunnelVisionLevel, 1.5), 0.0, 1.0);
     }
 
+    // Measured-stationarity probe: compares the live fields against an anchored
+    // state without materializing a capture. Mirrors IntegrationState's field
+    // list; flags must match exactly.
+    [MethodImpl(AggressiveOptimization)]
+    internal bool ApproximatelyCurrent(in IntegrationState reference, double tolerance) =>
+        Math.Abs(bloodHead - reference.BloodHead) <= tolerance &&
+        Math.Abs(bloodLower - reference.BloodLower) <= tolerance &&
+        Math.Abs(heartRateMultiplier - reference.HeartRateMultiplier) <= tolerance &&
+        Math.Abs(hrFatigue - reference.CardioFatigue) <= tolerance &&
+        Math.Abs(cerebralPressureImpairment - reference.CerebralPressureImpairment) <=
+            tolerance &&
+        Math.Abs(respiratoryFatigue - reference.RespiratoryFatigue) <= tolerance &&
+        Math.Abs(strainingLevel - reference.StrainingLevel) <= tolerance &&
+        Math.Abs(strainingFatigue - reference.StrainingFatigue) <= tolerance &&
+        Math.Abs(gSuitFatigue - reference.GSuitFatigue) <= tolerance &&
+        Math.Abs(bloodO2Head - reference.BloodO2Head) <= tolerance &&
+        Math.Abs(bloodO2Core - reference.BloodO2Core) <= tolerance &&
+        Math.Abs(bloodO2Lower - reference.BloodO2Lower) <= tolerance &&
+        Math.Abs(arterialOxygenation - reference.ArterialOxygenation) <= tolerance &&
+        Math.Abs(consciousnessLevel - reference.ConsciousnessLevel) <= tolerance &&
+        Math.Abs(lungCompressionLevel - reference.LungCompressionLevel) <=
+            tolerance &&
+        Math.Abs(painLevel - reference.PainLevel) <= tolerance &&
+        Math.Abs(gyNeckFatigue - reference.GyNeckFatigue) <= tolerance &&
+        Math.Abs(gyNeckFatigueDeathAccumulatedTime - reference.GyNeckFatigueDeathDwell) <=
+            tolerance &&
+        Math.Abs(suddenLoCAccumulator - reference.SuddenLoCAccumulator) <=
+            tolerance &&
+        Math.Abs(visualGrayscaleLevel - reference.VisualGrayscaleLevel) <=
+            tolerance &&
+        Math.Abs(visualTunnelVisionLevel - reference.VisualTunnelVisionLevel) <=
+            tolerance &&
+        Math.Abs(visualRedoutLevel - reference.VisualRedoutLevel) <= tolerance &&
+        Math.Abs(visualLoCLevel - reference.VisualLoCLevel) <= tolerance &&
+        isUnconscious == reference.IsUnconscious &&
+        inSuddenLoC == reference.InSuddenLoC &&
+        isDead == reference.IsDead;
+
     [MethodImpl(AggressiveOptimization)]
     internal bool CanStabilize(double gx, double gy, double gz, double maximumStateError)
     {
@@ -541,6 +579,12 @@ public class PhysiologicalModel
     internal const double PressureBoundRootToleranceSeconds = 1e-8;
     private const double ScaledResidualTolerance = 1e-10;
     private const double ZeroTargetTolerance = 1e-6;
+    // Collocation defect budget |z' - f(z)| * span in state units. A converged
+    // solve whose dense trajectory exceeds it is retried on a shorter span
+    // sized from the defect magnitude, so refinement follows the trajectory's
+    // curvature instead of a fixed substep size.
+    private const double ResolutionDefectTolerance = 4e-4;
+    private const double MinimumResolutionSpan = PressureBoundRootToleranceSeconds;
 
     // Seed bracket half-width around the dense (polynomial-level) root-event
     // estimate for the downstream prefix re-solve search. The re-solved
@@ -1233,6 +1277,7 @@ public class PhysiologicalModel
         var state = initial;
         var offset = 0.0;
         var remaining = dt;
+        var span = dt;
         var bounds = BloodBounds.None;
         if (initial.BloodCore <= 0.0) bounds |= BloodBounds.Core;
         if (initial.BloodHead <= settings.MinHeadBloodFraction) bounds |= BloodBounds.Head;
@@ -1252,7 +1297,7 @@ public class PhysiologicalModel
         var guard = 0;
         while (remaining > 0.0 && converged && violations.Count == 0 && crossings.Count == 0)
         {
-            if (++guard > 64)
+            if (++guard > 512)
             {
                 violations.Add("interval exceeded accepted segment limit");
                 break;
@@ -1281,14 +1326,30 @@ public class PhysiologicalModel
 
             if (released) continue;
 
-            var solve = AdvanceCirculationSegment(in state, remaining, gx, gy, gz, settings,
+            var solve = AdvanceCirculationSegment(in state, span, gx, gy, gz, settings,
                 bounds);
             if (!solve.Converged)
             {
-                converged = false;
-                crossings.AddRange(solve.ModeCrossings);
-                violations.AddRange(solve.StateViolations);
-                break;
+                if (span <= MinimumResolutionSpan)
+                {
+                    converged = false;
+                    crossings.AddRange(solve.ModeCrossings);
+                    violations.AddRange(solve.StateViolations);
+                    break;
+                }
+
+                span *= 0.5;
+                continue;
+            }
+
+            // A converged cubic can still under-resolve a fast transient: check
+            // the collocation defect before trusting it for event detection or
+            // acceptance, and retry on a prefix ending at the worst probe.
+            if (TryResolutionSplit(in state, solve, span, bounds, gx, gy, gz,
+                    settings, out var resolutionSplit))
+            {
+                span = resolutionSplit;
+                continue;
             }
 
             var earliestTime = double.PositiveInfinity;
@@ -1301,7 +1362,7 @@ public class PhysiologicalModel
             if ((bounds & BloodBounds.Core) == 0)
             {
                 var entry = EarliestCoreRoot(solve.HeadCoefficients, solve.LowerCoefficients,
-                    remaining);
+                    span);
                 if (entry.HasValue && entry.Value < earliestTime)
                 {
                     earliestTime = entry.Value;
@@ -1313,7 +1374,7 @@ public class PhysiologicalModel
             if ((bounds & BloodBounds.Head) == 0)
             {
                 var entry = EarliestLevelEntry(solve.HeadCoefficients,
-                    settings.MinHeadBloodFraction, remaining);
+                    settings.MinHeadBloodFraction, span);
                 if (entry.HasValue && entry.Value < earliestTime)
                 {
                     earliestTime = entry.Value;
@@ -1324,7 +1385,7 @@ public class PhysiologicalModel
 
             if ((bounds & BloodBounds.Lower) == 0)
             {
-                var entry = EarliestLevelEntry(solve.LowerCoefficients, 0.0, remaining);
+                var entry = EarliestLevelEntry(solve.LowerCoefficients, 0.0, span);
                 if (entry.HasValue && entry.Value < earliestTime)
                 {
                     earliestTime = entry.Value;
@@ -1335,7 +1396,7 @@ public class PhysiologicalModel
 
             foreach (var bound in HeldBounds(bounds))
             {
-                var guess = EarliestBoundRelease(bound, in state, solve, remaining, gx, gy,
+                var guess = EarliestBoundRelease(bound, in state, solve, span, gx, gy,
                     gz, settings);
                 if (guess.HasValue && guess.Value.Time < earliestTime)
                 {
@@ -1346,7 +1407,7 @@ public class PhysiologicalModel
                 }
             }
 
-            var transition = EarliestModeTransition(in state, solve, remaining,
+            var transition = EarliestModeTransition(in state, solve, span,
                 gx, gy, gz, settings);
             if (transition.HasValue && transition.Value.Time < earliestTime)
             {
@@ -1362,15 +1423,15 @@ public class PhysiologicalModel
                 SegmentSolve? prefix;
                 bool localized;
                 if (kind == IntervalEventKind.BoundEntry)
-                    localized = LocalizeBoundEntry(eventBound, in state, remaining,
+                    localized = LocalizeBoundEntry(eventBound, in state, span,
                         earliestTime, solve, bounds, gx, gy, gz, settings, violations,
                         out eventTime, out prefix);
                 else if (kind == IntervalEventKind.BoundRelease)
-                    localized = LocalizeBoundRelease(eventBound, in state, remaining,
+                    localized = LocalizeBoundRelease(eventBound, in state, span,
                         releaseGuess, solve, bounds, gx, gy, gz, settings, violations,
                         out eventTime, out prefix);
                 else
-                    localized = LocalizeModeTransition(in state, remaining, earliestTime,
+                    localized = LocalizeModeTransition(in state, span, earliestTime,
                         solve, modeCoordinate, modeLevel, bounds, gx, gy, gz, settings,
                         violations, out eventTime, out prefix);
                 if (!localized) break;
@@ -1542,6 +1603,7 @@ public class PhysiologicalModel
                 state = final;
                 offset += eventTime;
                 remaining -= eventTime;
+                span = remaining;
                 if (kind == IntervalEventKind.BoundEntry) bounds |= eventBound;
                 else if (kind == IntervalEventKind.BoundRelease) bounds &= ~eventBound;
                 continue;
@@ -1554,7 +1616,7 @@ public class PhysiologicalModel
                 break;
             }
 
-            var whole = CompleteSegmentPressure(in state, solve, remaining, gz, settings);
+            var whole = CompleteSegmentPressure(in state, solve, span, gz, settings);
             if (!whole.Converged || whole.ModeCrossings.Length != 0 ||
                 whole.StateViolations.Length != 0)
             {
@@ -1566,7 +1628,7 @@ public class PhysiologicalModel
 
             iterations += whole.Iterations;
             maxScaledResidual = Math.Max(maxScaledResidual, whole.MaxScaledResidual);
-            segments.Add(new IntegrationSegment(offset, remaining, state, whole.Final,
+            segments.Add(new IntegrationSegment(offset, span, state, whole.Final,
                 whole.Stages, bounds, whole.HeadCoefficients, whole.LowerCoefficients,
                 whole.RateCoefficients, whole.CardioCoefficients)
             {
@@ -1587,8 +1649,9 @@ public class PhysiologicalModel
                     whole.Final));
             }
             state = whole.Final;
-            offset += remaining;
-            remaining = 0.0;
+            offset += span;
+            remaining -= span;
+            span = remaining;
         }
 
         var fullyAdvanced = converged && remaining <= 0.0 && violations.Count == 0 &&
@@ -1646,35 +1709,178 @@ public class PhysiologicalModel
         };
     }
 
+    /// <summary>
+    ///     Measures the collocation defect |z' - f(z)|, scaled to state units by
+    ///     the span, at the Gauss-Legendre probes of a converged solve. When the
+    ///     defect exceeds <see cref="ResolutionDefectTolerance" />, returns a
+    ///     smaller span sized from the defect's cubic scaling so the caller can
+    ///     re-solve a shorter prefix; refinement follows the solved trajectory
+    ///     rather than a fixed substep size.
+    /// </summary>
+    [MethodImpl(AggressiveOptimization)]
+    private static bool TryResolutionSplit(in IntegrationState state,
+        SegmentSolve solve, double span, BloodBounds bounds, double gx, double gy,
+        double gz, LogicSettings settings, out double resolutionSpan)
+    {
+        var coefficientSets = new[]
+        {
+            solve.HeadCoefficients, solve.LowerCoefficients, solve.RateCoefficients,
+            solve.CardioCoefficients
+        };
+        // Cheap screen before probing: the defect vanishes at the collocation
+        // nodes, so a span whose cubic slope barely swings cannot defect more
+        // than the budget. Near-equilibrium solves skip the evaluations.
+        var slopeSwing = 0.0;
+        foreach (var coefficients in coefficientSets)
+        {
+            var swing = Math.Abs(2.0 * coefficients[2] * span +
+                                 3.0 * coefficients[3] * span * span);
+            if (coefficients[3] != 0.0)
+            {
+                var vertex = -coefficients[2] / (3.0 * coefficients[3]);
+                if (vertex > 0.0 && vertex < span)
+                    swing = Math.Max(swing, Math.Abs(
+                        coefficients[2] * coefficients[2] /
+                        (3.0 * coefficients[3])));
+            }
+
+            slopeSwing = Math.Max(slopeSwing, swing);
+        }
+
+        if (slopeSwing * span <= ResolutionDefectTolerance * 0.5)
+        {
+            resolutionSpan = 0.0;
+            return false;
+        }
+
+        var rateBuffer = new double[CirculationDimensions];
+        var maxDefect = 0.0;
+        var sawInvalid = false;
+        foreach (var fraction in NumericalMath.GaussLegendre16Nodes)
+        {
+            var t = fraction * span;
+            var dense = DenseSegmentState(in state, solve, t, gx, gz, settings);
+            if (bounds == BloodBounds.None)
+                EvaluateCirculation(in dense, gx, gy, gz, settings, rateBuffer, null,
+                    false);
+            else
+                EvaluateBoundConstrainedCirculation(in dense, gx, gy, gz, settings,
+                    rateBuffer, null, false, bounds);
+            for (var coordinate = 0; coordinate < CirculationSolvedDimensions;
+                 coordinate++)
+            {
+                var coefficients = coefficientSets[coordinate];
+                var derivative = coefficients[1] +
+                    (2.0 * coefficients[2] + 3.0 * coefficients[3] * t) * t;
+                var defect = Math.Abs(derivative - rateBuffer[coordinate]) * span;
+                if (!IsFiniteNumber(defect))
+                {
+                    sawInvalid = true;
+                    continue;
+                }
+
+                maxDefect = Math.Max(maxDefect, defect);
+            }
+        }
+
+        if (maxDefect <= ResolutionDefectTolerance && !sawInvalid)
+        {
+            resolutionSpan = 0.0;
+            return false;
+        }
+
+        resolutionSpan = maxDefect > 0.0
+            ? span * Clamp(
+                Math.Pow(ResolutionDefectTolerance / maxDefect, 1.0 / 3.0), 0.25, 0.95)
+            : span * 0.5;
+        return true;
+    }
+
+    /// <summary>
+    ///     Same defect gate as <see cref="TryResolutionSplit" /> for the
+    ///     downstream consciousness solve: compares the piece's derivative to
+    ///     the state-dependent affine right-hand side at the Gauss-Legendre
+    ///     probes and returns a defect-sized shorter span when exceeded.
+    /// </summary>
+    [MethodImpl(AggressiveOptimization)]
+    private static bool TryDownstreamResolutionSplit(in IntegrationState state,
+        IntervalUpstream upstream, DownstreamSolution piece, double cursor,
+        double span, DownstreamHold hold, LogicSettings settings,
+        out double resolutionSpan)
+    {
+        // Cheap screen before probing, as in TryResolutionSplit: a piece whose
+        // derivative barely swings cannot defect beyond the budget.
+        var derivativeStart = piece.Consciousness.Derivative(0.0)[0];
+        var derivativeMid = piece.Consciousness.Derivative(0.5)[0];
+        var derivativeEnd = piece.Consciousness.Derivative(1.0)[0];
+        var slopeSwing = Math.Max(
+            Math.Abs(derivativeEnd - derivativeStart),
+            Math.Max(Math.Abs(derivativeMid - derivativeStart),
+                     Math.Abs(derivativeEnd - derivativeMid)));
+        if (slopeSwing * span <= ResolutionDefectTolerance * 0.5)
+        {
+            resolutionSpan = 0.0;
+            return false;
+        }
+
+        [MethodImpl(AggressiveOptimization)]
+        IntervalTrialState TargetTrialAt(double c) =>
+            upstream.EvaluateHeadPressure(cursor + c * span);
+        [MethodImpl(AggressiveOptimization)]
+        double HeadO2At(double c) => piece.Oxygen.EvaluateFirst(c);
+        var dead = state.IsDead;
+        var maxDefect = 0.0;
+        var sawInvalid = false;
+        foreach (var fraction in NumericalMath.GaussLegendre16Nodes)
+        {
+            var spec = BuildConsciousnessSystem(TargetTrialAt, HeadO2At, fraction,
+                hold.ConsciousnessLosing, dead, settings);
+            if (spec.Instant.Length != 0 && spec.Instant[0]) continue;
+            var consciousness = piece.Consciousness.Evaluate(fraction)[0];
+            var derivative = piece.Consciousness.Derivative(fraction)[0];
+            var rhs = spec.M[0][0] * consciousness + spec.B[0];
+            var defect = Math.Abs(derivative - rhs) * span;
+            if (!IsFiniteNumber(defect))
+            {
+                sawInvalid = true;
+                continue;
+            }
+
+            maxDefect = Math.Max(maxDefect, defect);
+        }
+
+        if (maxDefect <= ResolutionDefectTolerance && !sawInvalid)
+        {
+            resolutionSpan = 0.0;
+            return false;
+        }
+
+        resolutionSpan = maxDefect > 0.0
+            ? span * Clamp(
+                Math.Pow(ResolutionDefectTolerance / maxDefect, 1.0 / 3.0), 0.25, 0.95)
+            : span * 0.5;
+        return true;
+    }
+
     [MethodImpl(AggressiveOptimization)]
     private static (double Time, double HiBound)? EarliestBoundRelease(
         BloodBounds bound, in IntegrationState initial, SegmentSolve solve,
         double duration, double gx, double gy, double gz, LogicSettings settings)
     {
-        var nodes = new[]
-        {
-            0.0, NumericalMath.RadauC[0] * duration, NumericalMath.RadauC[1] * duration,
-            duration
-        };
         var rateBuffer = new double[CirculationDimensions];
-        var drives = new double[4];
-        for (var node = 0; node < nodes.Length; node++)
+        var previousTime = 0.0;
+        var previousDrive = BoundInwardDrive(bound, in initial, gx, gy, gz, settings,
+            rateBuffer);
+        foreach (var fraction in BoundReleaseScanFractions)
         {
-            var dense = DenseSegmentState(in initial, solve, nodes[node], gx, gz, settings);
-            drives[node] = BoundInwardDrive(bound, in dense, gx, gy, gz, settings,
+            var t = fraction * duration;
+            var dense = DenseSegmentState(in initial, solve, t, gx, gz, settings);
+            var drive = BoundInwardDrive(bound, in dense, gx, gy, gz, settings,
                 rateBuffer);
-        }
-
-        var driveCoefficients = NumericalMath.CubicCoefficients(nodes, drives);
-        var monotoneBounds = MonotoneBounds(driveCoefficients, duration);
-        for (var segment = 0; segment < monotoneBounds.Count - 1; segment++)
-        {
-            var lo = monotoneBounds[segment];
-            var hi = monotoneBounds[segment + 1];
-            var loValue = NumericalMath.EvaluateCubic(driveCoefficients, lo);
-            var hiValue = NumericalMath.EvaluateCubic(driveCoefficients, hi);
-            if (loValue <= 0.0 && hiValue > 0.0)
-                return (BisectCubicLevel(driveCoefficients, 0.0, lo, hi, loValue), hi);
+            if (previousDrive <= 0.0 && drive > 0.0)
+                return (previousTime, t);
+            previousTime = t;
+            previousDrive = drive;
         }
 
         return null;
@@ -2847,20 +3053,21 @@ public class PhysiologicalModel
         var localized = false;
         var invalidBound = double.NaN;
         double? rootCandidate = null;
-        var firstHeadwardCorrectionAttempted = false;
+        var firstUnilateralCorrectionAttempted = false;
 
         [MethodImpl(AggressiveOptimization)]
-        bool TryUnilateralHeadward(bool requireMonotone, out double time,
+        bool TryUnilateralCorrection(bool requireMonotone, out double time,
             out SegmentSolve? result)
         {
             time = 0.0;
             result = null;
+            var downward = side > 0;
             var eventTime = bestTime - lowerResidual / bestSlope;
             for (var probeIndex = 0; probeIndex < 12 &&
                  eventTime > bestTime && eventTime < duration; probeIndex++)
             {
                 var unilateral = AdvanceCirculationSegment(in initialState, eventTime,
-                    gx, gy, gz, settings, bounds, headwardOverride: false);
+                    gx, gy, gz, settings, bounds, headwardOverride: downward);
                 var unilateralValid = unilateral.Converged &&
                     unilateral.StateViolations.Length == 0 &&
                     unilateral.ModeCrossings.Length == 0;
@@ -2872,17 +3079,21 @@ public class PhysiologicalModel
                     2.0 * headCoefficients[2] * eventTime +
                     3.0 * headCoefficients[3] * eventTime * eventTime;
                 if (!IsFiniteNumber(headError) || !IsFiniteNumber(slope) ||
-                    slope <= 0.0)
+                    (downward ? slope >= 0.0 : slope <= 0.0))
                     break;
                 if (requireMonotone)
                 {
                     var denseEnd = NumericalMath.EvaluateCubic(
                         headCoefficients, eventTime);
                     var monotone = IsFiniteNumber(headCoefficients[1]) &&
-                        headCoefficients[1] > 0.0 && IsFiniteNumber(slope) &&
-                        slope > 0.0 && IsFiniteNumber(denseEnd) &&
-                        denseEnd <= level;
-                    if (monotone && headCoefficients[3] > 0.0)
+                        (downward
+                            ? headCoefficients[1] < 0.0
+                            : headCoefficients[1] > 0.0) &&
+                        IsFiniteNumber(slope) && IsFiniteNumber(denseEnd) &&
+                        (downward ? denseEnd >= level : denseEnd <= level);
+                    if (monotone && (downward
+                            ? headCoefficients[3] < 0.0
+                            : headCoefficients[3] > 0.0))
                     {
                         var vertex = -headCoefficients[2] /
                                      (3.0 * headCoefficients[3]);
@@ -2892,23 +3103,25 @@ public class PhysiologicalModel
                                 2.0 * headCoefficients[2] * vertex +
                                 3.0 * headCoefficients[3] * vertex * vertex;
                             monotone = IsFiniteNumber(vertexSlope) &&
-                                       vertexSlope > 0.0;
+                                       (downward ? vertexSlope < 0.0 : vertexSlope > 0.0);
                         }
                     }
 
                     if (!monotone) return false;
                 }
 
-                if (headError <= 0.0 &&
-                    Math.Abs(headError) <=
-                    slope * PressureBoundRootToleranceSeconds + 1e-12 &&
-                    unilateral.Stages.All(stage => stage.BloodHead <= level))
+                var allowance =
+                    Math.Abs(slope) * PressureBoundRootToleranceSeconds + 1e-12;
+                if (Math.Abs(headError) <= allowance &&
+                    unilateral.Stages.All(stage => downward
+                        ? stage.BloodHead >= level - allowance
+                        : stage.BloodHead <= level + allowance))
                 {
                     time = eventTime;
                     result = unilateral;
                     return true;
                 }
-                if (headError >= 0.0) break;
+                if (downward ? headError <= 0.0 : headError >= 0.0) break;
                 eventTime -= headError / slope;
             }
 
@@ -2956,14 +3169,19 @@ public class PhysiologicalModel
                 bounds);
             if (!trial.Converged || trial.StateViolations.Length != 0)
             {
-                if (!IsFiniteNumber(invalidBound) || candidate < invalidBound)
-                    invalidBound = candidate;
                 var gap = candidate - lowerBound;
                 var terminalGap = gap <= 1e-12;
-                var headwardCorrectionEligible =
+                // A failed trial essentially on the lower bound carries no
+                // bracket information (the solve straddles the discontinuity
+                // itself); recording it would collapse the searchable bracket
+                // onto numerical noise.
+                if (!terminalGap && (!IsFiniteNumber(invalidBound) ||
+                        candidate < invalidBound))
+                    invalidBound = candidate;
+                var unilateralCorrectionEligible =
                     coordinate == 0 && level == settings.RestingBloodHead &&
-                    bounds == BloodBounds.None && side < 0 && best != null &&
-                    bestSlope > 0.0;
+                    bounds == BloodBounds.None && best != null &&
+                    bestSlope * side < 0.0;
                 var earlyUnilateralThreshold = nextUnilateralProbe switch
                 {
                     0 => 1e-4,
@@ -2972,13 +3190,13 @@ public class PhysiologicalModel
                     _ => double.PositiveInfinity
                 };
                 var earlyUnilateralAttempt =
-                    headwardCorrectionEligible && nextUnilateralProbe < 3 &&
+                    unilateralCorrectionEligible && nextUnilateralProbe < 3 &&
                     gap <= earlyUnilateralThreshold && !terminalGap;
                 if (earlyUnilateralAttempt) nextUnilateralProbe++;
                 if (earlyUnilateralAttempt ||
-                    headwardCorrectionEligible && terminalGap)
+                    unilateralCorrectionEligible && terminalGap)
                 {
-                    if (TryUnilateralHeadward(false, out var correctionTime,
+                    if (TryUnilateralCorrection(false, out var correctionTime,
                             out var correction))
                     {
                         transitionTime = correctionTime;
@@ -2989,6 +3207,22 @@ public class PhysiologicalModel
 
                 if (terminalGap)
                 {
+                    var remainingHi = IsFiniteNumber(upperBound) &&
+                                      IsFiniteNumber(invalidBound)
+                        ? Math.Min(upperBound, invalidBound)
+                        : IsFiniteNumber(upperBound) ? upperBound : invalidBound;
+                    if (IsFiniteNumber(remainingHi) &&
+                        remainingHi - lowerBound > 1e-12)
+                    {
+                        // The failed trial landed on the lower bound but the
+                        // converged bracket above it is still resolvable: keep
+                        // bisecting at its midpoint instead of abandoning the
+                        // localization.
+                        rootCandidate = lowerBound +
+                                        (remainingHi - lowerBound) * 0.5;
+                        continue;
+                    }
+
                     var invalidFinal = trial.Final;
                     var bestFinal = best?.Final ?? default;
                     diagnostics.Add(
@@ -3029,13 +3263,13 @@ public class PhysiologicalModel
                 };
                 bestSlope = bestCoefficients[1] + 2.0 * bestCoefficients[2] * candidate +
                     3.0 * bestCoefficients[3] * candidate * candidate;
-                var headwardCorrectionEligible =
+                var unilateralCorrectionEligible =
                     coordinate == 0 && level == settings.RestingBloodHead &&
-                    bounds == BloodBounds.None && side < 0 && bestSlope > 0.0;
-                if (!firstHeadwardCorrectionAttempted && headwardCorrectionEligible)
+                    bounds == BloodBounds.None && bestSlope * side < 0.0;
+                if (!firstUnilateralCorrectionAttempted && unilateralCorrectionEligible)
                 {
-                    firstHeadwardCorrectionAttempted = true;
-                    if (TryUnilateralHeadward(true, out var correctionTime,
+                    firstUnilateralCorrectionAttempted = true;
+                    if (TryUnilateralCorrection(true, out var correctionTime,
                             out var correction))
                     {
                         transitionTime = correctionTime;
@@ -5330,6 +5564,12 @@ public class PhysiologicalModel
         0.5 * (NumericalMath.RadauC[1] + NumericalMath.RadauC[2])
     ];
 
+    // Held-bound release probes: the collocation nodes alone leave the first
+    // ~7% of a span unsampled, where fast releases can hide.
+    private static readonly double[] BoundReleaseScanFractions =
+        NumericalMath.GaussLegendre16Nodes.Concat(NumericalMath.RadauC)
+            .OrderBy(fraction => fraction).ToArray();
+
     [MethodImpl(AggressiveOptimization)]
     private static double ScanCrossing(Func<double, double> f, double lo, double hi,
         out int direction) =>
@@ -5978,6 +6218,19 @@ public class PhysiologicalModel
         return trajectory;
     }
 
+    // Collocation piece evaluations are polynomial approximations of bounded
+    // trajectories; a stage can land a fit-error distance outside [0,1]. Snap
+    // only within this allowance so genuine violations still surface.
+    private const double DownstreamBoundSnapTolerance = 1e-5;
+
+    [MethodImpl(AggressiveOptimization)]
+    private static double SnapUnitBound(double value) => value switch
+    {
+        > 1.0 and <= 1.0 + DownstreamBoundSnapTolerance => 1.0,
+        < 0.0 and >= -DownstreamBoundSnapTolerance => 0.0,
+        _ => value
+    };
+
     [MethodImpl(AggressiveOptimization)]
     private static bool TryFullStateAt(double t, IntegrationState baseState,
         IntervalUpstream upstream, DownstreamSolution piece, LoCTrajectory loc,
@@ -5989,30 +6242,30 @@ public class PhysiologicalModel
         var oxygen = piece.Oxygen.Evaluate(c);
         var consciousness = baseState.IsDead
             ? 0.0
-            : piece.Consciousness.Evaluate(c)[0];
+            : SnapUnitBound(piece.Consciousness.Evaluate(c)[0]);
         var locValue = baseState.IsUnconscious || baseState.IsDead
             ? 1.0
-            : loc.ValueAt(t);
+            : SnapUnitBound(loc.ValueAt(t));
         var candidate = new IntegrationState(circ.BloodHead, circ.BloodLower,
-            circ.HeartRateMultiplier, circ.CardioFatigue, upstream.PressureAt(t),
-            circ.RespiratoryFatigue)
+            circ.HeartRateMultiplier, circ.CardioFatigue,
+            SnapUnitBound(upstream.PressureAt(t)), circ.RespiratoryFatigue)
         {
             StrainingLevel = circ.StrainingLevel,
             StrainingFatigue = circ.StrainingFatigue,
             GSuitFatigue = circ.GSuitFatigue,
-            BloodO2Head = oxygen[0],
-            BloodO2Lower = oxygen[1],
-            BloodO2Core = oxygen[2],
-            ArterialOxygenation = upstream.ArterialAt(t),
+            BloodO2Head = SnapUnitBound(oxygen[0]),
+            BloodO2Lower = SnapUnitBound(oxygen[1]),
+            BloodO2Core = SnapUnitBound(oxygen[2]),
+            ArterialOxygenation = SnapUnitBound(upstream.ArterialAt(t)),
             ConsciousnessLevel = consciousness,
-            LungCompressionLevel = upstream.CompressionAt(t),
-            PainLevel = upstream.PainAt(t),
-            GyNeckFatigue = upstream.NeckAt(t),
-            GyNeckFatigueDeathDwell = upstream.NeckDwellAt(t),
-            SuddenLoCAccumulator = upstream.SuddenAt(t),
-            VisualTunnelVisionLevel = piece.Visuals[0].Evaluate(c),
-            VisualRedoutLevel = piece.Visuals[1].Evaluate(c),
-            VisualGrayscaleLevel = piece.Visuals[2].Evaluate(c),
+            LungCompressionLevel = SnapUnitBound(upstream.CompressionAt(t)),
+            PainLevel = SnapUnitBound(upstream.PainAt(t)),
+            GyNeckFatigue = SnapUnitBound(upstream.NeckAt(t)),
+            GyNeckFatigueDeathDwell = SnapUnitBound(upstream.NeckDwellAt(t)),
+            SuddenLoCAccumulator = SnapUnitBound(upstream.SuddenAt(t)),
+            VisualTunnelVisionLevel = SnapUnitBound(piece.Visuals[0].Evaluate(c)),
+            VisualRedoutLevel = SnapUnitBound(piece.Visuals[1].Evaluate(c)),
+            VisualGrayscaleLevel = SnapUnitBound(piece.Visuals[2].Evaluate(c)),
             VisualLoCLevel = locValue,
             IsUnconscious = baseState.IsUnconscious,
             InSuddenLoC = baseState.InSuddenLoC,
@@ -6500,6 +6753,24 @@ public class PhysiologicalModel
                 }
 
                 var piece = SolveDownstream(state, upstream, cursor, span, hold, settings);
+                // Same under-resolution guard as the circulation interval: a
+                // converged consciousness solve can still miss the target's fast
+                // collapse inside a long piece; retry on a defect-sized span.
+                for (var retry = 0;
+                     piece.Valid && retry < 32 &&
+                     TryDownstreamResolutionSplit(in state, upstream, piece, cursor,
+                         span, hold, settings, out var resolutionSpan);
+                     retry++)
+                {
+                    span = resolutionSpan;
+                    end = cursor + span;
+                    hold = ComputeHold(state,
+                        c => upstream.Evaluate(cursor + c * span), span,
+                        upstream.GxMagnitude, settings);
+                    piece = SolveDownstream(state, upstream, cursor, span, hold,
+                        settings);
+                }
+
                 if (!piece.Valid)
                 {
                     violations.Add($"downstream piece invalid at offset {cursor:R}");

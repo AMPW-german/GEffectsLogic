@@ -37,12 +37,18 @@ public class GEffectsLogicInstance
 
     // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
     // Stabilized conditions:
-    // 1. the model reports a stable equilibrium under the current forces
+    // 1. the model reports a stable equilibrium under the current forces, or the
+    //    state is measured stationary within StabilizationStateError
     // 2. that equilibrium holds for the stabilization dwell
     // Stabilization is lost if any force component changes from the recorded vector
     protected bool stable;
     protected bool stableRecorded;
     private const double StabilizationStateError = 0.00025;
+    private PhysiologicalModel.IntegrationState stationaryReference;
+    private double stationaryGx;
+    private double stationaryGy;
+    private double stationaryGz;
+    private bool stationaryAnchored;
 
     private readonly Logger? logger;
     public Logger? Logger => logger;
@@ -80,6 +86,7 @@ public class GEffectsLogicInstance
         stable = false;
         stableRecorded = false;
         stabilizationTime = 0.0;
+        stationaryAnchored = false;
     }
 
     [MethodImpl(AggressiveOptimization)]
@@ -127,7 +134,9 @@ public class GEffectsLogicInstance
         // Single full-interval model call for the whole caller step
         PhysModel.Update(deltaTime, currentGx, currentGy, currentGz);
 
-        if (PhysModel.CanStabilize(currentGx, currentGy, currentGz, StabilizationStateError))
+        if (PhysModel.CanStabilize(currentGx, currentGy, currentGz,
+                StabilizationStateError) ||
+            TrackStationary(currentGx, currentGy, currentGz))
         {
             stabilizationTime += deltaTime;
             if (stabilizationTime > Settings.StabilizationTimeThreshold)
@@ -155,6 +164,27 @@ public class GEffectsLogicInstance
         sw.Stop();
         Logger.Log($"[PERF] Instance update: {sw.Elapsed.TotalMicroseconds:f1} µs", this, Logging.Logger.LogLevel.Debug);
 #endif
+    }
+
+    // Measured-stationarity certificate: while the force vector is unchanged,
+    // anchor the state and certify the freeze once the trajectory stays within
+    // StabilizationStateError of the anchor. Any drift or force change
+    // re-anchors and restarts the dwell, so sustained dynamics never freeze.
+    [MethodImpl(AggressiveOptimization)]
+    private bool TrackStationary(double gx, double gy, double gz)
+    {
+        if (stationaryAnchored && gx == stationaryGx && gy == stationaryGy &&
+            gz == stationaryGz &&
+            PhysModel.ApproximatelyCurrent(in stationaryReference,
+                StabilizationStateError))
+            return true;
+
+        stationaryReference = PhysModel.CaptureIntervalState();
+        stationaryGx = gx;
+        stationaryGy = gy;
+        stationaryGz = gz;
+        stationaryAnchored = true;
+        return false;
     }
 
     protected virtual void SetPhysiologicalModel()

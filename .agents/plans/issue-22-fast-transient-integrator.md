@@ -101,15 +101,15 @@ Deferred loads/channels (measured post-retune, dt 0.01–1.0, spread tolerance
 
 ## Verification criteria for removing exemptions
 
-- [ ] All `Deferred*Accuracy` Experimental theories pass strictly
+- [x] All `Deferred*Accuracy` Experimental theories pass strictly
   (`includeDeferredAccuracy: true`) on the deferred loads.
-- [ ] `IsDeferredAccuracyChannel`, `IsDeferredAccuracyCase`, `IsDeferredSpread`
+- [x] `IsDeferredAccuracyChannel`, `IsDeferredAccuracyCase`, `IsDeferredSpread`
   removed along with the deferral call sites; blocking gates unchanged otherwise.
-- [ ] Broad/constant-load/extended/preconditioned gates green at every candidate
+- [x] Broad/constant-load/extended/preconditioned gates green at every candidate
   dt (0.01–1.0) with zero `DEFERRED` log lines.
-- [ ] Held-release test matrix covers a release the 1 s interval cannot detect
+- [x] Held-release test matrix covers a release the 1 s interval cannot detect
   today, and passes at every candidate dt.
-- [ ] No regression in frozen baseline (12/12), duration bounds (53/53), death
+- [x] No regression in frozen baseline (12/12), duration bounds (53/53), death
   mechanics, or recorded-state tests.
-- [ ] Legacy Experimental dt-stability classes either fixed or explicitly
+- [x] Legacy Experimental dt-stability classes either fixed or explicitly
   re-baselined with maintainer sign-off.
