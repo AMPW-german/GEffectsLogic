@@ -43,10 +43,10 @@ The behavioral guidance here incorporates the MIT-licensed Karpathy Guidelines, 
 
 ## Writing plans
 
-- Use the [planning skill](.agents/skills/plan-v2/SKILL.md) for implementation plans.
+- Use the [planning skill](.agents/skills/plan/SKILL.md) for implementation plans.
 - Write narrowly defined steps as Markdown checkboxes (`- [ ]` and `- [x]`). Do not use emojis to indicate completion, progress bars, or percentages.
 - Follow the active tool/user's specified plan artifact path. If none is specified, write a project-local Markdown file under `.agents/plans/`, rather than placing the full plan only in chat.
-- During planning, investigate without implementing; write only the permitted plan artifact. Resolve material ambiguity before finalizing the plan, and wait for approval before starting implementation.
+- Wait for the user's approval of a plan before starting its implementation.
 
 ## Build and verification
 
@@ -159,7 +159,7 @@ The current README/design prose instead describes a 20–30-second positive-G ta
 
 ## Repository skills
 
-- [Plan V2](.agents/skills/plan-v2/SKILL.md): investigate and produce implementation-ready plans without making the planned changes.
+- [Plan](.agents/skills/plan/SKILL.md): investigate and produce implementation-ready plans without making the planned changes.
 - [Karpathy Guidelines](.agents/skills/andrej-karpathy-skills/SKILL.md): apply the shared behavioral/code-change guidance during implementation, review, and refactoring.
 
 The canonical skill location is `.agents/skills/`. When a provider cannot discover these skills or `AGENTS.md` automatically, explicitly read/load the relevant files; do not create independently maintained provider copies. See [AI instructions and IDE setup](CONTRIBUTING.md#ai-instructions-and-ide-setup) for the distinction between agent discovery and IDE commit-message buttons.
