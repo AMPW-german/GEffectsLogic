@@ -1831,14 +1831,24 @@ public class PhysiologicalModel
         var dead = state.IsDead;
         var maxDefect = 0.0;
         var sawInvalid = false;
-        foreach (var fraction in NumericalMath.GaussLegendre16Nodes)
+        foreach (var fraction in DownstreamDefectProbes)
         {
-            var spec = BuildConsciousnessSystem(TargetTrialAt, HeadO2At, fraction,
-                hold.ConsciousnessLosing, dead, settings);
-            if (spec.Instant.Length != 0 && spec.Instant[0]) continue;
             var consciousness = piece.Consciousness.Evaluate(fraction)[0];
             var derivative = piece.Consciousness.Derivative(fraction)[0];
-            var rhs = spec.M[0][0] * consciousness + spec.B[0];
+            var rhs = 0.0;
+            if (!dead)
+            {
+                var trial = TargetTrialAt(fraction);
+                var (target, lossTau) = ConsciousnessTargetAndTau(
+                    O2Normalized(HeadO2At(fraction), settings),
+                    PerfusionNormalized(trial.Head, settings), trial.Pressure,
+                    settings);
+                var tau = hold.ConsciousnessLosing
+                    ? lossTau
+                    : settings.ConsciousnessRecoveryTau;
+                if (tau <= 1e-9) continue;
+                rhs = (target - consciousness) / tau;
+            }
             var defect = Math.Abs(derivative - rhs) * span;
             if (!IsFiniteNumber(defect))
             {
@@ -2219,7 +2229,6 @@ public class PhysiologicalModel
             iterations++;
         }
 
-        maxScaledResidual = ComputeResidual(stages);
         converged = IsFiniteNumber(maxScaledResidual) && maxScaledResidual <= ScaledResidualTolerance;
 
         if (bounds != BloodBounds.None)
@@ -4165,6 +4174,29 @@ public class PhysiologicalModel
                 Pressure = PressureAt(t)
             };
 
+        // Oxygen-system trials read only the transport fields (see
+        // BuildOxygenSystem and LungEffectiveness); this lean variant skips
+        // straining and pressure evaluations without writing partial states
+        // into the full-state cache.
+        [MethodImpl(AggressiveOptimization)]
+        internal IntervalTrialState EvaluateOxygen(double t)
+        {
+            if (evaluateCache.TryGetValue(t, out var cached)) return cached;
+            var segment = segments[SegmentIndexAt(t)];
+            var local = t - segment.CoefficientStart;
+            return new IntervalTrialState
+            {
+                Head = NumericalMath.EvaluateCubic(segment.HeadCoefficients, local),
+                Lower = NumericalMath.EvaluateCubic(segment.LowerCoefficients, local),
+                HeartRate = NumericalMath.EvaluateCubic(segment.RateCoefficients,
+                    local),
+                Respiratory = IndependentRespiratoryAt(
+                    callerInitial.RespiratoryFatigue, t, gx, settings),
+                Arterial = ArterialAt(t),
+                Compression = CompressionAt(t)
+            };
+        }
+
         [MethodImpl(AggressiveOptimization)]
         private int SegmentIndexAt(double t)
         {
@@ -4802,6 +4834,37 @@ public class PhysiologicalModel
             }
             return (targetAt!(c) - value) / tau;
         }
+    }
+
+    // Fits a cubic to the target at the four third-points of a piece and
+    // validates it at three more. The surrogate replaces the target for
+    // convolution quadrature only when the fit matches within 1e-6;
+    // otherwise the exact function is returned. The surrogate is clamped to
+    // the sampled range so interpolation cannot overshoot a bounded target.
+    [MethodImpl(AggressiveOptimization)]
+    private static Func<double, double> TargetSurrogate(
+        Func<double, double> target)
+    {
+        var sampled0 = target(0.0);
+        var sampled1 = target(1.0 / 3.0);
+        var sampled2 = target(2.0 / 3.0);
+        var sampled3 = target(1.0);
+        var first1 = 3.0 * (sampled1 - sampled0);
+        var first2 = 3.0 * (sampled2 - sampled1);
+        var first3 = 3.0 * (sampled3 - sampled2);
+        var second1 = 1.5 * (first2 - first1);
+        var second2 = 1.5 * (first3 - first2);
+        var third = second2 - second1;
+        var low = Math.Min(Math.Min(sampled0, sampled1), Math.Min(sampled2, sampled3));
+        var high = Math.Max(Math.Max(sampled0, sampled1), Math.Max(sampled2, sampled3));
+        double Surrogate(double c) => Clamp(
+            sampled0 + c * (first1 + (c - 1.0 / 3.0) *
+                          (second1 + (c - 2.0 / 3.0) * third)), low, high);
+        return Math.Abs(Surrogate(1.0 / 6.0) - target(1.0 / 6.0)) <= 1e-6 &&
+               Math.Abs(Surrogate(0.5) - target(0.5)) <= 1e-6 &&
+               Math.Abs(Surrogate(5.0 / 6.0) - target(5.0 / 6.0)) <= 1e-6
+            ? Surrogate
+            : target;
     }
 
     // Reusable assembly buffers for the hot n == 3 collocation solve. The
@@ -5564,6 +5627,16 @@ public class PhysiologicalModel
         0.5 * (NumericalMath.RadauC[1] + NumericalMath.RadauC[2])
     ];
 
+    // Downstream defect probes: every other Gauss-Legendre node halves the
+    // per-piece probe cost while still spanning the interval.
+    private static readonly double[] DownstreamDefectProbes =
+    [
+        NumericalMath.GaussLegendre16Nodes[0], NumericalMath.GaussLegendre16Nodes[2],
+        NumericalMath.GaussLegendre16Nodes[4], NumericalMath.GaussLegendre16Nodes[6],
+        NumericalMath.GaussLegendre16Nodes[8], NumericalMath.GaussLegendre16Nodes[10],
+        NumericalMath.GaussLegendre16Nodes[12], NumericalMath.GaussLegendre16Nodes[14]
+    ];
+
     // Held-bound release probes: the collocation nodes alone leave the first
     // ~7% of a span unsampled, where fast releases can hide.
     private static readonly double[] BoundReleaseScanFractions =
@@ -5940,7 +6013,8 @@ public class PhysiologicalModel
     {
         var piece = new DownstreamSolution();
         [MethodImpl(AggressiveOptimization)]
-        IntervalTrialState TrialAt(double c) => upstream.Evaluate(cursor + c * span);
+        IntervalTrialState TrialAt(double c) =>
+            upstream.EvaluateOxygen(cursor + c * span);
         [MethodImpl(AggressiveOptimization)]
         IntervalTrialState TargetTrialAt(double c) =>
             upstream.EvaluateHeadPressure(cursor + c * span);
@@ -6001,7 +6075,7 @@ public class PhysiologicalModel
                     Duration = span,
                     ScalarOverride = new ScalarLagSolution(consciousnessInitial, span,
                         settings.ConsciousnessRecoveryTau,
-                        ConsciousnessTargetAtNode),
+                        TargetSurrogate(ConsciousnessTargetAtNode)),
                     LoCCeilingZeroOnPiece =
                         IsFiniteNumber(consciousnessInitial) &&
                         IsFiniteNumber(span) && span >= 0.0 &&
@@ -6044,7 +6118,6 @@ public class PhysiologicalModel
             (settings.VisualRedoutInTau, settings.VisualRedoutOutTau),
             (settings.VisualGrayscaleInTau, settings.VisualGrayscaleOutTau)
         };
-        var physiologicalTargetCache = new Dictionary<double, double>(128);
         Func<int, double, double> visualTarget = (channel, c) =>
         {
             var head = upstream.HeadAt(cursor + c * span);
@@ -6053,12 +6126,8 @@ public class PhysiologicalModel
                     (head - settings.RestingBloodHead) / settings.RestingBloodHead,
                     0.0), settings);
             if (head >= settings.RestingBloodHead) return 0.0;
-            if (physiologicalTargetCache.TryGetValue(c, out var cachedTarget))
-                return cachedTarget;
-            var target = PhysiologicalVisualTarget(head,
+            return PhysiologicalVisualTarget(head,
                 O2Normalized(piece.Oxygen.EvaluateFirst(c), settings), settings);
-            physiologicalTargetCache[c] = target;
-            return target;
         };
         piece.VisualTargetAt = visualTarget;
         piece.HasHeadRange = upstream.TryHeadRange(cursor, cursor + span,
@@ -6109,7 +6178,12 @@ public class PhysiologicalModel
             }
             else
             {
-                Func<double, double> targetAt = c => visualTarget(index, c);
+                // The convolution probes the target at many positions; a
+                // validated cubic surrogate keeps them cheap, with exact
+                // evaluation retained whenever the fit is poor.
+                var targetAt = tau > 1e-9
+                    ? TargetSurrogate(c => visualTarget(index, c))
+                    : (Func<double, double>)(c => visualTarget(index, c));
                 if (tau <= 1e-9 && visualInitial[index] != targetAt(0.0))
                     piece.InitialEvents.Add(VisualInstantNames[index]);
                 piece.Visuals[index] = new ScalarLagSolution(
