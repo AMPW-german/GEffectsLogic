@@ -58,7 +58,7 @@ dotnet format whitespace GEffectsLogic.slnx --verify-no-changes
 dotnet format style GEffectsLogic.slnx --verify-no-changes --severity warn
 dotnet format analyzers GEffectsLogic.slnx --verify-no-changes --severity warn
 dotnet build GEffectsLogic.slnx -c Release -warnaserror
-dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --filter "Category!=Experimental&Category!=Performance"
+dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --filter "Category!=Experimental&Category!=Performance&Category!=DtDense"
 bash scripts/enforce-license-headers.sh --check
 ```
 
@@ -68,11 +68,13 @@ Run performance tests in Release, separately from normal Debug tests:
 dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --filter "Category=Performance"
 ```
 
-Experimental time-step stability tests are separate and non-blocking in current CI; report their results without conflating them with the normal test gate:
+Dense time-step stability tests (`Category=DtDense`) skip unless `GEFFECTS_DENSE_DT_TESTS=1` is set; CI runs them as a blocking Debug step. To run them locally:
 
 ```bash
-dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --filter "Category=Experimental"
+GEFFECTS_DENSE_DT_TESTS=1 dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --filter "Category=DtDense"
 ```
+
+Experimental tests remain in the suite but do not run in CI.
 
 To select a single test or launch the interactive GUI:
 
@@ -137,7 +139,7 @@ In PowerShell, use a verified Git for Windows Bash path if necessary:
 ## CI/CD workflow
 
 - Tests must run after DLL artifact build; workflow dependency ordering must reflect that.
-- Performance tests must run as blocking CI checks. Experimental tests currently remain non-blocking.
+- Performance and dense dt (`Category=DtDense`) tests must run as blocking CI checks. `Category=Experimental` tests do not run in CI.
 
 ## Physiological-model constraints
 

@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+      - name: Restore dependencies
+        run: dotnet restore
+      - name: Build library (Release)
+        run: dotnet build GEffectsLogic/GEffectsLogic.csproj -c Release --no-restore
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+      - name: Restore dependencies
+        run: dotnet restore
+      - name: Build Debug (tests)
+        run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-restore
+      - name: Test (Debug)
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category!=Experimental&Category!=Performance&Category!=DtDense"
+      - name: Test dense dt stability
+        env:
+          GEFFECTS_DENSE_DT_TESTS: "1"
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category=DtDense"
+      - name: Build Release (performance tests)
+        run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-restore
+      - name: Test performance (Release)
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-build --verbosity normal --filter "Category=Performance"

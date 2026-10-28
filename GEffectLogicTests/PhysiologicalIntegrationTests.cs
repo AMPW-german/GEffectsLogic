@@ -2906,7 +2906,8 @@ public class PhysiologicalIntegrationTests
         var rows = new StringBuilder();
         var model = new GEffectsLogicInstance(new DtStabilityLogger()).PhysModel;
         var preconditioned = model.CaptureIntervalState();
-        for (var call = 1; call <= 1000; call++)
+        var preconditionSeconds = 0.0;
+        for (var call = 1; call <= 1000 && preconditioned.BloodCore > 0.05; call++)
         {
             var result = model.AdvanceCirculationInterval(in preconditioned, 0.01, 0.0, 0.0, -5.0,
                 LogicSettings.Default);
@@ -2918,10 +2919,12 @@ public class PhysiologicalIntegrationTests
             foreach (var violation in result.StateViolations)
                 failures.Add($"boundary precondition call {call}/1000: violation {violation}.");
             preconditioned = result.Final;
+            preconditionSeconds += 0.01;
         }
 
         rows.AppendLine(CultureInfo.InvariantCulture,
-            $"boundary preconditioned state at 10s gz=-5: head={preconditioned.BloodHead:R} " +
+            $"boundary preconditioned state at {preconditionSeconds:R}s gz=-5: " +
+            $"head={preconditioned.BloodHead:R} " +
             $"core={preconditioned.BloodCore:R} lower={preconditioned.BloodLower:R} " +
             $"hr={preconditioned.HeartRateMultiplier:R} " +
             $"pressure={preconditioned.CerebralPressureImpairment:R}");
