@@ -30,25 +30,25 @@ public class GEffectsLogicInstance
     // runtimes that support it.
     private const MethodImplOptions AggressiveOptimization = (MethodImplOptions)512;
 
+    // Per-axis force drift or drift of any physiological state channel beyond
+    // this tolerance resets the stabilization snapshot and dwell.
+    private const double StabilizationDriftTolerance = 0.025;
+    // Per-axis force margin within which the stabilized early return holds.
+    private const double StableForceMargin = 0.05;
+
     protected double stabilizationTime;
     protected double stabilizedGx;
     protected double stabilizedGy;
     protected double stabilizedGz;
+    private PhysiologicalModel.IntegrationState stabilizedState;
 
     // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
     // Stabilized conditions:
-    // 1. the model reports a stable equilibrium under the current forces, or the
-    //    state is measured stationary within StabilizationStateError
-    // 2. that equilibrium holds for the stabilization dwell
-    // Stabilization is lost if any force component changes from the recorded vector
+    // 1. Gn remains within 0.05 of the last stabilized value for 10 seconds
+    // 2. all physmodel values remain within 0.025 of the recorded values for 10 seconds
+    // Stabilization is lost if Gn deviates by more than 0.05
     protected bool stable;
     protected bool stableRecorded;
-    private const double StabilizationStateError = 0.00025;
-    private PhysiologicalModel.IntegrationState stationaryReference;
-    private double stationaryGx;
-    private double stationaryGy;
-    private double stationaryGz;
-    private bool stationaryAnchored;
 
     private readonly Logger? logger;
     public Logger? Logger => logger;
@@ -86,7 +86,6 @@ public class GEffectsLogicInstance
         stable = false;
         stableRecorded = false;
         stabilizationTime = 0.0;
-        stationaryAnchored = false;
     }
 
     [MethodImpl(AggressiveOptimization)]
@@ -106,8 +105,25 @@ public class GEffectsLogicInstance
 #if PERFDEBUG
         var sw = Stopwatch.StartNew();
 #endif
-        if (deltaTime <= 0)
+        List<double> dtList = [];
+
+        if (deltaTime > 1.0)
+        {
+            var stepCount = (int)Math.Ceiling(deltaTime);
+            dtList.AddRange(Enumerable.Repeat(deltaTime / stepCount, stepCount));
+            if (!stable)
+                Logger.Log(
+                    $"High deltaTime detected: {deltaTime}s - splitting it into {stepCount} steps of {deltaTime / stepCount}s each",
+                    this, Logger.LogLevel.Warning);
+        }
+        else if (deltaTime <= 0)
+        {
             Logger.Log($"Negative deltaTime detected: {deltaTime}s", this, Logger.LogLevel.Error);
+        }
+        else
+        {
+            dtList.Add(deltaTime);
+        }
 
         // Update last G-forces
         lastGx = currentGx;
@@ -116,75 +132,76 @@ public class GEffectsLogicInstance
         // Update time
         time += deltaTime;
 
-        if (stable)
+        if (stable && Math.Abs(currentGx - stabilizedGx) <= StableForceMargin &&
+            Math.Abs(currentGy - stabilizedGy) <= StableForceMargin &&
+            Math.Abs(currentGz - stabilizedGz) <= StableForceMargin)
+            // No Gn change, physmodel can't change
+            return;
+
+        foreach (var dt in dtList)
         {
-            if (currentGx == stabilizedGx && currentGy == stabilizedGy &&
-                currentGz == stabilizedGz)
-                // No Gn change, physmodel can't change
-                return;
-
-            Logger.Log(
-                $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
-                this, Logger.LogLevel.Info);
-            InvalidateStabilization();
-        }
-
-        if (deltaTime <= 0) return;
-
-        // Single full-interval model call for the whole caller step
-        PhysModel.Update(deltaTime, currentGx, currentGy, currentGz);
-
-        if (PhysModel.CanStabilize(currentGx, currentGy, currentGz,
-                StabilizationStateError) ||
-            TrackStationary(currentGx, currentGy, currentGz))
-        {
-            stabilizationTime += deltaTime;
-            if (stabilizationTime > Settings.StabilizationTimeThreshold)
+            if (!stableRecorded)
             {
-                stable = true;
                 stableRecorded = true;
                 stabilizedGx = currentGx;
                 stabilizedGy = currentGy;
                 stabilizedGz = currentGz;
-                Logger.Log(
-                    $"Instance has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
-                    this, Logger.LogLevel.Info);
+                stabilizedState = PhysModel.CaptureIntervalState();
             }
-        }
-        else
-        {
-            stabilizationTime = 0.0;
-        }
+            else if (Math.Abs(currentGx - stabilizedGx) > StabilizationDriftTolerance ||
+                     Math.Abs(currentGy - stabilizedGy) > StabilizationDriftTolerance ||
+                     Math.Abs(currentGz - stabilizedGz) > StabilizationDriftTolerance)
+            {
+                // Separate check for Gn deviation to reduce deviation checks for the physmodel
+                if (stable)
+                    Logger.Log(
+                        $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
+                        this, Logger.LogLevel.Info);
 
-        Logger.Log(
-            $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BloodO2Head:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {deltaTime:f4}",
-            this);
+                stabilizationTime = 0.0;
+                stable = false;
+                stableRecorded = false;
+            }
+            else if (!stable &&
+                     !PhysModel.ApproximatelyCurrent(in stabilizedState,
+                         StabilizationDriftTolerance))
+            {
+                if (stable)
+                    Logger.Log(
+                        $"Instance has destabilized at Gx: {currentGx:f2} ({stabilizedGx}), Gy: {currentGy:f2} ({stabilizedGy}), Gz: {currentGz:f2} ({stabilizedGz}). PhysModel updates resumed.",
+                        this, Logger.LogLevel.Info);
+
+                stabilizationTime = 0.0;
+                stable = false;
+                stableRecorded = false;
+            }
+            else
+            {
+                stabilizationTime += dt;
+                if (stabilizationTime > Settings.StabilizationTimeThreshold && !stable)
+                {
+                    stable = true; // Consider stabilized if conditions are met for the threshold duration
+                    Logger.Log(
+                        $"Instance has stabilized at Gx: {stabilizedGx:f2}, Gy: {stabilizedGy:f2}, Gz: {stabilizedGz:f2}. PhysModel updates paused until destabilization.",
+                        this, Logger.LogLevel.Info);
+                }
+            }
+
+            if (!stable)
+            {
+                // Physiological model update
+                PhysModel.Update(dt, currentGx, currentGy, currentGz);
+            }
+
+            Logger.Log(
+                $"Gz: {currentGz:f2}, headBlood: {PhysModel.BloodHead:f4}, brainO2: {PhysModel.BloodO2Head:f4}, HR: {PhysModel.HeartRateMultiplier:f2}, consciousness: {ConsciousnessLevel:f4}, dT: {dt:f4}",
+                this);
+        }
 
 #if PERFDEBUG
         sw.Stop();
         Logger.Log($"[PERF] Instance update: {sw.Elapsed.TotalMicroseconds:f1} µs", this, Logging.Logger.LogLevel.Debug);
 #endif
-    }
-
-    // Measured-stationarity certificate: while the force vector is unchanged,
-    // anchor the state and certify the freeze once the trajectory stays within
-    // StabilizationStateError of the anchor. Any drift or force change
-    // re-anchors and restarts the dwell, so sustained dynamics never freeze.
-    [MethodImpl(AggressiveOptimization)]
-    private bool TrackStationary(double gx, double gy, double gz)
-    {
-        if (stationaryAnchored && gx == stationaryGx && gy == stationaryGy &&
-            gz == stationaryGz &&
-            PhysModel.ApproximatelyCurrent(in stationaryReference,
-                StabilizationStateError))
-            return true;
-
-        stationaryReference = PhysModel.CaptureIntervalState();
-        stationaryGx = gx;
-        stationaryGy = gy;
-        stationaryGz = gz;
-        stationaryAnchored = true;
-        return false;
     }
 
     protected virtual void SetPhysiologicalModel()

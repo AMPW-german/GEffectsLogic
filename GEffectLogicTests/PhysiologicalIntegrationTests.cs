@@ -53,6 +53,25 @@ public class PhysiologicalIntegrationTests
         _output = output;
     }
 
+    // Drive a single model-owned interval through the public Update path:
+    // load an arbitrary precondition, update, and inspect the stored result.
+    private static PhysiologicalModel.IntegrationResult AdvanceInterval(
+        in PhysiologicalModel.IntegrationState state, double dt, double gx,
+        double gy, double gz, LogicSettings settings)
+    {
+        var model = new GEffectsLogicInstance(settings: settings).PhysModel;
+        model.LoadIntervalState(in state);
+        try
+        {
+            model.Update(dt, gx, gy, gz);
+        }
+        catch (InvalidOperationException)
+        {
+            // Rejected intervals remain inspectable via LastIntervalResult.
+        }
+        return model.LastIntervalResult!;
+    }
+
     public static IEnumerable<object[]> GateVectors => new object[][] { [-2.0], [-3.0], [-5.0] };
 
     public static IEnumerable<object[]> JacobianStates => new object[][]
@@ -1817,73 +1836,6 @@ public class PhysiologicalIntegrationTests
             Assert.Equal(0.42, instant.Evaluate(c)[0]);
             Assert.Equal(instant.Evaluate(c)[0], instant.EvaluateFirst(c));
             Assert.Equal(fallback.Evaluate(c)[0], fallback.EvaluateFirst(c));
-        }
-    }
-
-    [Fact]
-    public void TargetOnlyPreservesExactConsciousnessTargets()
-    {
-        var settings = LogicSettings.Default;
-        var custom = settings with
-        {
-            ConsciousnessO2Exponent = 3.0,
-            ConsciousnessLossTauMin = 0.4,
-            ConsciousnessCriticalPerfusionNorm = 0.7
-        };
-        var model = new GEffectsLogicInstance().PhysModel;
-        var rested = model.CaptureIntervalState();
-        var preconditioned = rested with
-        {
-            CardioFatigue = 0.5,
-            CerebralPressureImpairment = 0.2
-        };
-        var previous = PhysiologicalModel.TemporaryTargetOnly;
-        try
-        {
-            foreach (var s in new[] { settings, custom })
-            {
-                var normalized = new[] { 0.0, 0.1, 0.25, 0.5, 1.0 };
-                foreach (var o2 in normalized)
-                    foreach (var perf in normalized)
-                        foreach (var pressure in new[] { 0.0, 0.4, 1.0 })
-                        {
-                            var reference = PhysiologicalModel.ConsciousnessTargetAndTau(
-                                o2, perf, pressure, s).Target;
-                            PhysiologicalModel.TemporaryTargetOnly = false;
-                            var off = PhysiologicalModel.ConsciousnessTargetValue(
-                                o2, perf, pressure, s);
-                            PhysiologicalModel.TemporaryTargetOnly = true;
-                            var on = PhysiologicalModel.ConsciousnessTargetValue(
-                                o2, perf, pressure, s);
-                            Assert.Equal(reference, off);
-                            Assert.Equal(reference, on);
-                        }
-            }
-            var cases = new (PhysiologicalModel.IntegrationState State, double Dt,
-                double Gx, double Gy, double Gz)[]
-            {
-                (rested, 0.225, 0.0, 0.0, 4.5),
-                (rested, 0.225, 10.0, 3.0, -4.0),
-                (preconditioned, 1.0, 0.0, 0.0, 4.5)
-            };
-            foreach (var (state, dt, gx, gy, gz) in cases)
-            {
-                PhysiologicalModel.TemporaryTargetOnly = false;
-                var reference = model.AdvanceInterval(in state, dt, gx, gy, gz,
-                    settings);
-                PhysiologicalModel.TemporaryTargetOnly = true;
-                var refined = model.AdvanceInterval(in state, dt, gx, gy, gz,
-                    settings);
-                Assert.Equal(reference.Converged, refined.Converged);
-                Assert.Equal(reference.Final, refined.Final);
-                Assert.Equal(
-                    reference.Events.Select(e => (e.Kind, e.Offset)),
-                    refined.Events.Select(e => (e.Kind, e.Offset)));
-            }
-        }
-        finally
-        {
-            PhysiologicalModel.TemporaryTargetOnly = previous;
         }
     }
 
@@ -4159,7 +4111,7 @@ public class PhysiologicalIntegrationTests
         const double duration = 0.20256244765573198;
         const double gz = -1.6127926155320573;
         var model = new GEffectsLogicInstance(settings: settings).PhysModel;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
             settings);
 
         Assert.True(result.Converged,
@@ -4352,7 +4304,7 @@ public class PhysiologicalIntegrationTests
         {
             var directModel = new GEffectsLogicInstance().PhysModel;
             var directInitial = directModel.CaptureIntervalState();
-            var direct = directModel.AdvanceInterval(in directInitial, dt, 0.5, 0.3, 3.0,
+            var direct = AdvanceInterval(in directInitial, dt, 0.5, 0.3, 3.0,
                 settings);
             Assert.True(direct.Converged,
                 $"dt {dt:R}: full interval rejected: " +
@@ -4388,7 +4340,7 @@ public class PhysiologicalIntegrationTests
             VisualRedoutLevel = 0.0
         };
         var settings = LogicSettings.Default with { VisualRedoutInTau = 0.0 };
-        var result = model.AdvanceInterval(in state, 0.01, 0.0, 0.0, 1.0, settings);
+        var result = AdvanceInterval(in state, 0.01, 0.0, 0.0, 1.0, settings);
 
         Assert.True(result.Converged,
             $"instantaneous redout update rejected: " +
@@ -4414,7 +4366,7 @@ public class PhysiologicalIntegrationTests
                          (1.0 + settings.VisualRedoutFullHeadBloodOverfill);
 
         var wholeModel = new GEffectsLogicInstance().PhysModel;
-        var whole = wholeModel.AdvanceInterval(in state, duration, 0.0, 0.0, 1.0,
+        var whole = AdvanceInterval(in state, duration, 0.0, 0.0, 1.0,
             settings);
         Assert.True(whole.Converged,
             $"whole redout update rejected: " +
@@ -4423,7 +4375,7 @@ public class PhysiologicalIntegrationTests
         AssertVisualRedoutBounds(whole);
 
         var splitModel = new GEffectsLogicInstance().PhysModel;
-        var first = splitModel.AdvanceInterval(in state, 0.1, 0.0, 0.0, 1.0,
+        var first = AdvanceInterval(in state, 0.1, 0.0, 0.0, 1.0,
             settings);
         Assert.True(first.Converged,
             $"first redout piece rejected: " +
@@ -4431,7 +4383,7 @@ public class PhysiologicalIntegrationTests
             $"violations [{string.Join("; ", first.StateViolations)}].");
         AssertVisualRedoutBounds(first);
         var firstFinal = first.Final;
-        var second = splitModel.AdvanceInterval(in firstFinal, 0.15, 0.0, 0.0, 1.0,
+        var second = AdvanceInterval(in firstFinal, 0.15, 0.0, 0.0, 1.0,
             settings);
         Assert.True(second.Converged,
             $"second redout piece rejected: " +
@@ -4517,7 +4469,7 @@ public class PhysiologicalIntegrationTests
             $"certify zero redout target below {redoutOnsetHead:R}.");
 
         var model = new GEffectsLogicInstance().PhysModel;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 5.0,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, 5.0,
             settings);
         Assert.True(result.Converged,
             $"positive-G visual update rejected: " +
@@ -4567,7 +4519,7 @@ public class PhysiologicalIntegrationTests
             duration, out var minimumHead, out _));
 
         var model = new GEffectsLogicInstance().PhysModel;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, -5.0,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, -5.0,
             settings);
         Assert.True(result.Converged,
             $"negative-G visual update rejected: " +
@@ -4656,7 +4608,7 @@ public class PhysiologicalIntegrationTests
         var settings = LogicSettings.Default;
         var wholeModel = new GEffectsLogicInstance().PhysModel;
         var state = wholeModel.CaptureIntervalState();
-        var whole = wholeModel.AdvanceInterval(in state, 0.25, 0.0, 0.0, -5.0,
+        var whole = AdvanceInterval(in state, 0.25, 0.0, 0.0, -5.0,
             settings);
         Assert.True(whole.Converged,
             $"quarter-second redout update rejected: " +
@@ -4670,7 +4622,7 @@ public class PhysiologicalIntegrationTests
         var fineState = fineModel.CaptureIntervalState();
         for (var step = 0; step < 25; step++)
         {
-            var fine = fineModel.AdvanceInterval(in fineState, 0.01, 0.0, 0.0, -5.0,
+            var fine = AdvanceInterval(in fineState, 0.01, 0.0, 0.0, -5.0,
                 settings);
             Assert.True(fine.Converged,
                 $"10ms redout update {step + 1} rejected: " +
@@ -4690,7 +4642,7 @@ public class PhysiologicalIntegrationTests
     }
 
     // Bound pressure episodes cannot be reached end-to-end through
-    // AdvanceInterval under stable transients (entry/release marks collide
+    // Update under stable transients (entry/release marks collide
     // with the homogeneous zero-target consciousness corridor), so this
     // synthesizes circulation results carrying bound entry/release marks and
     // exercises the memoized IntervalUpstream.PressureAt path directly.
@@ -4785,14 +4737,14 @@ public class PhysiologicalIntegrationTests
         Assert.Empty(upstreamDiagnostics);
 
         // End-to-end sanity: a sustained -5Gz bound hold through
-        // AdvanceInterval converges with pressure pinned at the bound.
+        // Update converges with pressure pinned at the bound.
         var holdStart = model.CaptureIntervalState() with
         {
             BloodHead = 0.30,
             BloodLower = 0.35,
             CerebralPressureImpairment = 1.0
         };
-        var hold = model.AdvanceInterval(in holdStart, 0.25, 0.0, 0.0,
+        var hold = AdvanceInterval(in holdStart, 0.25, 0.0, 0.0,
             -5.0, settings);
         Assert.True(hold.Converged,
             $"bound hold rejected: " +
@@ -4871,7 +4823,7 @@ public class PhysiologicalIntegrationTests
 
         foreach (var dt in new[] { 0.01, 0.25, 1.0 })
         {
-            var result = model.AdvanceInterval(in initial, dt, 0.0, 0.0, 5.0, settings);
+            var result = AdvanceInterval(in initial, dt, 0.0, 0.0, 5.0, settings);
             Assert.True(result.Converged,
                 $"head oxygen floor update rejected at dt {dt:R}: " +
                 $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
@@ -4907,7 +4859,7 @@ public class PhysiologicalIntegrationTests
         }
         const double duration = 0.25;
 
-        var whole = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 5.0,
+        var whole = AdvanceInterval(in initial, duration, 0.0, 0.0, 5.0,
             settings);
         Assert.True(whole.Converged,
             $"whole head-O2 entry rejected: " +
@@ -4927,7 +4879,7 @@ public class PhysiologicalIntegrationTests
         var elapsed = 0.0;
         for (var step = 0; step < 25; step++)
         {
-            var part = partitionedModel.AdvanceInterval(in partitionedState, 0.01,
+            var part = AdvanceInterval(in partitionedState, 0.01,
                 0.0, 0.0, 5.0, settings);
             Assert.True(part.Converged,
                 $"10ms head-O2 entry path step {step + 1} rejected: " +
@@ -4957,7 +4909,7 @@ public class PhysiologicalIntegrationTests
 
         var endpointModel = new GEffectsLogicInstance().PhysModel;
         var lo = 0.01;
-        var lowCandidate = endpointModel.AdvanceInterval(in initial, lo, 0.0, 0.0,
+        var lowCandidate = AdvanceInterval(in initial, lo, 0.0, 0.0,
             5.0, settings);
         Assert.True(lowCandidate.Converged);
         AssertAcceptedCoverage(lowCandidate, lo);
@@ -5001,7 +4953,7 @@ public class PhysiologicalIntegrationTests
         const double duration = 0.20789884425180144;
         const double gz = -0.8537793413370298;
         var model = new GEffectsLogicInstance(settings: settings).PhysModel;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
             settings);
         Assert.True(result.Converged,
             $"LoC contact update rejected: crossings " +
@@ -5023,7 +4975,7 @@ public class PhysiologicalIntegrationTests
         {
             ConsciousnessLevel = settings.ConsciousnessRecoveryThreshold + 1e-7
         };
-        var fallback = model.AdvanceInterval(in fallbackInitial, duration, 0.0, 0.0,
+        var fallback = AdvanceInterval(in fallbackInitial, duration, 0.0, 0.0,
             gz, settings);
         Assert.True(fallback.Converged,
             $"LoC fallback update rejected: crossings " +
@@ -5067,7 +5019,7 @@ public class PhysiologicalIntegrationTests
             $"fixture ceiling {startCeiling:R} is not a moving nonzero ceiling.");
 
         const double duration = 0.5;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
             settings);
         Assert.True(result.Converged,
             $"moving-ceiling LoC contact rejected: crossings " +
@@ -5119,7 +5071,7 @@ public class PhysiologicalIntegrationTests
         };
 
         const double duration = 0.5;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
             settings);
         Assert.True(result.Converged,
             $"coincident LoC contact rejected: crossings " +
@@ -5331,7 +5283,7 @@ public class PhysiologicalIntegrationTests
         const double duration = 0.2529090646846475;
         const double gz = 6.28023037531947;
         var model = new GEffectsLogicInstance(settings: settings).PhysModel;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, gz,
             settings);
         Assert.True(result.Converged,
             $"recorded LoC exit update rejected: crossings " +
@@ -5411,7 +5363,7 @@ public class PhysiologicalIntegrationTests
         var settings = LogicSettings.Default;
         var model = new GEffectsLogicInstance().PhysModel;
         var initial = model.CaptureIntervalState() with { ConsciousnessLevel = 0.9999 };
-        var result = model.AdvanceInterval(in initial, 1.0, 0.0, 0.0, 5.0, settings);
+        var result = AdvanceInterval(in initial, 1.0, 0.0, 0.0, 5.0, settings);
 
         Assert.True(result.Converged,
             $"falling-target recovery update rejected: " +
@@ -5453,7 +5405,7 @@ public class PhysiologicalIntegrationTests
             initial.CerebralPressureImpairment, settings).Target;
         initial = initial with { ConsciousnessLevel = target + 1e-13 };
 
-        var result = model.AdvanceInterval(in initial, 0.01, 0.0, 0.0, 1.0, settings);
+        var result = AdvanceInterval(in initial, 0.01, 0.0, 0.0, 1.0, settings);
         Assert.True(result.Converged,
             $"near-zero rising-target update rejected: " +
             $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
@@ -5492,7 +5444,7 @@ public class PhysiologicalIntegrationTests
         Assert.Equal(0.0, target);
 
         const double duration = 0.1;
-        var result = model.AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
+        var result = AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
             settings);
         Assert.True(result.Converged,
             $"target-zero branch update rejected: " +
@@ -5540,7 +5492,7 @@ public class PhysiologicalIntegrationTests
             initialO2, initialPerfusion, initial.CerebralPressureImpairment, settings).Target);
 
         var probeModel = new GEffectsLogicInstance().PhysModel;
-        var probe = probeModel.AdvanceInterval(in initial, 0.1, 0.0, 0.0, 1.0,
+        var probe = AdvanceInterval(in initial, 0.1, 0.0, 0.0, 1.0,
             settings);
         Assert.True(probe.Converged,
             $"target-zero branch probe rejected: crossings " +
@@ -5551,7 +5503,7 @@ public class PhysiologicalIntegrationTests
         var duration = probeBranch.Offset + 1e-6;
 
         var nearEndModel = new GEffectsLogicInstance().PhysModel;
-        var nearEnd = nearEndModel.AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
+        var nearEnd = AdvanceInterval(in initial, duration, 0.0, 0.0, 1.0,
             settings);
         Assert.True(nearEnd.Converged,
             $"near-end target-zero branch rejected: crossings " +
@@ -5590,7 +5542,7 @@ public class PhysiologicalIntegrationTests
             VisualTunnelVisionLevel = 1e-6,
             VisualGrayscaleLevel = 1e-6
         };
-        var result = new GEffectsLogicInstance().PhysModel.AdvanceInterval(in initial, 1.0,
+        var result = AdvanceInterval(in initial, 1.0,
             0.0, 0.0, 5.0, settings);
 
         Assert.True(result.Converged,
@@ -5630,7 +5582,7 @@ public class PhysiologicalIntegrationTests
             initial.CerebralPressureImpairment, settings).Target;
         Assert.Equal(0.0, target);
 
-        var result = model.AdvanceInterval(in initial, 0.01, 0.0, 0.0, 5.0, settings);
+        var result = AdvanceInterval(in initial, 0.01, 0.0, 0.0, 5.0, settings);
         Assert.True(result.Converged,
             $"zero-target update rejected: " +
             $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
@@ -5654,7 +5606,7 @@ public class PhysiologicalIntegrationTests
         var state = initialState ?? model.CaptureIntervalState();
         foreach (var dt in dts)
         {
-            var result = model.AdvanceInterval(in state, dt, gx, gy, gz, settings);
+            var result = AdvanceInterval(in state, dt, gx, gy, gz, settings);
             Assert.True(result.Converged,
                 $"gx {gx:R} gy {gy:R} gz {gz:R} dt {dt:R}: full interval rejected: " +
                 $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
@@ -5707,7 +5659,7 @@ public class PhysiologicalIntegrationTests
         var settings = LogicSettings.Default;
         var model = new GEffectsLogicInstance().PhysModel;
         var state = model.CaptureIntervalState() with { SuddenLoCAccumulator = 0.79 };
-        var result = model.AdvanceInterval(in state, 1.0, 8.0, 8.0, 1.0, settings);
+        var result = AdvanceInterval(in state, 1.0, 8.0, 8.0, 1.0, settings);
         Assert.True(result.Converged,
             $"sudden precondition rejected: " +
             $"crossings [{string.Join("; ", result.ModeCrossings)}] " +
@@ -5718,7 +5670,7 @@ public class PhysiologicalIntegrationTests
             "preconditioned accumulator 0.79 under gx 8 gy 8 must trigger within 1s.");
 
         var splitModel = new GEffectsLogicInstance().PhysModel;
-        var half = splitModel.AdvanceInterval(in state, 0.5, 8.0, 8.0, 1.0, settings);
+        var half = AdvanceInterval(in state, 0.5, 8.0, 8.0, 1.0, settings);
         Assert.True(half.Converged, "first half of the partitioned sudden run rejected.");
         var wholeOffset = result.Events.First(e => e.Kind == "SuddenTrigger").Offset;
         var halfOffset = half.Events.First(e => e.Kind == "SuddenTrigger").Offset;
@@ -5737,7 +5689,7 @@ public class PhysiologicalIntegrationTests
             GyNeckFatigue = settings.GyNeckFatigueDeathLevel,
             GyNeckFatigueDeathDwell = 0.9
         };
-        var loaded = model.AdvanceInterval(in state, 1.0, 0.0, 10.0, 1.0, settings);
+        var loaded = AdvanceInterval(in state, 1.0, 0.0, 10.0, 1.0, settings);
         Assert.True(loaded.Converged,
             $"death precondition rejected: " +
             $"crossings [{string.Join("; ", loaded.ModeCrossings)}] " +
@@ -5755,7 +5707,7 @@ public class PhysiologicalIntegrationTests
         Assert.Single(loaded.Events, e => e.Kind == "Death");
 
         var loadedFinal = loaded.Final;
-        var unloaded = model.AdvanceInterval(in loadedFinal, 1.0, 0.0, 0.0, 1.0, settings);
+        var unloaded = AdvanceInterval(in loadedFinal, 1.0, 0.0, 0.0, 1.0, settings);
         Assert.True(unloaded.Converged,
             $"dead unload rejected: " +
             $"crossings [{string.Join("; ", unloaded.ModeCrossings)}] " +
@@ -5779,7 +5731,7 @@ public class PhysiologicalIntegrationTests
             GyNeckFatigueDeathDwell = initialDwell
         };
         var dt = (1.0 - initialDwell) * settings.GyNeckFatigueDeathDelay;
-        var result = model.AdvanceInterval(in state, dt, 0.0, 10.0, 1.0, settings);
+        var result = AdvanceInterval(in state, dt, 0.0, 10.0, 1.0, settings);
 
         Assert.True(result.Converged,
             $"endpoint death update rejected: " +
@@ -5803,7 +5755,7 @@ public class PhysiologicalIntegrationTests
     {
         var model = new GEffectsLogicInstance().PhysModel;
         var state = model.CaptureIntervalState() with { BloodO2Head = 1.5 };
-        var result = model.AdvanceInterval(in state, 0.25, 0.0, 0.0, 1.0,
+        var result = AdvanceInterval(in state, 0.25, 0.0, 0.0, 1.0,
             LogicSettings.Default);
         Assert.False(result.Converged,
             "out-of-bounds initial head O2 must not silently converge.");
@@ -5824,7 +5776,7 @@ public class PhysiologicalIntegrationTests
             BloodHead = 0.6,
             BloodLower = 0.5
         };
-        var result = model.AdvanceInterval(in state, 0.25, 0.0, 0.0, 1.0,
+        var result = AdvanceInterval(in state, 0.25, 0.0, 0.0, 1.0,
             LogicSettings.Default);
 
         Assert.False(result.Converged,

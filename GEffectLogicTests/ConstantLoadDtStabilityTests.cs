@@ -38,6 +38,25 @@ public class ConstantLoadDtStabilityTests
 
     private static readonly double[] AwkwardDt = [0.073, 0.127, 0.257, 0.499, 0.501, 0.733, 0.997];
 
+    private static readonly (double Gx, double Gy, double Gz)[] Vectors =
+    [
+        (0.0, 0.0, 1.0),
+        (0.0, 0.0, -2.0),
+        (0.0, 0.0, -3.0),
+        (0.0, 0.0, -5.0),
+        (0.0, 0.0, 5.0),
+        (15.0, 0.0, 0.0),
+        (0.0, 10.0, 0.0),
+        (0.0, 11.0, 0.0),
+        (0.0, 20.0, 0.0),
+        (2.0, 1.0, 5.0),
+        (10.0, 2.5, 0.0),
+        (8.0, 2.0, 0.0)
+    ];
+
+    private static readonly LogicSettings BaselineSettings =
+        LogicSettings.Default with { StabilizationTimeThreshold = double.MaxValue };
+
     private static readonly string[] AlgebraicChannels =
         [nameof(SettingsRegressionTests.ModelSnapshot.FatigueHeartRateFloor),
          nameof(SettingsRegressionTests.ModelSnapshot.GxEffectiveTolerance),
@@ -68,7 +87,7 @@ public class ConstantLoadDtStabilityTests
     }
 
     public static IEnumerable<object[]> VectorData =>
-        DtLegacyBaselineRecipe.Vectors.Select(vector => new object[] { vector.Gx, vector.Gy, vector.Gz });
+        Vectors.Select(vector => new object[] { vector.Gx, vector.Gy, vector.Gz });
 
     [Theory]
     [MemberData(nameof(VectorData))]
@@ -194,7 +213,7 @@ public class ConstantLoadDtStabilityTests
         double gy, double gz)
     {
         var instance = new GEffectsLogicInstance(new DtStabilityLogger(),
-            DtLegacyBaselineRecipe.BaselineSettings);
+            BaselineSettings);
         for (var step = 0; step < 8; step++)
             instance.PhysModel.Update(0.25, gx, gy, gz);
         for (var step = 0; step < 8; step++)
@@ -206,7 +225,7 @@ public class ConstantLoadDtStabilityTests
 
     private static DtCandidateRun RunCandidate(double dt, double gx, double gy, double gz)
     {
-        GEffectsLogicInstance instance = new(new DtStabilityLogger(), DtLegacyBaselineRecipe.BaselineSettings);
+        GEffectsLogicInstance instance = new(new DtStabilityLogger(), BaselineSettings);
         var callsPerSecond = (int)Math.Round(1.0 / dt);
         var snapshots = new SettingsRegressionTests.ModelSnapshot[HorizonSeconds];
         List<DtFlagTransition> transitions = [];
@@ -245,9 +264,9 @@ public class ConstantLoadDtStabilityTests
                 failures.Add($"{label} {channel.Name} at {second}s, dt {dt:R}: {value:R} outside [0,1].");
         }
 
-        if (snapshot.BloodHead < DtLegacyBaselineRecipe.BaselineSettings.MinHeadBloodFraction)
+        if (snapshot.BloodHead < BaselineSettings.MinHeadBloodFraction)
             failures.Add($"{label} BloodHead at {second}s, dt {dt:R}: {snapshot.BloodHead:R} below head floor " +
-                         $"{DtLegacyBaselineRecipe.BaselineSettings.MinHeadBloodFraction:R}.");
+                         $"{BaselineSettings.MinHeadBloodFraction:R}.");
         var bloodSumError = Math.Abs(snapshot.BloodHead + snapshot.BloodCore + snapshot.BloodLower - 1.0);
         if (bloodSumError > BloodSumTolerance)
             failures.Add($"{label} blood sum at {second}s, dt {dt:R}: error {bloodSumError:R}.");
