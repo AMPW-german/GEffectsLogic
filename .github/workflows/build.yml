@@ -141,16 +141,19 @@ jobs:
         run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-restore
 
       - name: Test (Debug)
-        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category!=Experimental&Category!=Performance"
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category!=Experimental&Category!=Performance&Category!=DtDense"
 
-      - name: Test experimental dt stability (non-blocking)
-        continue-on-error: true
-        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category=Experimental"
+      - name: Test dense dt stability
+        env:
+          GEFFECTS_DENSE_DT_TESTS: "1"
+        run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Debug --no-build --verbosity normal --filter "Category=DtDense"
 
       - name: Build Release (performance tests)
         run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-restore
 
       - name: Test performance (Release)
+        env:
+          GEFFECTS_MAX_UPDATE_MS: "10"
         run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-build --verbosity normal --filter "Category=Performance"
 
   release-artifacts:

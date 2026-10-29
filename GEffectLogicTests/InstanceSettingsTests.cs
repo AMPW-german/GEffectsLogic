@@ -258,6 +258,32 @@ public class InstanceSettingsTests
     }
 
     [Fact]
+    public void LongNeutralStabilizationMatchesContinuousIntegrationAfterForceChange()
+    {
+        var cached = CreateStableInstance();
+        var continuous = new GEffectsLogicInstance(settings:
+            cached.Settings with { StabilizationTimeThreshold = 2000.0 });
+        continuous.Update(0.1, 0.0, 0.0, 1.0);
+        Assert.False(continuous.IsStable);
+        Assert.Equal(CaptureModel(cached.PhysModel), CaptureModel(continuous.PhysModel));
+
+        for (var step = 0; step < 1800; step++)
+        {
+            cached.Update(1.0, 0.0, 0.0, 1.0);
+            continuous.Update(1.0, 0.0, 0.0, 1.0);
+        }
+
+        Assert.True(cached.IsStable);
+        Assert.False(continuous.IsStable);
+        Assert.Equal(CaptureModel(cached.PhysModel), CaptureModel(continuous.PhysModel));
+
+        cached.Update(0.1, 0.0, 0.0, 1.5);
+        continuous.Update(0.1, 0.0, 0.0, 1.5);
+        Assert.False(cached.IsStable);
+        Assert.Equal(CaptureModel(cached.PhysModel), CaptureModel(continuous.PhysModel));
+    }
+
+    [Fact]
     public void ResetClearsStabilizationAndKeepsProfile()
     {
         var instance = CreateStableInstance();
@@ -336,7 +362,19 @@ public class InstanceSettingsTests
 
     private static GEffectsLogicInstance CreateStableInstance()
     {
-        var instance = new GEffectsLogicInstance(settings: LogicSettings.Default with { StabilizationTimeThreshold = 0.0 });
+        var defaults = LogicSettings.Default;
+        var settings = defaults with
+        {
+            StabilizationTimeThreshold = 0.0,
+            RestingBloodCore = 1.0 - defaults.RestingBloodHead - defaults.RestingBloodLower,
+            HeadBloodO2Resting = 1.0,
+            CoreBloodO2Resting = 1.0,
+            LowerBloodO2Resting = 1.0,
+            OxygenConsumptionRateHead = 0.0,
+            OxygenConsumptionRateCore = 0.0,
+            OxygenConsumptionRateLower = 0.0
+        };
+        var instance = new GEffectsLogicInstance(settings: settings);
         for (var step = 0; step < 100 && !instance.IsStable; step++)
             instance.Update(0.1, 0.0, 0.0, 1.0);
         Assert.True(instance.IsStable);

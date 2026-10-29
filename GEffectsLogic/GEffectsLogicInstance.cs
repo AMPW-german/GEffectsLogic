@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using System.Runtime.CompilerServices;
 using GEffectsLogic.Logging;
 #if PERFDEBUG
 using System.Diagnostics;
@@ -24,21 +25,22 @@ namespace GEffectsLogic;
 // Main logic class for each vessel/kitten
 public class GEffectsLogicInstance
 {
+    // MethodImplOptions.AggressiveOptimization is not exposed by the net481
+    // reference assemblies; the JIT reads the flag value from metadata on
+    // runtimes that support it.
+    private const MethodImplOptions AggressiveOptimization = (MethodImplOptions)512;
+
+    // Per-axis force drift or drift of any physiological state channel beyond
+    // this tolerance resets the stabilization snapshot and dwell.
+    private const double StabilizationDriftTolerance = 0.025;
+    // Per-axis force margin within which the stabilized early return holds.
+    private const double StableForceMargin = 0.05;
+
     protected double stabilizationTime;
-    protected double stabilizedBloodCore;
-    protected double stabilizedBloodHead;
-    protected double stabilizedBloodLower;
-    protected double stabilizedBrainO2;
-    protected double stabilizedConsciousnessLevel;
-    protected double stabilizedVisualGrayscaleLevel;
-    protected double stabilizedVisualTunnelVisionLevel;
-    protected double stabilizedVisualRedoutLevel;
-    protected double stabilizedVisualLoCLevel;
     protected double stabilizedGx;
     protected double stabilizedGy;
     protected double stabilizedGz;
-    protected double stabilizedHeartRateMultiplier;
-    protected double stabilizedPerfusionLevel;
+    private PhysiologicalModel.IntegrationState stabilizedState;
 
     // Track if G-forces remain stable to disable physmodel updates at high timewarp in orbit
     // Stabilized conditions:
@@ -78,6 +80,7 @@ public class GEffectsLogicInstance
         InvalidateStabilization();
     }
 
+    [MethodImpl(AggressiveOptimization)]
     private void InvalidateStabilization()
     {
         stable = false;
@@ -85,6 +88,7 @@ public class GEffectsLogicInstance
         stabilizationTime = 0.0;
     }
 
+    [MethodImpl(AggressiveOptimization)]
     public virtual void Reset()
     {
         time = 0;
@@ -95,6 +99,7 @@ public class GEffectsLogicInstance
         PhysModel.Reset();
     }
 
+    [MethodImpl(AggressiveOptimization)]
     public virtual void Update(double deltaTime, double currentGx, double currentGy, double currentGz)
     {
 #if PERFDEBUG
@@ -102,9 +107,9 @@ public class GEffectsLogicInstance
 #endif
         List<double> dtList = [];
 
-        if (deltaTime > 0.5)
+        if (deltaTime > 1.0)
         {
-            var stepCount = (int)Math.Ceiling(deltaTime / 0.5);
+            var stepCount = (int)Math.Ceiling(deltaTime);
             dtList.AddRange(Enumerable.Repeat(deltaTime / stepCount, stepCount));
             if (!stable)
                 Logger.Log(
@@ -127,8 +132,9 @@ public class GEffectsLogicInstance
         // Update time
         time += deltaTime;
 
-        if (stable && Math.Abs(currentGx - stabilizedGx) <= 0.05 && Math.Abs(currentGy - stabilizedGy) <= 0.05 &&
-            Math.Abs(currentGz - stabilizedGz) <= 0.05)
+        if (stable && Math.Abs(currentGx - stabilizedGx) <= StableForceMargin &&
+            Math.Abs(currentGy - stabilizedGy) <= StableForceMargin &&
+            Math.Abs(currentGz - stabilizedGz) <= StableForceMargin)
             // No Gn change, physmodel can't change
             return;
 
@@ -140,20 +146,11 @@ public class GEffectsLogicInstance
                 stabilizedGx = currentGx;
                 stabilizedGy = currentGy;
                 stabilizedGz = currentGz;
-                stabilizedBloodHead = PhysModel.BloodHead;
-                stabilizedBloodCore = PhysModel.BloodCore;
-                stabilizedBloodLower = PhysModel.BloodLower;
-                stabilizedBrainO2 = PhysModel.BloodO2Head;
-                stabilizedHeartRateMultiplier = PhysModel.HeartRateMultiplier;
-                stabilizedPerfusionLevel = PhysModel.PerfusionLevel;
-                stabilizedConsciousnessLevel = PhysModel.ConsciousnessLevel;
-                stabilizedVisualGrayscaleLevel = PhysModel.VisualGrayscaleLevel;
-                stabilizedVisualTunnelVisionLevel = PhysModel.VisualTunnelVisionLevel;
-                stabilizedVisualRedoutLevel = PhysModel.VisualRedoutLevel;
-                stabilizedVisualLoCLevel = PhysModel.VisualLoCLevel;
+                stabilizedState = PhysModel.CaptureIntervalState();
             }
-            else if (Math.Abs(currentGx - stabilizedGx) > 0.025 || Math.Abs(currentGy - stabilizedGy) > 0.025 ||
-                     Math.Abs(currentGz - stabilizedGz) > 0.025)
+            else if (Math.Abs(currentGx - stabilizedGx) > StabilizationDriftTolerance ||
+                     Math.Abs(currentGy - stabilizedGy) > StabilizationDriftTolerance ||
+                     Math.Abs(currentGz - stabilizedGz) > StabilizationDriftTolerance)
             {
                 // Separate check for Gn deviation to reduce deviation checks for the physmodel
                 if (stable)
@@ -165,19 +162,9 @@ public class GEffectsLogicInstance
                 stable = false;
                 stableRecorded = false;
             }
-            else if (!stable && (
-                         Math.Abs(PhysModel.BloodHead - stabilizedBloodHead) > 0.025 ||
-                         Math.Abs(PhysModel.BloodCore - stabilizedBloodCore) > 0.025 ||
-                         Math.Abs(PhysModel.BloodLower - stabilizedBloodLower) > 0.025
-                         || Math.Abs(PhysModel.BloodO2Head - stabilizedBrainO2) > 0.025 ||
-                         Math.Abs(PhysModel.HeartRateMultiplier - stabilizedHeartRateMultiplier) > 0.025 ||
-                         Math.Abs(PhysModel.PerfusionLevel - stabilizedPerfusionLevel) > 0.025
-                         || Math.Abs(PhysModel.ConsciousnessLevel - stabilizedConsciousnessLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualGrayscaleLevel - stabilizedVisualGrayscaleLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualTunnelVisionLevel - stabilizedVisualTunnelVisionLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualRedoutLevel - stabilizedVisualRedoutLevel) > 0.025 ||
-                         Math.Abs(PhysModel.VisualLoCLevel - stabilizedVisualLoCLevel) > 0.025
-                     ))
+            else if (!stable &&
+                     !PhysModel.ApproximatelyCurrent(in stabilizedState,
+                         StabilizationDriftTolerance))
             {
                 if (stable)
                     Logger.Log(
@@ -202,15 +189,8 @@ public class GEffectsLogicInstance
 
             if (!stable)
             {
-                var wasUnconscious = PhysModel.IsUnconscious;
-
                 // Physiological model update
                 PhysModel.Update(dt, currentGx, currentGy, currentGz);
-
-                if (wasUnconscious && !PhysModel.IsUnconscious)
-                    Logger.Log("Instance has regained consciousness.", this, Logger.LogLevel.Info);
-                else if (!wasUnconscious && PhysModel.IsUnconscious)
-                    Logger.Log("Instance has lost consciousness.", this, Logger.LogLevel.Info);
             }
 
             Logger.Log(

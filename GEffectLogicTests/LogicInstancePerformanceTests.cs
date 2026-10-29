@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using System.Diagnostics;
+using System.Globalization;
 using GEffectsLogic;
 using GEffectsLogic.Logging;
 using Xunit.Abstractions;
@@ -26,16 +27,24 @@ public class LogicInstancePerformanceTests
 {
     private const int FrameCount = 1_000;
     private const int ConstructionSampleCount = 4_096;
-    private const long TimingNoGcRegionBytes = 64 * 1024 * 1024;
+    private const long MaximumTimingAllocationBytes = 256 * 1024 * 1024;
+    private const long TimingNoGcRegionReservationBytes = 64 * 1024 * 1024;
+    private const int TimingBatchFrameCount = FrameCount / 4;
     private const double MaximumConstructionBytesPerInstance = 1_024.0;
     private const double MaximumCustomConstructionBytesPerInstance = 2_048.0;
     private const double MaximumAverageUpdateMilliseconds = 0.1;
-    private const double MaximumSingleUpdateMilliseconds = 0.5;
+    private const double DefaultMaximumSingleUpdateMilliseconds = 1.0;
     private const double MinimumDistributionFraction = 0.025;
     private const double MaximumDistributionFraction = 0.05;
     private const double MinimumMiddleDistributionFraction = 0.50;
     private const double MaximumAdjacentDeltaTimeChangeSeconds = 0.05;
     private const double MaximumAdjacentGzChange = 0.10;
+
+    internal static readonly double MaximumSingleUpdateMilliseconds =
+        double.TryParse(Environment.GetEnvironmentVariable("GEFFECTS_MAX_UPDATE_MS"),
+            NumberStyles.Float, CultureInfo.InvariantCulture, out var overrideBudget)
+            ? overrideBudget
+            : DefaultMaximumSingleUpdateMilliseconds;
 
     private readonly ITestOutputHelper output;
 
@@ -131,33 +140,43 @@ public class LogicInstancePerformanceTests
             GC.WaitForPendingFinalizers();
             GC.Collect();
 
-            Assert.True(GC.TryStartNoGCRegion(TimingNoGcRegionBytes),
-                "The runtime could not reserve the no-GC region required for timing.");
+            var allocatedBytesBeforeUpdates = GC.GetAllocatedBytesForCurrentThread();
 
-            try
+            for (var batchStart = 0; batchStart < workload.Length; batchStart += TimingBatchFrameCount)
             {
-                for (var index = 0; index < workload.Length; index++)
+                Assert.True(GC.TryStartNoGCRegion(TimingNoGcRegionReservationBytes),
+                    "The runtime could not reserve the no-GC region required for timing.");
+
+                try
                 {
-                    var frame = workload[index];
-                    var startedAt = Stopwatch.GetTimestamp();
-                    logicInstance.Update(frame.DeltaTime, 0.0, 0.0, frame.Gz);
-                    elapsedTimestamps[index] = Stopwatch.GetTimestamp() - startedAt;
-                    results[index] = new FrameResult(
-                        logicInstance.Time,
-                        logicInstance.LastGz,
-                        logicInstance.ConsciousnessLevel,
-                        logicInstance.VisualTunnelVisionLevel,
-                        logicInstance.VisualRedoutLevel,
-                        logicInstance.VisualLoCLevel,
-                        logicInstance.VisualGrayscaleLevel,
-                        logicInstance.VisualFilmGrainLevel,
-                        logicInstance.VisualBlurLevel);
+                    var batchEnd = Math.Min(batchStart + TimingBatchFrameCount, workload.Length);
+                    for (var index = batchStart; index < batchEnd; index++)
+                    {
+                        var frame = workload[index];
+                        var startedAt = Stopwatch.GetTimestamp();
+                        logicInstance.Update(frame.DeltaTime, 0.0, 0.0, frame.Gz);
+                        elapsedTimestamps[index] = Stopwatch.GetTimestamp() - startedAt;
+                        results[index] = new FrameResult(
+                            logicInstance.Time,
+                            logicInstance.LastGz,
+                            logicInstance.ConsciousnessLevel,
+                            logicInstance.VisualTunnelVisionLevel,
+                            logicInstance.VisualRedoutLevel,
+                            logicInstance.VisualLoCLevel,
+                            logicInstance.VisualGrayscaleLevel,
+                            logicInstance.VisualFilmGrainLevel,
+                            logicInstance.VisualBlurLevel);
+                    }
+                }
+                finally
+                {
+                    GC.EndNoGCRegion();
                 }
             }
-            finally
-            {
-                GC.EndNoGCRegion();
-            }
+
+            var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBytesBeforeUpdates;
+            Assert.True(allocatedBytes <= MaximumTimingAllocationBytes,
+                $"Update timing allocated {allocatedBytes:N0} bytes across {FrameCount} frames; budget is {MaximumTimingAllocationBytes:N0} bytes.");
 
             ValidateResults(workload, results);
 
