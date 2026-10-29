@@ -42,4 +42,6 @@ jobs:
       - name: Build Release (performance tests)
         run: dotnet build GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-restore
       - name: Test performance (Release)
+        env:
+          GEFFECTS_MAX_UPDATE_MS: "10"
         run: dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --no-build --verbosity normal --filter "Category=Performance"

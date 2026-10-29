@@ -68,6 +68,8 @@ Run performance tests in Release, separately from normal Debug tests:
 dotnet test GEffectLogicTests/GEffectLogicTests.csproj -c Release --filter "Category=Performance"
 ```
 
+The single-frame update budget defaults to 1 ms; set `GEFFECTS_MAX_UPDATE_MS` to relax it on slow machines (CI uses 10).
+
 Dense time-step stability tests (`Category=DtDense`) skip unless `GEFFECTS_DENSE_DT_TESTS=1` is set; CI runs them as a blocking Debug step. To run them locally:
 
 ```bash

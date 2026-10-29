@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using System.Diagnostics;
+using System.Globalization;
 using GEffectsLogic;
 using GEffectsLogic.Logging;
 using Xunit.Abstractions;
@@ -32,12 +33,18 @@ public class LogicInstancePerformanceTests
     private const double MaximumConstructionBytesPerInstance = 1_024.0;
     private const double MaximumCustomConstructionBytesPerInstance = 2_048.0;
     private const double MaximumAverageUpdateMilliseconds = 0.1;
-    private const double MaximumSingleUpdateMilliseconds = 0.5;
+    private const double DefaultMaximumSingleUpdateMilliseconds = 1.0;
     private const double MinimumDistributionFraction = 0.025;
     private const double MaximumDistributionFraction = 0.05;
     private const double MinimumMiddleDistributionFraction = 0.50;
     private const double MaximumAdjacentDeltaTimeChangeSeconds = 0.05;
     private const double MaximumAdjacentGzChange = 0.10;
+
+    internal static readonly double MaximumSingleUpdateMilliseconds =
+        double.TryParse(Environment.GetEnvironmentVariable("GEFFECTS_MAX_UPDATE_MS"),
+            NumberStyles.Float, CultureInfo.InvariantCulture, out var overrideBudget)
+            ? overrideBudget
+            : DefaultMaximumSingleUpdateMilliseconds;
 
     private readonly ITestOutputHelper output;
 

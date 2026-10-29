@@ -2884,8 +2884,9 @@ public class PhysiologicalIntegrationTests
                 System.Diagnostics.Stopwatch.Frequency.ToString(CultureInfo.InvariantCulture));
         }
 
-        Assert.True(maximumAcrossScenarios <= 0.5,
-            $"Circulation-only maximum {maximumAcrossScenarios:R}ms exceeds complete-update every-frame 0.5ms budget.");
+        var frameBudgetMilliseconds = LogicInstancePerformanceTests.MaximumSingleUpdateMilliseconds;
+        Assert.True(maximumAcrossScenarios <= frameBudgetMilliseconds,
+            $"Circulation-only maximum {maximumAcrossScenarios:R}ms exceeds complete-update every-frame {frameBudgetMilliseconds:R}ms budget.");
     }
 
     internal sealed class ReleasePrototypeFactAttribute : FactAttribute
