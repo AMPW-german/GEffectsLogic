@@ -234,8 +234,12 @@ public partial class PhysiologicalModel
         var perfusionClamped = false;
         if (headward)
         {
-            var bradycardia = Clamp(overfill / settings.NegativeGHeartStopOverfill, 0.0, 1.0);
-            bradycardiaClamped = overfill >= settings.NegativeGHeartStopOverfill;
+            var bradyLevel = restHead * (1.0 + settings.NegativeGHeartStopOverfill);
+            var bradycardia = head >= bradyLevel
+                ? 1.0
+                : Clamp(overfill / settings.NegativeGHeartStopOverfill, 0.0, 1.0);
+            bradycardiaClamped = head > bradyLevel ||
+                                 (head == bradyLevel && fHead >= 0.0);
             baroTarget = 1.0 - bradycardia;
             baroDerivative = bradycardiaClamped
                 ? 0.0
@@ -257,8 +261,19 @@ public partial class PhysiologicalModel
         }
 
         var unclampedBaroTarget = baroTarget;
+        var hasHeadStar = !headward && settings.BaroreceptorGain > 0.0 &&
+                          settings.MaxHeartRateMultiplier > 1.0;
+        var headStar = hasHeadStar
+            ? restHead * (1.0 - (settings.MaxHeartRateMultiplier - 1.0) / settings.BaroreceptorGain)
+            : 0.0;
+        hasHeadStar = hasHeadStar && headStar > 0.0 && headStar < restHead;
+        if (hasHeadStar && head <= headStar)
+            baroTarget = settings.MaxHeartRateMultiplier;
         baroTarget = Clamp(baroTarget, 0.0, settings.MaxHeartRateMultiplier);
-        var baroClamped = baroTarget != unclampedBaroTarget;
+        var baroClamped = hasHeadStar
+            ? head < headStar || (head == headStar && fHead < 0.0) || unclampedBaroTarget < 0.0
+            : baroTarget != unclampedBaroTarget ||
+              (unclampedBaroTarget == settings.MaxHeartRateMultiplier && fHead < 0.0);
         if (baroClamped) baroDerivative = 0.0;
 
         var respiratoryHrModifier = Math.Max(1.0 - 0.2 * state.RespiratoryFatigue,
@@ -270,7 +285,7 @@ public partial class PhysiologicalModel
         rates[0] = restHead * fHead;
         rates[1] = fLower + (1.0 - restHead) * fHead * lower / (1.0 - head);
         rates[2] = (hrTarget - rate) / hrTau;
-        var cardioElevation = rate - 1.0 - settings.CardioFatigueHrElevationThreshold;
+        var cardioElevation = rate - (1.0 + settings.CardioFatigueHrElevationThreshold);
         var cardioBuild = cardioElevation > 0.0 ||
                           cardioElevation == 0.0 && rates[2] > 0.0;
         var cardioPinned = cardio >= 1.0 && cardioBuild;
@@ -286,13 +301,11 @@ public partial class PhysiologicalModel
 
         var mode = CirculationMode.None;
         if (headward) mode |= CirculationMode.HeadOverfilled;
-        if (headward && (overfill > settings.NegativeGHeartStopOverfill ||
-                         overfill == settings.NegativeGHeartStopOverfill && rates[0] >= 0.0))
+        if (bradycardiaClamped)
             mode |= CirculationMode.BradycardiaClamped;
         if (perfusionClamped)
             mode |= CirculationMode.PerfusionRangeClamped;
-        if (baroClamped ||
-            unclampedBaroTarget == settings.MaxHeartRateMultiplier && rates[0] < 0.0)
+        if (baroClamped)
             mode |= CirculationMode.BaroTargetClamped;
         if (cardioBuild) mode |= CirculationMode.CardioBuild;
         if (cardioPinned) mode |= CirculationMode.CardioCeilingBound;
@@ -461,7 +474,7 @@ public partial class PhysiologicalModel
                 }
             }
 
-            return mode;
+            return AdjustBoundBoundaryMode(in state, settings, rates, mode);
         }
 
         var headBound = (bounds & BloodBounds.Head) != 0;
@@ -480,7 +493,7 @@ public partial class PhysiologicalModel
                     jacobian[1][variable] = 0.0;
                 }
 
-            return mode;
+            return AdjustBoundBoundaryMode(in state, settings, rates, mode);
         }
 
         if (headBound)
@@ -506,7 +519,7 @@ public partial class PhysiologicalModel
                         rawHeadDerivative * lowerShare + rawHeadRate * shareDerivative;
                 }
 
-            return mode;
+            return AdjustBoundBoundaryMode(in state, settings, rates, mode);
         }
 
         var lowerFreeWidth = 1.0 - settings.MinHeadBloodFraction - state.BloodLower;
@@ -530,6 +543,40 @@ public partial class PhysiologicalModel
                     rawLowerDerivative * headShare + rawLowerRate * shareDerivative;
                 jacobian[1][variable] = 0.0;
             }
+
+        return AdjustBoundBoundaryMode(in state, settings, rates, mode);
+    }
+
+    [MethodImpl(AggressiveOptimization)]
+    private static CirculationMode AdjustBoundBoundaryMode(
+        in IntegrationState state, LogicSettings settings, double[] rates,
+        CirculationMode mode)
+    {
+        var head = state.BloodHead;
+        var restHead = settings.RestingBloodHead;
+        if ((mode & CirculationMode.HeadOverfilled) != 0)
+        {
+            var bradyLevel = restHead * (1.0 + settings.NegativeGHeartStopOverfill);
+            if (head == bradyLevel)
+            {
+                if (rates[0] >= 0.0)
+                    mode |= CirculationMode.BradycardiaClamped;
+                else
+                    mode &= ~CirculationMode.BradycardiaClamped;
+            }
+        }
+        else if (settings.BaroreceptorGain > 0.0 && settings.MaxHeartRateMultiplier > 1.0)
+        {
+            var headStar = restHead *
+                (1.0 - (settings.MaxHeartRateMultiplier - 1.0) / settings.BaroreceptorGain);
+            if (headStar > 0.0 && headStar < restHead && head == headStar)
+            {
+                if (rates[0] < 0.0)
+                    mode |= CirculationMode.BaroTargetClamped;
+                else
+                    mode &= ~CirculationMode.BaroTargetClamped;
+            }
+        }
 
         return mode;
     }
@@ -711,7 +758,7 @@ public partial class PhysiologicalModel
                 }
             }
 
-            var transition = EarliestModeTransition(in state, solve, span,
+            var transition = EarliestModeTransition(in state, solve, span, bounds,
                 gx, gy, gz, settings);
             if (transition.HasValue && transition.Value.Time < earliestTime)
             {
@@ -877,7 +924,8 @@ public partial class PhysiologicalModel
                         break;
                     }
 
-                    final = SnapModeLevel(in final, modeCoordinate, modeLevel);
+                    final = SnapModeLevel(in final, modeCoordinate, modeLevel, bounds,
+                        settings);
                     acceptedStages[acceptedStages.Length - 1] = final;
                     modeTransitions.Add(offset + eventTime);
                     events.Add(new IntegrationEvent("ModeTransition" + modeCoordinate,
@@ -1245,7 +1293,7 @@ public partial class PhysiologicalModel
     [MethodImpl(AggressiveOptimization)]
     private static (double Time, int Coordinate, double Level)? EarliestModeTransition(
         in IntegrationState initial, SegmentSolve solve, double duration,
-        double gx, double gy, double gz, LogicSettings settings)
+        BloodBounds bounds, double gx, double gy, double gz, LogicSettings settings)
     {
         var headSurfaces = new List<double> { settings.RestingBloodHead };
         var bradyLevel = settings.RestingBloodHead * (1.0 + settings.NegativeGHeartStopOverfill);
@@ -1263,7 +1311,7 @@ public partial class PhysiologicalModel
         {
             var crossing = EarliestSignCrossing(solve.HeadCoefficients, level, duration);
             if (!crossing.HasValue ||
-                !ModeFlipsAcross(in initial, solve, duration, crossing.Value,
+                !ModeFlipsAcross(in initial, solve, duration, crossing.Value, bounds,
                     gx, gy, gz, settings))
                 continue;
             if (earliest == null || crossing.Value < earliest.Value.Time)
@@ -1273,14 +1321,14 @@ public partial class PhysiologicalModel
         var rateLevel = 1.0 + settings.CardioFatigueHrElevationThreshold;
         var rateCrossing = EarliestSignCrossing(solve.RateCoefficients, rateLevel, duration);
         if (rateCrossing.HasValue &&
-            ModeFlipsAcross(in initial, solve, duration, rateCrossing.Value,
+            ModeFlipsAcross(in initial, solve, duration, rateCrossing.Value, bounds,
                 gx, gy, gz, settings) &&
             (earliest == null || rateCrossing.Value < earliest.Value.Time))
             earliest = (rateCrossing.Value, 2, rateLevel);
 
         var cardioCrossing = EarliestSignCrossing(solve.CardioCoefficients, 1.0, duration);
         if (cardioCrossing.HasValue &&
-            ModeFlipsAcross(in initial, solve, duration, cardioCrossing.Value,
+            ModeFlipsAcross(in initial, solve, duration, cardioCrossing.Value, bounds,
                 gx, gy, gz, settings) &&
             (earliest == null || cardioCrossing.Value < earliest.Value.Time))
             earliest = (cardioCrossing.Value, 3, 1.0);
@@ -1290,8 +1338,8 @@ public partial class PhysiologicalModel
 
     [MethodImpl(AggressiveOptimization)]
     private static bool ModeFlipsAcross(in IntegrationState initial, SegmentSolve solve,
-        double duration, double time, double gx, double gy, double gz,
-        LogicSettings settings)
+        double duration, double time, BloodBounds bounds, double gx, double gy,
+        double gz, LogicSettings settings)
     {
         var epsilon = Math.Min(1e-4, Math.Max(duration * 1e-4, 1e-8));
         var before = DenseSegmentState(in initial, solve, Math.Max(0.0, time - epsilon),
@@ -1299,10 +1347,14 @@ public partial class PhysiologicalModel
         var after = DenseSegmentState(in initial, solve, Math.Min(duration, time + epsilon),
             gx, gz, settings);
         var rateBuffer = new double[CirculationDimensions];
-        var modeBefore = EvaluateCirculation(in before, gx, gy, gz, settings, rateBuffer,
-            null, false);
-        var modeAfter = EvaluateCirculation(in after, gx, gy, gz, settings, rateBuffer,
-            null, false);
+        var modeBefore = bounds == BloodBounds.None
+            ? EvaluateCirculation(in before, gx, gy, gz, settings, rateBuffer, null, false)
+            : EvaluateBoundConstrainedCirculation(in before, gx, gy, gz, settings,
+                rateBuffer, null, false, bounds);
+        var modeAfter = bounds == BloodBounds.None
+            ? EvaluateCirculation(in after, gx, gy, gz, settings, rateBuffer, null, false)
+            : EvaluateBoundConstrainedCirculation(in after, gx, gy, gz, settings,
+                rateBuffer, null, false, bounds);
         return ((modeBefore ^ modeAfter) & CrossingBits) != 0;
     }
 
@@ -1317,17 +1369,22 @@ public partial class PhysiologicalModel
 
     [MethodImpl(AggressiveOptimization)]
     private static IntegrationState SnapModeLevel(in IntegrationState state, int coordinate,
-        double level)
+        double level, BloodBounds bounds, LogicSettings settings)
     {
         if (coordinate == 0)
         {
             var free = 1.0 - state.BloodHead;
             var scale = free > 0.0 ? (1.0 - level) / free : 0.0;
-            return state with
+            var snapped = state with
             {
                 BloodHead = level,
                 BloodLower = state.BloodLower * scale
             };
+            return bounds != BloodBounds.None &&
+                   TryProjectActiveBloodState(in snapped, bounds, settings,
+                       double.PositiveInfinity, out var projected, out _)
+                ? projected
+                : snapped;
         }
 
         return coordinate == 2
@@ -1604,6 +1661,36 @@ public partial class PhysiologicalModel
         for (var stage = 0; stage < stageCount; stage++)
             stageStates[stage] = StageState(stages, stage);
 
+        var bradyLevel = settings.RestingBloodHead *
+                         (1.0 + settings.NegativeGHeartStopOverfill);
+        if ((initialMode & CirculationMode.HeadOverfilled) != 0 &&
+            initial.BloodHead == bradyLevel &&
+            stageStates[0].BloodHead != bradyLevel &&
+            EarliestSignCrossing(headCoefficients, bradyLevel, dt) is null)
+        {
+            if (stageStates[0].BloodHead > bradyLevel)
+                initialMode |= CirculationMode.BradycardiaClamped;
+            else
+                initialMode &= ~CirculationMode.BradycardiaClamped;
+        }
+        else if ((initialMode & CirculationMode.HeadOverfilled) == 0 &&
+                 settings.BaroreceptorGain > 0.0 &&
+                 settings.MaxHeartRateMultiplier > 1.0)
+        {
+            var headStar = settings.RestingBloodHead *
+                (1.0 - (settings.MaxHeartRateMultiplier - 1.0) / settings.BaroreceptorGain);
+            if (headStar > 0.0 && headStar < settings.RestingBloodHead &&
+                initial.BloodHead == headStar &&
+                stageStates[0].BloodHead != headStar &&
+                EarliestSignCrossing(headCoefficients, headStar, dt) is null)
+            {
+                if (stageStates[0].BloodHead < headStar)
+                    initialMode |= CirculationMode.BaroTargetClamped;
+                else
+                    initialMode &= ~CirculationMode.BaroTargetClamped;
+            }
+        }
+
         List<string> crossings = AcquireDiagnosticsList();
         for (var stage = 0; stage < stageCount; stage++)
         {
@@ -1665,8 +1752,8 @@ public partial class PhysiologicalModel
                     stageRates[j * dimensions + k] = rateBuffer[k];
                 if (cardioHeldBuild)
                     stageRates[j * dimensions + 3] = settings.CardioFatigueBuildRate *
-                        (stageState.HeartRateMultiplier - 1.0 -
-                         settings.CardioFatigueHrElevationThreshold);
+                        (stageState.HeartRateMultiplier -
+                         (1.0 + settings.CardioFatigueHrElevationThreshold));
             }
 
             var maximum = 0.0;
@@ -2338,7 +2425,7 @@ public partial class PhysiologicalModel
         var side = Math.Sign(residual0);
         if (side == 0)
             side = Math.Sign(NumericalMath.EvaluateCubic(coefficients,
-                Math.Min(denseGuess, duration)) - level);
+                0.5 * Math.Min(denseGuess, duration)) - level);
         if (side == 0) side = 1;
 
         var lowerBound = 0.0;

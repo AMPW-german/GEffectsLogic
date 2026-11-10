@@ -4250,6 +4250,110 @@ public class PhysiologicalIntegrationTests
     }
 
     [Fact]
+    public void BradycardiaClampCrossingLocalizesAndContinuesFromSnappedBoundary()
+    {
+        var settings = LogicSettings.Default;
+        var bradyLevel = settings.RestingBloodHead *
+                         (1.0 + settings.NegativeGHeartStopOverfill);
+        var rates = new double[PhysiologicalModel.CirculationDimensions];
+
+        var snappedRising = new PhysiologicalModel.IntegrationState(bradyLevel, 0.40, 0.5,
+            0.0, 0.0, 0.0);
+        var risingMode = PhysiologicalModel.EvaluateCirculation(in snappedRising, 0.0, 0.0,
+            -12.0, settings, rates, null);
+        Assert.True(rates[0] > 0.0,
+            $"head rate {rates[0]:R} should be positive at the bradycardia surface under -12 Gz.");
+        Assert.True(
+            (risingMode & PhysiologicalModel.CirculationMode.BradycardiaClamped) != 0,
+            $"mode {risingMode} should include BradycardiaClamped at {bradyLevel:R} with rising head blood.");
+
+        var snappedFalling = new PhysiologicalModel.IntegrationState(bradyLevel, 0.40, 0.5,
+            0.0, 0.0, 0.0);
+        var fallingMode = PhysiologicalModel.EvaluateCirculation(in snappedFalling, 0.0, 0.0,
+            -1.0, settings, rates, null);
+        Assert.True(rates[0] < 0.0,
+            $"head rate {rates[0]:R} should be negative at the bradycardia surface under -1 Gz.");
+        Assert.True(
+            (fallingMode & PhysiologicalModel.CirculationMode.BradycardiaClamped) == 0,
+            $"mode {fallingMode} should omit BradycardiaClamped at {bradyLevel:R} with falling head blood.");
+
+        const double dt = 0.013599999999996719;
+        var preUpward = new PhysiologicalModel.IntegrationState(0.2495, 0.40, 0.5, 0.0, 0.0,
+            0.0)
+        {
+            BloodO2Head = settings.BrainO2Full,
+            BloodO2Core = settings.CoreBloodO2Resting,
+            BloodO2Lower = settings.LowerBloodO2Resting,
+            ArterialOxygenation = 1.0,
+            ConsciousnessLevel = 1.0
+        };
+        var upward = AdvanceInterval(in preUpward, dt, 0.0, 0.0, -12.0, settings);
+        Assert.True(upward.Converged,
+            $"upward bradycardia crossing rejected: crossings " +
+            $"[{string.Join("; ", upward.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", upward.StateViolations)}].");
+        AssertAcceptedCoverage(upward, dt);
+        AssertPhysicalStages(upward);
+        Assert.NotEmpty(upward.ModeTransitions);
+        Assert.True(upward.Final.BloodHead > bradyLevel,
+            $"final head {upward.Final.BloodHead:R} did not cross above {bradyLevel:R}.");
+
+        var preDownward = upward.Final;
+        var downward = AdvanceInterval(in preDownward, 0.05, 0.0, 0.0, -1.0, settings);
+        Assert.True(downward.Converged,
+            $"downward bradycardia crossing rejected: crossings " +
+            $"[{string.Join("; ", downward.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", downward.StateViolations)}].");
+        AssertAcceptedCoverage(downward, 0.05);
+        AssertPhysicalStages(downward);
+        Assert.NotEmpty(downward.ModeTransitions);
+        Assert.True(downward.Final.BloodHead < bradyLevel,
+            $"final head {downward.Final.BloodHead:R} did not cross below {bradyLevel:R}.");
+
+        const double coreBoundDt = 0.021872300000040912;
+        const double coreBoundGz = -10.0;
+        var coreBoundStart = preUpward with
+        {
+            BloodHead = 0.252,
+            BloodLower = 0.748,
+            HeartRateMultiplier = 2.0
+        };
+        var coreBoundDownward = AdvanceInterval(in coreBoundStart, coreBoundDt, 0.0, 0.0,
+            coreBoundGz, settings);
+        Assert.True(coreBoundDownward.Converged,
+            $"core-bound downward bradycardia crossing rejected: crossings " +
+            $"[{string.Join("; ", coreBoundDownward.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", coreBoundDownward.StateViolations)}].");
+        AssertAcceptedCoverage(coreBoundDownward, coreBoundDt);
+        AssertPhysicalStages(coreBoundDownward);
+        Assert.NotEmpty(coreBoundDownward.ModeTransitions);
+        Assert.True(coreBoundDownward.Final.BloodHead < bradyLevel,
+            $"core-bound final head {coreBoundDownward.Final.BloodHead:R} did not cross below {bradyLevel:R}.");
+
+        const double inflectionDt = 0.012970799999948206;
+        const double inflectionGz = -9.4559;
+        var snappedInflection = preUpward with
+        {
+            BloodHead = bradyLevel,
+            HeartRateMultiplier = 1.0
+        };
+        PhysiologicalModel.EvaluateCirculation(in snappedInflection, 0.0, 0.0,
+            inflectionGz, settings, rates, null);
+        Assert.True(rates[0] < 0.0,
+            $"initial head rate {rates[0]:R} should be slightly negative before HR decay.");
+        var inflection = AdvanceInterval(in snappedInflection, inflectionDt, 0.0, 0.0,
+            inflectionGz, settings);
+        Assert.True(inflection.Converged,
+            $"snapped inflection rejected: crossings " +
+            $"[{string.Join("; ", inflection.ModeCrossings)}] violations " +
+            $"[{string.Join("; ", inflection.StateViolations)}].");
+        AssertAcceptedCoverage(inflection, inflectionDt);
+        AssertPhysicalStages(inflection);
+        Assert.True(inflection.Final.BloodHead > bradyLevel,
+            $"final head {inflection.Final.BloodHead:R} did not rise above {bradyLevel:R}.");
+    }
+
+    [Fact]
     public void CardioRecoveryAfterThresholdFollowsExactDecay()
     {
         var settings = LogicSettings.Default;
