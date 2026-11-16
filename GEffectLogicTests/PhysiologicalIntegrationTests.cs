@@ -353,6 +353,193 @@ public class PhysiologicalIntegrationTests
             $"neutral rate {component:R} is not zero.");
     }
 
+    // Regression: an unconscious pilot whose pressure-impaired consciousness
+    // target rises from ~1e-24 let the cubic target surrogate pass its
+    // absolute 1e-6 validation while deviating orders of magnitude from the
+    // exact target. The convolution overshot, the mode margin oscillated, and
+    // the event loop emitted hundreds of micro-scale
+    // ConsciousnessModeTransition events until the iteration guard rejected
+    // the interval.
+    [Fact]
+    public void TinyConsciousnessTargetDoesNotStallEventLoop()
+    {
+        var state = new PhysiologicalModel.IntegrationState(
+            0.22429702359926162, 0.628504738636679, 1.0042929699454017,
+            0.22733735628433224, 1.0, 1.0)
+        {
+            StrainingLevel = 4.1602605073549125E-05,
+            StrainingFatigue = 0.5717585286252153,
+            GSuitFatigue = 0.18525884555161912,
+            BloodO2Head = 0.5872246122371838,
+            BloodO2Core = 0.28466139980517385,
+            BloodO2Lower = 0.28176549584110494,
+            ArterialOxygenation = 0.9998774698813984,
+            ConsciousnessLevel = 0.0,
+            LungCompressionLevel = 0.15877293371249857,
+            PainLevel = 0.9380842511889249,
+            GyNeckFatigue = 0.5212813453192169,
+            GyNeckFatigueDeathDwell = 0.0,
+            SuddenLoCAccumulator = 1.0,
+            VisualGrayscaleLevel = 0.025317213550286814,
+            VisualTunnelVisionLevel = 0.3933643875945638,
+            VisualRedoutLevel = 0.9999862061812417,
+            VisualLoCLevel = 1.0,
+            IsUnconscious = true,
+            InSuddenLoC = true,
+            IsDead = false
+        };
+        var result = AdvanceInterval(in state, 0.9076680698933396,
+            2.3171671372069658, 4.35763551694707, 0.49388078489700343,
+            LogicSettings.Default);
+        Assert.True(result.Converged && result.ModeCrossings.Length == 0 &&
+                    result.StateViolations.Length == 0,
+            $"interval rejected: converged={result.Converged}, " +
+            $"crossings=[{string.Join("; ", result.ModeCrossings)}], " +
+            $"violations=[{string.Join("; ", result.StateViolations)}]");
+    }
+
+    // Head blood starts a hair above RestingBloodHead and drains back through
+    // it under positive Gz. Single-segment trial solves straddling the mode
+    // boundary cannot converge, so the localizer's bracket collapsed onto
+    // numerical noise and rejected the interval. The unilateral correction
+    // must keep refining its secant estimate after overshooting the level.
+    [Fact]
+    public void HeadBoundModeTransitionSurvivesUnconvergedTrials()
+    {
+        var state = new PhysiologicalModel.IntegrationState(
+            0.20001441417487342, 0.4547994334039805, 1.0078945855989165,
+            0.0, 0.0008923025034428029, 0.0014428068237375968)
+        {
+            StrainingLevel = 0.10628412022441786,
+            StrainingFatigue = 0.00014621388949351686,
+            GSuitFatigue = 0.0003160825520011682,
+            BloodO2Head = 0.9259963338109476,
+            BloodO2Core = 0.9778545273415795,
+            BloodO2Lower = 0.9089062115241389,
+            ArterialOxygenation = 1.0,
+            ConsciousnessLevel = 0.9997820753890028,
+            LungCompressionLevel = 0.0,
+            PainLevel = 0.03945649384366825,
+            GyNeckFatigue = 0.0,
+            GyNeckFatigueDeathDwell = 0.0,
+            SuddenLoCAccumulator = 0.0,
+            VisualGrayscaleLevel = 0.0,
+            VisualTunnelVisionLevel = 0.0,
+            VisualRedoutLevel = 0.22054999357522823,
+            VisualLoCLevel = 0.0,
+            IsUnconscious = false,
+            InSuddenLoC = false,
+            IsDead = false
+        };
+        var result = AdvanceInterval(in state, 0.021779284607516266,
+            1.007783674405787, -0.4758161464593448, 1.3028014466008275,
+            LogicSettings.Default);
+        Assert.True(result.Converged && result.ModeCrossings.Length == 0 &&
+                    result.StateViolations.Length == 0,
+            $"interval rejected: converged={result.Converged}, " +
+            $"crossings=[{string.Join("; ", result.ModeCrossings)}], " +
+            $"violations=[{string.Join("; ", result.StateViolations)}]");
+        Assert.Single(result.ModeTransitions);
+        Assert.Equal(0.004094164195448828, result.ModeTransitions[0], 9);
+    }
+
+    // Core blood sits exactly on its lower bound in deep negative Gz. The bound
+    // releases for a brief excursion that peaks near 1e-8 and then re-enters.
+    // The entry localizer's regula falsi stalled: the in-bound residual shrank
+    // toward zero while the violating endpoint stayed fixed, so candidates
+    // asymptoted to the lower bracket without ever crossing the root and the
+    // upper bracket never tightened. Illinois damping on the retained endpoint
+    // restores convergence, matching the release localizer.
+    [Fact]
+    public void CoreBoundReentrySurvivesRegulaFalsiStall()
+    {
+        var state = new PhysiologicalModel.IntegrationState(
+            0.23044341731460175, 0.7695565826853983, 0.6820984175517715,
+            0.0, 1.0, 0.018637445496503813)
+        {
+            StrainingLevel = 0.020669052197554067,
+            StrainingFatigue = 5.518225835376002E-06,
+            GSuitFatigue = 8.38089956407247E-05,
+            BloodO2Head = 0.8273815560162256,
+            BloodO2Core = 0.9692179743037322,
+            BloodO2Lower = 0.9312210690082323,
+            ArterialOxygenation = 1.0,
+            ConsciousnessLevel = 0.02145004468018314,
+            LungCompressionLevel = 0.0,
+            PainLevel = 0.2121444558803967,
+            GyNeckFatigue = 0.0,
+            GyNeckFatigueDeathDwell = 0.0,
+            SuddenLoCAccumulator = 0.0,
+            VisualGrayscaleLevel = 0.0,
+            VisualTunnelVisionLevel = 0.0,
+            VisualRedoutLevel = 0.9998060392830539,
+            VisualLoCLevel = 1.0,
+            IsUnconscious = true,
+            InSuddenLoC = false,
+            IsDead = false
+        };
+        var result = AdvanceInterval(in state, 0.02642287457102112,
+            -1.075903109775811, 0.3253746676842564, -4.498092957538596,
+            LogicSettings.Default);
+        Assert.True(result.Converged && result.ModeCrossings.Length == 0 &&
+                    result.StateViolations.Length == 0,
+            $"interval rejected: converged={result.Converged}, " +
+            $"crossings=[{string.Join("; ", result.ModeCrossings)}], " +
+            $"violations=[{string.Join("; ", result.StateViolations)}]");
+        Assert.Equal([0.0], result.CoreBoundReleases);
+        var entry = Assert.Single(result.CoreBoundEntries);
+        Assert.True(Math.Abs(entry - 0.0019389642522985948) <=
+                    PhysiologicalModel.PressureBoundRootToleranceSeconds,
+            $"core entry {entry:R} outside root tolerance of 0.0019389642522985948");
+        Assert.Equal(0.0, result.Final.BloodCore, 12);
+    }
+
+    // Head O2 and perfusion sit where the raw consciousness reserve grazes
+    // zero late in a long accumulated interval. The whole-span oxygen
+    // polynomial localizes the crossing a few 1e-5 s ahead of the re-solved
+    // prefix root, so the true bracket falls just outside the scan cell and
+    // the prefix residuals no longer straddle it. The localizer must expand
+    // the deficient bracket end with prefix residuals instead of rejecting.
+    [Fact]
+    public void ConsciousnessZeroBranchSurvivesPrefixBracketExpansion()
+    {
+        var state = new PhysiologicalModel.IntegrationState(
+            0.06599853840394104, 0.48727048954316904, 1.9936205545090333,
+            0.0011516046682776857, 0.1491531210040386, 0.12854286145836724)
+        {
+            StrainingLevel = 0.46755482353143635,
+            StrainingFatigue = 0.011812070231599763,
+            GSuitFatigue = 0.007884820014233436,
+            BloodO2Head = 0.6731714620878982,
+            BloodO2Core = 0.9113919652638202,
+            BloodO2Lower = 0.9170579854157184,
+            ArterialOxygenation = 0.999998084691453,
+            ConsciousnessLevel = 0.1440477597509849,
+            LungCompressionLevel = 0.0,
+            PainLevel = 0.3312951479345,
+            GyNeckFatigue = 0.0,
+            GyNeckFatigueDeathDwell = 0.0,
+            SuddenLoCAccumulator = 0.0,
+            VisualGrayscaleLevel = 0.11384659902956686,
+            VisualTunnelVisionLevel = 0.3332976101418793,
+            VisualRedoutLevel = 0.31922800853393785,
+            VisualLoCLevel = 0.2956021941012465,
+            IsUnconscious = false,
+            InSuddenLoC = false,
+            IsDead = false
+        };
+        var result = AdvanceInterval(in state, 0.10493932165621747,
+            2.9145360438537136, 1.8943577603707764, -2.8049065342575847,
+            LogicSettings.Default);
+        Assert.True(result.Converged && result.StateViolations.Length == 0,
+            $"interval rejected: converged={result.Converged}, " +
+            $"violations=[{string.Join("; ", result.StateViolations)}]");
+        var zeroBranch = Assert.Single(result.Events,
+            e => e.Kind == "ConsciousnessTargetZeroBranch");
+        Assert.True(Math.Abs(zeroBranch.Offset - 0.009210609764875491) <= 1e-7,
+            $"zero branch localized at {zeroBranch.Offset:R}");
+    }
+
     public static IEnumerable<object[]> ConstantSourcePressureCases
     {
         get

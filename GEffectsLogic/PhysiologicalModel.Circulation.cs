@@ -2092,7 +2092,23 @@ public partial class PhysiologicalModel
                     : double.NaN;
                 if (!IsFiniteNumber(candidate) || candidate <= lowerBound ||
                     candidate >= upperBound)
+                {
                     candidate = 0.5 * (lowerBound + upperBound);
+                }
+                else if (upperBound - lowerBound >
+                         PressureBoundRootToleranceSeconds)
+                {
+                    // A retained endpoint whose residual dwarfs the replaced
+                    // one's collapses the interpolation onto the nearer bound:
+                    // candidates asymptote without ever producing a violating
+                    // trial, so the bracket cannot tighten. While the bracket
+                    // exceeds the root tolerance, probe the midpoint to force
+                    // progress; inside it the interpolation refines directly.
+                    var margin = 0.05 * (upperBound - lowerBound);
+                    if (candidate - lowerBound < margin ||
+                        upperBound - candidate < margin)
+                        candidate = 0.5 * (lowerBound + upperBound);
+                }
             }
             else
             {
@@ -2521,7 +2537,10 @@ public partial class PhysiologicalModel
                     result = unilateral;
                     return true;
                 }
-                if (downward ? headError <= 0.0 : headError >= 0.0) break;
+
+                // Overshooting the level only means the linear estimate was
+                // off; the secant update contracts from either side, so keep
+                // refining instead of abandoning the correction.
                 eventTime -= headError / slope;
             }
 

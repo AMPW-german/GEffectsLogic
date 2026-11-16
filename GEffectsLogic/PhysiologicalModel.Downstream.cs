@@ -354,9 +354,11 @@ public partial class PhysiologicalModel
 
     // Fits a cubic to the target at the four third-points of a piece and
     // validates it at three more. The surrogate replaces the target for
-    // convolution quadrature only when the fit matches within 1e-6;
-    // otherwise the exact function is returned. The surrogate is clamped to
-    // the sampled range so interpolation cannot overshoot a bounded target.
+    // convolution quadrature only when the fit error stays below an
+    // absolute 1e-6, tightened proportionally for sub-0.1 magnitudes so a
+    // poor fit cannot pass on a tiny target; otherwise the exact function
+    // is returned. The surrogate is clamped to the sampled range so
+    // interpolation cannot overshoot a bounded target.
     [MethodImpl(AggressiveOptimization)]
     private static Func<double, double> TargetSurrogate(
         Func<double, double> target)
@@ -376,9 +378,13 @@ public partial class PhysiologicalModel
         double Surrogate(double c) => Clamp(
             sampled0 + c * (first1 + (c - 1.0 / 3.0) *
                           (second1 + (c - 2.0 / 3.0) * third)), low, high);
-        return Math.Abs(Surrogate(1.0 / 6.0) - target(1.0 / 6.0)) <= 1e-6 &&
-               Math.Abs(Surrogate(0.5) - target(0.5)) <= 1e-6 &&
-               Math.Abs(Surrogate(5.0 / 6.0) - target(5.0 / 6.0)) <= 1e-6
+        bool Matches(double c)
+        {
+            var exact = target(c);
+            return Math.Abs(Surrogate(c) - exact) <=
+                Math.Min(1e-6, 1e-5 * Math.Abs(exact));
+        }
+        return Matches(1.0 / 6.0) && Matches(0.5) && Matches(5.0 / 6.0)
             ? Surrogate
             : target;
     }
@@ -2696,6 +2702,42 @@ public partial class PhysiologicalModel
             refinedTime = double.NaN;
             emitEvent = false;
             failure = "";
+
+            // The whole-span oxygen polynomial can localize a grazing
+            // crossing a few 1e-5 s ahead of the re-solved prefix root,
+            // leaving the true bracket just outside the scan cell. Walk a
+            // deficient end outward with prefix residuals until its sign
+            // matches the crossing direction.
+            bool ExpandBracketEnd(ref double t, ref double f, bool moveEarlier,
+                double cellWidth)
+            {
+                var bound = moveEarlier ? ctx.cursor : end;
+                var limit = Math.Max(cellWidth, 64.0 * BoundEventSeedPadSeconds);
+                var travel = 0.0;
+                var step = Math.Max(BoundEventSeedPadSeconds, 0.002 * cellWidth);
+                while (travel < limit)
+                {
+                    var satisfied = moveEarlier
+                        ? item.Direction * f <= 0.0
+                        : item.Direction * f >= 0.0;
+                    if (satisfied) return true;
+                    var next = moveEarlier
+                        ? Math.Max(t - step, bound)
+                        : Math.Min(t + step, bound);
+                    if (next == t ||
+                        !TryEventPrefixEndpoint(next, item, out _,
+                            out var nextResidual, out _))
+                        return false;
+                    t = next;
+                    f = nextResidual;
+                    travel += step;
+                    step *= 4.0;
+                }
+                return moveEarlier
+                    ? item.Direction * f <= 0.0
+                    : item.Direction * f >= 0.0;
+            }
+
             var sampleLo = ctx.cursor;
             var sampleValue = WholeEventResidual(sampleLo, item);
             var bracketLo = double.NaN;
@@ -2768,7 +2810,19 @@ public partial class PhysiologicalModel
                         $"{lowerFailure}{upperFailure}";
                     return false;
                 }
-                if (!DirectedBracket(resolvedLo, resolvedHi, item.Direction))
+                lo = bracketLo;
+                hi = bracketHi;
+                fLo = resolvedLo;
+                fHi = resolvedHi;
+                var cellWidth = hi - lo;
+                var loOk = item.Direction * fLo <= 0.0 ||
+                    ExpandBracketEnd(ref lo, ref fLo, moveEarlier: true,
+                        cellWidth);
+                var hiOk = item.Direction * fHi >= 0.0 ||
+                    ExpandBracketEnd(ref hi, ref fHi, moveEarlier: false,
+                        cellWidth);
+                if (!loOk || !hiOk ||
+                    !DirectedBracket(fLo, fHi, item.Direction))
                 {
                     failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
                         $"level {item.Level:R} direction {item.Direction} re-solved " +
@@ -2776,12 +2830,9 @@ public partial class PhysiologicalModel
                         $"bracket original interval [{bracketLo:R},{bracketHi:R}]";
                     return false;
                 }
-
-                lo = bracketLo;
-                hi = bracketHi;
-                fLo = resolvedLo;
-                fHi = resolvedHi;
             }
+            var searchLo = lo;
+            var searchHi = hi;
 
             while (hi - lo > PressureBoundRootToleranceSeconds)
             {
@@ -2818,7 +2869,7 @@ public partial class PhysiologicalModel
 
             refinedTime = hi;
             if (!IsFiniteNumber(refinedTime) ||
-                refinedTime < bracketLo || refinedTime > bracketHi)
+                refinedTime < searchLo || refinedTime > searchHi)
             {
                 failure = $"root event {item.Kind} coordinate {item.Coordinate} " +
                     $"level {item.Level:R} direction {item.Direction} failed at " +
